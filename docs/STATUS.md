@@ -556,3 +556,9 @@ descriptor-backed instance parameters and sample-pad envelopes/playback,
 inspects and edits local modulation routes, and drives transactional preset
 validation/application. Preset enumeration/save and detailed graph creation
 remain unavailable until semantic application actions exist.
+
+Task 076 adds an independent production Slint Mixer component. It presents
+track, group, auxiliary-return and master strips with stable selection,
+eight-channel banking, gain/pan, mute/solo, sends, routing and bounded
+peak/clip telemetry. External-FX status and wet control respect published
+backend availability; physical audio-device behavior remains hardware QA.

@@ -320,7 +320,7 @@ graphical event loops never compete. Page and focus state are presentation
 state, not musical authority.
 
 The Slint snapshot is divided into shell, contextual, Performance, Sequencer,
-Sample and Sound models. Page-local revisions are independent of application
+Sample, Sound and Mixer models. Page-local revisions are independent of application
 revisions, while every musical edit still passes through `ApplicationService`.
 The step grid and Arrangement reader never retain or mutate timeline objects.
 The Sample model copies metadata, stable IDs and bounded waveform overview

@@ -101,7 +101,8 @@ bool SlintFrontendAdapter::refresh() {
     for (const auto &[id, title] : pages)
         next.shell.pages.push_back({std::string(id), std::string(title),
                                     id == "performance" || id == "sequencer" ||
-                                        id == "sample" || id == "sound"});
+                                    id == "sample" || id == "sound" ||
+                                        id == "mixer"});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -148,6 +149,7 @@ bool SlintFrontendAdapter::refresh() {
     const auto context_name = next.shell.page_id == "sample"
         ? std::string_view("samples")
         : next.shell.page_id == "sound" ? std::string_view("parameters")
+        : next.shell.page_id == "mixer" ? std::string_view("mixer")
         : next.shell.page_id == "performance" ? std::string_view("performance")
                                                 : std::string_view("sequencer");
     const auto context =
@@ -443,6 +445,92 @@ bool SlintFrontendAdapter::refresh() {
         next.sound.selected_parameter = 0;
     if (next.sound.selected_modulation >= next.sound.modulation.size())
         next.sound.selected_modulation = 0;
+
+    const auto route_name = [](MixerBusId group, std::int8_t output) {
+        if (group) return "Group " + std::to_string(group);
+        if (output >= 0)
+            return "Output " + std::to_string(output + 1) + "/" +
+                   std::to_string(output + 2);
+        return std::string("Master");
+    };
+    next.mixer.bank = state_.mixer.bank;
+    next.mixer.selected_channel = state_.mixer.selected_channel;
+    const auto &configuration = snapshot.mixer.configuration;
+    for (std::size_t i = 0; i < configuration.track_count; ++i) {
+        const auto &channel = configuration.tracks[i];
+        const auto summary = std::find_if(
+            snapshot.tracks.begin(), snapshot.tracks.end(),
+            [&](const auto &track) { return track.id == channel.track; });
+        next.mixer.channels.push_back(
+            {channel.track,
+             summary != snapshot.tracks.end() && !summary->name.empty()
+                 ? summary->name : "Track " + std::to_string(channel.track),
+             "Track", route_name(channel.destination_group, channel.output_pair),
+             channel.gain, channel.pan, snapshot.mixer.tracks[i].left,
+             snapshot.mixer.tracks[i].right, channel.aux_send, channel.mute,
+             channel.solo, snapshot.mixer.tracks[i].clip,
+             false, true});
+    }
+    for (std::size_t i = 0; i < configuration.group_count; ++i) {
+        const auto &group = configuration.groups[i];
+        const auto name = std::string(group.name.data());
+        next.mixer.channels.push_back(
+            {group.id, name.empty() ? "Group " + std::to_string(group.id) : name,
+             "Group", route_name(group.destination_group, group.output_pair),
+             group.gain, group.pan, snapshot.mixer.groups[i].left,
+             snapshot.mixer.groups[i].right, group.aux_send, group.mute,
+             group.solo, snapshot.mixer.groups[i].clip,
+             false, true});
+    }
+    for (std::size_t i = 0; i < mixer_aux_count; ++i) {
+        const auto &aux = configuration.aux[i];
+        next.mixer.channels.push_back(
+            {i, "Aux " + std::to_string(i + 1), "Aux Return",
+             route_name(0, aux.output_pair), aux.return_gain, 0.0F,
+             snapshot.mixer.aux[i].left, snapshot.mixer.aux[i].right, {},
+             aux.mute, false, snapshot.mixer.aux[i].clip, false, true});
+    }
+    next.mixer.channels.push_back(
+        {0, "Master", "Master",
+         "Output " + std::to_string(configuration.master.output_left + 1) +
+             "/" + std::to_string(configuration.master.output_right + 1),
+         configuration.master.gain, 0.0F, snapshot.mixer.master.left,
+         snapshot.mixer.master.right, {}, configuration.master.mute, false,
+         snapshot.mixer.master.clip, false, true});
+    if (next.mixer.channels.empty())
+        next.mixer.error = "No mixer channels are available";
+    if (next.mixer.selected_channel >= next.mixer.channels.size())
+        next.mixer.selected_channel = 0;
+    if (!next.mixer.channels.empty()) {
+        next.mixer.channels[next.mixer.selected_channel].selected = true;
+        next.mixer.selected_id = next.mixer.channels[next.mixer.selected_channel].id;
+    }
+    constexpr std::size_t mixer_bank_size = 8;
+    const auto maximum_bank = next.mixer.channels.empty()
+        ? std::size_t{} : (next.mixer.channels.size() - 1) / mixer_bank_size;
+    next.mixer.bank = std::min(next.mixer.bank, maximum_bank);
+    next.mixer.bank_label = "Channels " +
+        std::to_string(next.mixer.bank * mixer_bank_size + 1) + "-" +
+        std::to_string(std::min(next.mixer.channels.size(),
+                                (next.mixer.bank + 1) * mixer_bank_size));
+    for (std::size_t i = 0; i < mixer_external_fx_count; ++i) {
+        const auto &loop = configuration.external_fx[i];
+        const auto name = std::string(loop.name.data());
+        next.mixer.external_fx.push_back(
+            {i, name.empty() ? "External FX " + std::to_string(i + 1) : name,
+             loop.enabled ? loop.bypass ? "Bypassed" : "Active" : "Disabled",
+             "Send " + std::to_string(loop.send_left + 1) + "/" +
+                 std::to_string(loop.send_right + 1) + " Return " +
+                 std::to_string(loop.return_left + 1) + "/" +
+                 std::to_string(loop.return_right + 1),
+             loop.send_gain, loop.return_gain, loop.wet,
+             snapshot.mixer.external_returns[i].left,
+             snapshot.mixer.external_returns[i].right, loop.enabled,
+             loop.bypass, loop.return_mute,
+             snapshot.mixer.external_send_available[i],
+             snapshot.mixer.external_return_available[i]});
+    }
+    next.mixer.error = last_error_;
     next.shell.notification = last_error_;
     state_ = std::move(next);
     published_local_revision_ = local_revision_;
@@ -546,7 +634,7 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
-    state_.shell.notification = index < 4
+    state_.shell.notification = index < 5
         ? std::string{}
         : state_.shell.page_title + " is not implemented yet";
     last_error_ = state_.shell.notification;
@@ -1036,6 +1124,217 @@ bool SlintFrontendAdapter::preset_action(std::string operation,
                      {"mode", std::string("replace")},
                      {"track_id", static_cast<std::int64_t>(state_.sound.track_id)}},
                     {}, 0});
+}
+
+bool SlintFrontendAdapter::select_mixer_channel(std::size_t index) {
+    if (index >= state_.mixer.channels.size()) {
+        last_error_ = "Mixer channel is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    state_.mixer.selected_channel = index;
+    ++local_revision_;
+    const auto &channel = state_.mixer.channels[index];
+    if (channel.type == "Track") {
+        const auto snapshot = application_.snapshot();
+        const auto found = std::find_if(
+            snapshot.mixer.configuration.tracks.begin(),
+            snapshot.mixer.configuration.tracks.begin() +
+                snapshot.mixer.configuration.track_count,
+            [&](const auto &track) { return track.track == channel.id; });
+        if (found == snapshot.mixer.configuration.tracks.begin() +
+                         snapshot.mixer.configuration.track_count)
+            return false;
+        return execute({"mixer.channel-select.v1",
+                        {{"index", static_cast<std::int64_t>(found -
+                            snapshot.mixer.configuration.tracks.begin())}}, {}, 0});
+    }
+    if (channel.type == "Group")
+        return execute({"mixer.group-select.v1",
+                        {{"id", static_cast<std::int64_t>(channel.id)}}, {}, 0});
+    (void)refresh();
+    return true;
+}
+
+bool SlintFrontendAdapter::bank_mixer(int direction) {
+    constexpr std::size_t bank_size = 8;
+    const auto count = state_.mixer.channels.size();
+    const auto maximum = count ? (count - 1) / bank_size : 0;
+    if (direction < 0 && state_.mixer.bank) --state_.mixer.bank;
+    else if (direction > 0 && state_.mixer.bank < maximum) ++state_.mixer.bank;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::adjust_mixer(std::string operation, double steps) {
+    if (state_.mixer.selected_channel >= state_.mixer.channels.size() ||
+        !std::isfinite(steps)) {
+        last_error_ = "Selected mixer channel is unavailable";
+        return false;
+    }
+    const auto &channel = state_.mixer.channels[state_.mixer.selected_channel];
+    const auto delta = operation == "pan" ? 0.05 * steps : 0.05 * steps;
+    const auto gain = std::clamp<double>(channel.gain + delta, 0.0, 2.0);
+    const auto pan = std::clamp<double>(channel.pan + delta, -1.0, 1.0);
+    const auto aux_index = operation == "aux-2" ? 1U : 0U;
+    const auto aux = std::clamp<double>(channel.aux_sends[aux_index] + delta,
+                                        0.0, 1.0);
+    if (channel.type == "Track") {
+        if (operation == "gain")
+            return execute({"mixer.gain-set.v1", {{"value", gain}}, {}, 0});
+        if (operation == "pan")
+            return execute({"mixer.pan-set.v1", {{"value", pan}}, {}, 0});
+        if (operation == "aux-1" || operation == "aux-2")
+            return execute({"mixer.aux-send-set.v1",
+                            {{"aux", static_cast<std::int64_t>(aux_index)},
+                             {"value", aux}}, {}, 0});
+    } else if (channel.type == "Group") {
+        if (operation == "gain" || operation == "pan")
+            return execute({"mixer.group-levels.v1",
+                            {{"id", static_cast<std::int64_t>(channel.id)},
+                             {"gain", gain}, {"pan", pan}}, {}, 0});
+        if (operation == "aux-1" || operation == "aux-2")
+            return execute({"mixer.group-aux-send.v1",
+                            {{"id", static_cast<std::int64_t>(channel.id)},
+                             {"aux", static_cast<std::int64_t>(aux_index)},
+                             {"value", aux}}, {}, 0});
+    } else if (channel.type == "Aux Return" && operation == "gain") {
+        const auto snapshot = application_.snapshot();
+        const auto &bus = snapshot.mixer.configuration.aux[channel.id];
+        return execute({"mixer.aux-set.v1",
+                        {{"aux", static_cast<std::int64_t>(channel.id)},
+                         {"gain", static_cast<double>(bus.gain)},
+                         {"return_gain", gain},
+                         {"effect_enabled", bus.effect_enabled}}, {}, 0});
+    } else if (channel.type == "Master" && operation == "gain")
+        return execute({"mixer.master-gain-set.v1", {{"value", gain}}, {}, 0});
+    last_error_ = operation + " is unavailable for " + channel.type;
+    state_.shell.notification = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::toggle_mixer(std::string operation) {
+    if (state_.mixer.selected_channel >= state_.mixer.channels.size()) return false;
+    const auto &channel = state_.mixer.channels[state_.mixer.selected_channel];
+    if (channel.type == "Track")
+        return invoke_action(operation == "mute" ? "mixer.mute-toggle.v1"
+                                                  : "mixer.solo-toggle.v1");
+    if (channel.type == "Group")
+        return execute({operation == "mute" ? "mixer.group-mute-toggle.v1"
+                                             : "mixer.group-solo-toggle.v1",
+                        {{"id", static_cast<std::int64_t>(channel.id)}}, {}, 0});
+    if (channel.type == "Master" && operation == "mute")
+        return invoke_action("mixer.master-mute-toggle.v1");
+    last_error_ = operation + " is unavailable for " + channel.type;
+    state_.shell.notification = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::cycle_mixer_route() {
+    if (state_.mixer.selected_channel >= state_.mixer.channels.size()) return false;
+    const auto &channel = state_.mixer.channels[state_.mixer.selected_channel];
+    if (channel.route.rfind("Group ", 0) == 0) {
+        last_error_ = "Return the track to Master before selecting a direct output";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    // Skip the default master pair (1/2) when leaving Master; the mixer
+    // validator prevents an implicit duplicate path onto the master outputs.
+    const auto next = channel.route == "Master" ? 2 :
+        channel.route == "Output 3/4" ? 4 : -1;
+    if (channel.type == "Track")
+        return execute({"mixer.output-pair-set.v1",
+                        {{"pair", static_cast<std::int64_t>(next)}}, {}, 0});
+    if (channel.type == "Group")
+        return execute({"mixer.group-output.v1",
+                        {{"id", static_cast<std::int64_t>(channel.id)},
+                         {"group_id", std::int64_t{0}},
+                         {"output_pair", static_cast<std::int64_t>(next)}}, {}, 0});
+    last_error_ = "Output routing is unavailable for " + channel.type;
+    state_.shell.notification = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::cycle_mixer_group() {
+    if (state_.mixer.selected_channel >= state_.mixer.channels.size()) return false;
+    const auto &channel = state_.mixer.channels[state_.mixer.selected_channel];
+    if (channel.type != "Track") {
+        last_error_ = "Group assignment is available only for tracks";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto snapshot = application_.snapshot();
+    const auto track = std::find_if(
+        snapshot.mixer.configuration.tracks.begin(),
+        snapshot.mixer.configuration.tracks.begin() +
+            snapshot.mixer.configuration.track_count,
+        [&](const auto &value) { return value.track == channel.id; });
+    if (track == snapshot.mixer.configuration.tracks.begin() +
+                     snapshot.mixer.configuration.track_count)
+        return false;
+    MixerBusId destination{};
+    if (!snapshot.mixer.configuration.group_count) {
+        last_error_ = "No group buses are available";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    for (std::size_t i = 0; i < snapshot.mixer.configuration.group_count; ++i) {
+        if (snapshot.mixer.configuration.groups[i].id == track->destination_group) {
+            if (i + 1 < snapshot.mixer.configuration.group_count)
+                destination = snapshot.mixer.configuration.groups[i + 1].id;
+            break;
+        }
+        if (!track->destination_group && i == 0)
+            destination = snapshot.mixer.configuration.groups[0].id;
+    }
+    return execute({"mixer.track-destination.v1",
+                    {{"track_id", static_cast<std::int64_t>(channel.id)},
+                     {"group_id", static_cast<std::int64_t>(destination)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_external_fx(std::size_t index) {
+    if (index >= state_.mixer.external_fx.size()) return false;
+    return execute({"mixer.fx-loop-select.v1",
+                    {{"index", static_cast<std::int64_t>(index)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::adjust_external_fx(std::string operation,
+                                               double steps) {
+    const auto snapshot = application_.snapshot();
+    const auto index = snapshot.selected_external_fx_loop;
+    if (index >= mixer_external_fx_count) return false;
+    const auto &loop = snapshot.mixer.configuration.external_fx[index];
+    auto send = static_cast<double>(loop.send_gain);
+    auto receive = static_cast<double>(loop.return_gain);
+    auto wet = static_cast<double>(loop.wet);
+    if (operation == "send") send = std::clamp(send + steps * .05, 0.0, 2.0);
+    else if (operation == "return") receive = std::clamp(receive + steps * .05, 0.0, 2.0);
+    else if (operation == "wet") wet = std::clamp(wet + steps * .05, 0.0, 1.0);
+    else return false;
+    return execute({"mixer.fx-loop-levels.v1",
+                    {{"index", static_cast<std::int64_t>(index)},
+                     {"send_gain", send}, {"return_gain", receive},
+                     {"wet", wet}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::toggle_external_fx(std::string operation) {
+    const auto snapshot = application_.snapshot();
+    const auto index = snapshot.selected_external_fx_loop;
+    if (index >= mixer_external_fx_count) return false;
+    const auto &loop = snapshot.mixer.configuration.external_fx[index];
+    const auto source = loop.source == ExternalFxSource::track ? "track" :
+        loop.source == ExternalFxSource::auxiliary ? "aux" :
+        loop.source == ExternalFxSource::group ? "group" : "master";
+    return execute({"mixer.fx-loop-set.v1",
+                    {{"index", static_cast<std::int64_t>(index)},
+                     {"source", std::string(source)},
+                     {"source_id", static_cast<std::int64_t>(loop.source_id)},
+                     {"send_left", static_cast<std::int64_t>(loop.send_left)},
+                     {"send_right", static_cast<std::int64_t>(loop.send_right)},
+                     {"return_left", static_cast<std::int64_t>(loop.return_left)},
+                     {"return_right", static_cast<std::int64_t>(loop.return_right)},
+                     {"enabled", operation == "enabled" ? !loop.enabled : loop.enabled},
+                     {"bypass", operation == "bypass" ? !loop.bypass : loop.bypass}}, {}, 0});
 }
 
 void SlintFrontendAdapter::dismiss_notification() noexcept {

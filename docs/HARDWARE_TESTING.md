@@ -117,6 +117,12 @@ and path-entry keyboard use at both resolutions. Headless model tests
 do not establish physical touch alignment, latency, readability or visual
 quality.
 
+On the Mixer page, verify that direct-output and external-FX choices match the
+enumerated interface channel count, unavailable pairs are rejected, and
+peak/clip indicators follow a known loopback signal. Automated tests use
+simulated mixer state and do not establish physical meter calibration or
+external-processor latency.
+
 ## MIDI and controller inspection
 
 Use `neurogenic --list-devices` for ALSA sequencer ports. Simulated tests cover

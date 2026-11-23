@@ -123,6 +123,13 @@ The Routing GUI shows loops, return meters, channel availability, latency and
 scenes. Shared `mixer.fx-loop-*.v1` and `mixer.scene-*.v1` actions serve GUI,
 controllers and future clients.
 
+The production Slint Mixer uses the same actions and copied `MixerState`. Its
+channel strips cover tracks, groups, both aux returns and master, with stable
+identity, eight-channel banking, gain/pan, mute/solo, aux sends and bounded
+peak/clip telemetry. External-loop status and physical-channel availability are
+presented without assuming a particular device channel count. Unsupported
+routes remain unavailable or are rejected by the mixer validator.
+
 The fixed capacities are real-time memory budgets rather than workflow
 assumptions: 32 simultaneously mixed timeline tracks, eight groups, six physical inputs and
 outputs, two aux buses and 1024 frames per backend chunk. There is no arbitrary

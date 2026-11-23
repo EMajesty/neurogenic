@@ -189,6 +189,32 @@ void publish(const SlintUiState &state,
     window->set_sound_modulation(
         std::make_shared<slint::VectorModel<SoundModulationItem>>(
             std::move(sound_modulation)));
+    window->set_mixer_bank(static_cast<int>(state.mixer.bank));
+    window->set_mixer_bank_label(text(state.mixer.bank_label));
+    window->set_mixer_selected_channel(
+        static_cast<int>(state.mixer.selected_channel));
+    window->set_mixer_error(text(state.mixer.error));
+    std::vector<MixerChannelItem> mixer_channels;
+    for (const auto &channel : state.mixer.channels)
+        mixer_channels.push_back(
+            {static_cast<int>(channel.id), text(channel.name), text(channel.type),
+             text(channel.route), channel.gain, channel.pan,
+             channel.meter_left, channel.meter_right, channel.aux_sends[0],
+             channel.aux_sends[1], channel.mute, channel.solo, channel.clip,
+             channel.selected, channel.available});
+    window->set_mixer_channels(
+        std::make_shared<slint::VectorModel<MixerChannelItem>>(
+            std::move(mixer_channels)));
+    std::vector<MixerFxItem> mixer_fx;
+    for (const auto &fx : state.mixer.external_fx)
+        mixer_fx.push_back(
+            {static_cast<int>(fx.index), text(fx.name), text(fx.status),
+             text(fx.routing), fx.send_gain, fx.return_gain, fx.wet,
+             fx.meter_left, fx.meter_right, fx.enabled, fx.bypass,
+             fx.return_mute, fx.send_available, fx.return_available});
+    window->set_mixer_external_fx(
+        std::make_shared<slint::VectorModel<MixerFxItem>>(
+            std::move(mixer_fx)));
 }
 } // namespace
 
@@ -411,6 +437,44 @@ int run_slint_frontend(ApplicationService &application,
                                             preset_id.data());
                 publish(adapter.state(), window);
             });
+        window->on_mixer_channel_selected([&](int index) {
+            (void)adapter.select_mixer_channel(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_bank_changed([&](int direction) {
+            (void)adapter.bank_mixer(direction);
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_adjust(
+            [&](slint::SharedString operation, int steps) {
+                (void)adapter.adjust_mixer(operation.data(), steps);
+                publish(adapter.state(), window);
+            });
+        window->on_mixer_toggle([&](slint::SharedString operation) {
+            (void)adapter.toggle_mixer(operation.data());
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_route_cycle([&] {
+            (void)adapter.cycle_mixer_route();
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_group_cycle([&] {
+            (void)adapter.cycle_mixer_group();
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_fx_selected([&](int index) {
+            (void)adapter.select_external_fx(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_mixer_fx_adjust(
+            [&](slint::SharedString operation, int steps) {
+                (void)adapter.adjust_external_fx(operation.data(), steps);
+                publish(adapter.state(), window);
+            });
+        window->on_mixer_fx_toggle([&](slint::SharedString operation) {
+            (void)adapter.toggle_external_fx(operation.data());
+            publish(adapter.state(), window);
+        });
         window->on_notification_dismissed([&] {
             adapter.dismiss_notification();
             publish(adapter.state(), window);

@@ -259,6 +259,84 @@ int main() {
                 "unavailable preset save remains explicit");
         require(application.snapshot().project_dirty,
                 "instrument and sample edits preserve project dirty state");
+        require(adapter.select_page(4) &&
+                    adapter.state().shell.page_id == "mixer" &&
+                    adapter.state().shell.notification.empty() &&
+                    adapter.state().mixer.channels.size() >= 5,
+                "Mixer page discovers tracks, aux returns, and master");
+        require(adapter.select_mixer_channel(0),
+                "stable mixer track selection uses semantic action");
+        const auto original_gain = adapter.state().mixer.channels[0].gain;
+        require(adapter.adjust_mixer("gain", -1) &&
+                    adapter.state().mixer.channels[0].gain < original_gain &&
+                    adapter.adjust_mixer("pan", 1) &&
+                    adapter.adjust_mixer("aux-1", 1),
+                "track gain pan and aux send use mixer semantic actions");
+        require(adapter.toggle_mixer("mute"),
+                "track mute uses mixer semantic action");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.toggle_mixer("solo"),
+                "track solo uses mixer semantic action");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().mixer.channels[0].mute &&
+                    adapter.state().mixer.channels[0].solo,
+                "acknowledged track mute and solo update presentation state");
+        require(application.execute(
+                    {"mixer.group-create.v1", {{"name", std::string("UI Bus")}}})
+                    .accepted && adapter.refresh(),
+                "group fixture uses semantic action");
+        const auto group_index = std::find_if(
+            adapter.state().mixer.channels.begin(),
+            adapter.state().mixer.channels.end(), [](const auto &channel) {
+                return channel.type == "Group";
+            });
+        require(group_index != adapter.state().mixer.channels.end(),
+                "created group appears in Mixer presentation");
+        const auto group_position = static_cast<std::size_t>(
+            group_index - adapter.state().mixer.channels.begin());
+        require(adapter.select_mixer_channel(0) &&
+                    adapter.cycle_mixer_group(),
+                "track group assignment uses routing semantic action");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().mixer.channels[0].route == "Group 1",
+                "acknowledged group route is presented");
+        require(!adapter.cycle_mixer_route() &&
+                    adapter.last_error().find("Master") != std::string::npos,
+                "direct routing cannot silently coexist with a group route");
+        require(adapter.cycle_mixer_group(),
+                "group assignment cycles back to master");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.cycle_mixer_route(),
+                "direct output routing uses validated mixer action");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().mixer.channels[0].route == "Output 3/4",
+                "accepted physical output route is presented");
+        require(!application.execute(
+                    {"mixer.output-pair-set.v1", {{"pair", std::int64_t{1}}}})
+                     .accepted,
+                "invalid output pair is rejected");
+        require(
+                    adapter.select_mixer_channel(group_position) &&
+                    adapter.adjust_mixer("gain", -1) &&
+                    adapter.toggle_mixer("mute"),
+                "group selection levels and mute use group actions");
+        require(adapter.state().mixer.external_fx.size() == 2 &&
+                    !adapter.state().mixer.external_fx[0].send_available &&
+                    !adapter.state().mixer.external_fx[0].return_available,
+                "missing physical external-FX channels remain unavailable");
+        require(adapter.select_external_fx(0) &&
+                    adapter.adjust_external_fx("wet", 1),
+                "external FX wet control uses existing semantic action");
+        require(adapter.bank_mixer(1) && adapter.bank_mixer(-1),
+                "mixer channel banking is revisioned page-local state");
+        require(adapter.state().mixer.channels.back().type == "Master" &&
+                    adapter.state().mixer.channels.back().meter_left ==
+                        application.snapshot().mixer.master.left,
+                "master meter presentation copies bounded mixer telemetry");
         const auto revision = adapter.state().shell.revision;
         require(!adapter.refresh() || adapter.state().shell.revision >= revision,
                 "revisioned refresh");

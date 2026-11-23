@@ -1,0 +1,54 @@
+import { PageButton, ParameterDisplay, EmptyState } from "components.slint";
+import { Theme } from "theme.slint";
+
+export struct MixerChannelItem { id: int, name: string, kind: string, route: string, gain: float, pan: float, left: float, right: float, aux-one: float, aux-two: float, mute: bool, solo: bool, clip: bool, selected: bool, available: bool }
+export struct MixerFxItem { index: int, name: string, status: string, routing: string, send-gain: float, return-gain: float, wet: float, left: float, right: float, enabled: bool, bypass: bool, return-mute: bool, send-available: bool, return-available: bool }
+
+component Meter inherits Rectangle {
+    in property <float> level; in property <bool> clipped;
+    width: 10px; background: Theme.background; border-width: 1px; border-color: root.clipped ? #ff4040 : Theme.muted;
+    Rectangle { x: 1px; width: parent.width - 2px; y: parent.height * (1 - min(1, max(0, root.level))); height: parent.height * min(1, max(0, root.level)); background: root.clipped ? #ff4040 : Theme.accent; }
+}
+
+export component MixerPage inherits Rectangle {
+    background: Theme.background;
+    in property <[MixerChannelItem]> channels; in property <[MixerFxItem]> external-fx;
+    in property <int> bank: 0; in property <string> bank-label; in property <int> selected-channel: 0;
+    in property <string> error;
+    callback channel-selected(int); callback bank-changed(int); callback adjust(string, int);
+    callback toggle(string); callback route-cycle(); callback group-cycle(); callback fx-selected(int); callback fx-adjust(string, int); callback fx-toggle(string);
+    VerticalLayout { padding: 6px; spacing: 5px;
+        HorizontalLayout { height: 34px; spacing: 4px; PageButton { text: "< Bank"; clicked => { root.bank-changed(-1); } } Text { horizontal-stretch: 1; text: root.bank-label; color: Theme.foreground; horizontal-alignment: center; vertical-alignment: center; } PageButton { text: "Bank >"; clicked => { root.bank-changed(1); } } }
+        HorizontalLayout { vertical-stretch: 1; spacing: 5px;
+            for channel[i] in root.channels: Rectangle {
+                visible: i >= root.bank * 8 && i < (root.bank + 1) * 8;
+                horizontal-stretch: 1; background: channel.selected ? Theme.selected : Theme.panel; border-radius: Theme.radius;
+                VerticalLayout { padding: 4px; spacing: 3px;
+                    Text { text: channel.name; color: channel.selected ? Theme.background : Theme.foreground; overflow: elide; horizontal-alignment: center; }
+                    Text { text: channel.kind; color: channel.selected ? Theme.background : Theme.muted; font-size: 12px; horizontal-alignment: center; }
+                    HorizontalLayout { vertical-stretch: 1; spacing: 3px; Rectangle { horizontal-stretch: 1; } Meter { level: channel.left; clipped: channel.clip; } Meter { level: channel.right; clipped: channel.clip; } Rectangle { horizontal-stretch: 1; } }
+                    Text { text: "Gain " + round(channel.gain * 100) + "%"; color: channel.selected ? Theme.background : Theme.foreground; horizontal-alignment: center; }
+                    Text { text: "Pan " + round(channel.pan * 100); color: channel.selected ? Theme.background : Theme.muted; horizontal-alignment: center; }
+                    Text { text: channel.route; color: channel.selected ? Theme.background : Theme.muted; overflow: elide; horizontal-alignment: center; }
+                    HorizontalLayout { height: 32px; spacing: 2px; PageButton { text: channel.mute ? "MUTE" : "Mute"; selected: channel.mute; clicked => { root.channel-selected(i); root.toggle("mute"); } } PageButton { text: channel.solo ? "SOLO" : "Solo"; selected: channel.solo; implemented: channel.kind == "Track" || channel.kind == "Group"; clicked => { root.channel-selected(i); root.toggle("solo"); } } }
+                }
+                TouchArea { clicked => { root.channel-selected(i); } }
+            }
+        }
+        if root.channels.length > 0: HorizontalLayout { height: 82px; spacing: 4px;
+            ParameterDisplay { name: "Gain"; value: round(root.channels[root.selected-channel].gain * 100) + "%"; }
+            PageButton { text: "Gain -"; clicked => { root.adjust("gain", -1); } } PageButton { text: "Gain +"; clicked => { root.adjust("gain", 1); } }
+            ParameterDisplay { name: "Pan"; value: round(root.channels[root.selected-channel].pan * 100); }
+            PageButton { text: "Pan -"; implemented: root.channels[root.selected-channel].kind == "Track" || root.channels[root.selected-channel].kind == "Group"; clicked => { root.adjust("pan", -1); } } PageButton { text: "Pan +"; implemented: root.channels[root.selected-channel].kind == "Track" || root.channels[root.selected-channel].kind == "Group"; clicked => { root.adjust("pan", 1); } }
+            ParameterDisplay { name: "Aux 1 / 2"; value: round(root.channels[root.selected-channel].aux-one * 100) + " / " + round(root.channels[root.selected-channel].aux-two * 100); }
+            PageButton { text: "Aux 1 +"; implemented: root.channels[root.selected-channel].kind == "Track" || root.channels[root.selected-channel].kind == "Group"; clicked => { root.adjust("aux-1", 1); } }
+            PageButton { text: "Group"; implemented: root.channels[root.selected-channel].kind == "Track"; clicked => { root.group-cycle(); } }
+            PageButton { text: "Route"; implemented: root.channels[root.selected-channel].kind == "Track" || root.channels[root.selected-channel].kind == "Group"; clicked => { root.route-cycle(); } }
+        }
+        HorizontalLayout { height: 56px; spacing: 4px;
+            for fx[i] in root.external-fx: Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 4px; spacing: 4px; ParameterDisplay { name: fx.name + " — " + fx.status; value: fx.routing + "  Wet " + round(fx.wet * 100) + "%"; horizontal-stretch: 2; } PageButton { text: "Wet -"; implemented: fx.send-available && fx.return-available; clicked => { root.fx-selected(i); root.fx-adjust("wet", -1); } } PageButton { text: "Wet +"; implemented: fx.send-available && fx.return-available; clicked => { root.fx-selected(i); root.fx-adjust("wet", 1); } } PageButton { text: "Bypass"; implemented: fx.enabled; selected: fx.bypass; clicked => { root.fx-selected(i); root.fx-toggle("bypass"); } } } }
+        }
+        if root.channels.length == 0: EmptyState { title: "Mixer unavailable"; message: "No published mixer channels are available."; }
+        if root.error != "": Text { height: 24px; text: root.error; color: #ff8080; overflow: elide; }
+    }
+}

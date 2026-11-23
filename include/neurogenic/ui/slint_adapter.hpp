@@ -149,6 +149,30 @@ struct SlintSoundPageState {
     SamplePlaybackSettings sample_settings;
 };
 
+struct SlintMixerChannelItem {
+    std::uint64_t id{};
+    std::string name, type, route{"Master"};
+    float gain{1.0F}, pan{}, meter_left{}, meter_right{};
+    std::array<float, mixer_aux_count> aux_sends{};
+    bool mute{}, solo{}, clip{}, selected{}, available{true};
+};
+
+struct SlintMixerFxItem {
+    std::size_t index{};
+    std::string name, status, routing;
+    float send_gain{}, return_gain{}, wet{}, meter_left{}, meter_right{};
+    bool enabled{}, bypass{}, return_mute{}, send_available{}, return_available{};
+};
+
+struct SlintMixerPageState {
+    std::string bank_label{"Channels 1-8"}, error;
+    std::size_t bank{}, selected_channel{};
+    std::uint64_t selected_id{};
+    std::vector<SlintMixerChannelItem> channels;
+    std::vector<SlintMixerFxItem> external_fx;
+    std::array<std::string, 3> output_pairs{"1/2", "3/4", "5/6"};
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
@@ -156,6 +180,7 @@ struct SlintUiState {
     SlintSequencerPageState sequencer;
     SlintSamplePageState sample;
     SlintSoundPageState sound;
+    SlintMixerPageState mixer;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -220,6 +245,16 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool preset_action(std::string operation,
                                      std::string library,
                                      std::string preset_id);
+    [[nodiscard]] bool select_mixer_channel(std::size_t index);
+    [[nodiscard]] bool bank_mixer(int direction);
+    [[nodiscard]] bool adjust_mixer(std::string operation, double steps = 1.0);
+    [[nodiscard]] bool toggle_mixer(std::string operation);
+    [[nodiscard]] bool cycle_mixer_route();
+    [[nodiscard]] bool cycle_mixer_group();
+    [[nodiscard]] bool select_external_fx(std::size_t index);
+    [[nodiscard]] bool adjust_external_fx(std::string operation,
+                                          double steps = 1.0);
+    [[nodiscard]] bool toggle_external_fx(std::string operation);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }

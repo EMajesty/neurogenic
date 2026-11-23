@@ -141,6 +141,21 @@ subview lists track-owned assignments and supports bounded depth, enable and
 remove actions. The Presets subview supports transactional validate, prepare,
 apply and cancel with an explicit library path and preset ID.
 
+## Mixer
+
+The Mixer page is an independent `mixer_page.slint` component. It builds stable
+track, group, auxiliary-return and master strips from copied `MixerState`
+snapshots and never reads DSP objects or audio buffers. Selection, gain, pan,
+mute, solo, aux sends, group levels and output routing use the existing
+`mixer.*.v1` semantic actions. Eight-wide banking keeps the same component
+usable at 1920x1200 and 1024x600. Peak and clip displays consume the mixer's
+bounded non-real-time meter snapshot.
+
+External FX rows show configured send/return pairs, wet level, return meters
+and backend availability. The frontend does not infer extra physical outputs:
+unsupported routes remain unavailable or produce the authoritative mixer
+validation error. Complete external-loop remapping is deferred to FX/Setup.
+
 ## Current limits
 
 This is a functional shell, not a replacement-complete frontend. Macro services
