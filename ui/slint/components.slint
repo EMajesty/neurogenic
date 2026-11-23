@@ -1,11 +1,15 @@
 import { Button } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
-export component PageNavigation inherits Rectangle {
-    in property <string> title: "Performance";
-    background: Theme.panel;
+export component PageButton inherits Rectangle {
+    in property <string> text: "Page";
+    in property <bool> selected: false;
+    in property <bool> implemented: false;
+    callback clicked();
+    background: selected ? Theme.accent : Theme.panel;
     border-radius: Theme.radius;
-    Text { text: root.title; color: Theme.foreground; font-size: 20px; vertical-alignment: center; horizontal-alignment: center; }
+    Text { text: root.text; color: root.selected ? Theme.background : (root.implemented ? Theme.foreground : Theme.muted); horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+    TouchArea { clicked => { root.clicked(); } }
 }
 
 export component ContextualEncoder inherits Rectangle {
@@ -15,11 +19,10 @@ export component ContextualEncoder inherits Rectangle {
     in property <bool> active: false;
     callback turned(int);
     background: active ? Theme.panel : Theme.background;
-    border-width: 1px;
-    border-color: active ? Theme.accent : Theme.muted;
+    border-width: 1px; border-color: active ? Theme.accent : Theme.muted;
     border-radius: Theme.radius;
     VerticalLayout {
-        padding: 6px; spacing: 2px;
+        padding: 5px; spacing: 1px;
         Text { text: root.label; color: root.active ? Theme.foreground : Theme.muted; overflow: elide; horizontal-alignment: center; }
         Text { text: root.value + (root.unit == "" ? "" : " " + root.unit); color: root.active ? Theme.accent : Theme.muted; overflow: elide; horizontal-alignment: center; }
     }
@@ -31,25 +34,78 @@ export component ContextualFunctionButton inherits Button {
     enabled: available;
 }
 
-export component TransportStatus inherits Rectangle {
-    in property <string> status: "Stopped";
+export component GlobalStatus inherits Rectangle {
+    in property <string> project: "Untitled";
+    in property <bool> dirty: false;
+    in property <string> transport: "Stopped";
     in property <string> tempo: "120 BPM";
+    in property <string> signature: "4/4";
+    in property <string> position: "1.1.0";
+    in property <string> page-title: "Performance";
     background: Theme.panel; border-radius: Theme.radius;
     HorizontalLayout {
         padding: 8px; spacing: 14px;
-        Text { text: root.status; color: Theme.accent; font-weight: 700; }
-        Text { text: root.tempo; color: Theme.foreground; }
+        Text { text: root.project + (root.dirty ? " *" : ""); color: Theme.foreground; overflow: elide; horizontal-stretch: 2; }
+        Text { text: root.transport; color: root.transport == "Recording" ? #ff5a5a : Theme.accent; font-weight: 700; }
+        Text { text: root.tempo + "  " + root.signature; color: Theme.foreground; }
+        Text { text: root.position; color: Theme.foreground; }
+        Text { text: root.page-title; color: Theme.accent; horizontal-stretch: 1; horizontal-alignment: right; }
     }
 }
 
-export component TrackClipStatus inherits Rectangle {
+export component TransportControls inherits Rectangle {
+    in property <string> state: "Stopped";
+    callback play(); callback stop(); callback record();
+    background: Theme.panel; border-radius: Theme.radius;
+    HorizontalLayout {
+        padding: 6px; spacing: 6px;
+        Button { text: "Play"; enabled: root.state != "Playing"; clicked => { root.play(); } }
+        Button { text: "Stop"; enabled: root.state != "Stopped"; clicked => { root.stop(); } }
+        Button { text: "Record"; clicked => { root.record(); } }
+    }
+}
+
+export component TrackSelector inherits Rectangle {
     in property <string> track: "Unavailable";
-    in property <string> content: "Unavailable";
+    in property <string> owner: "Arrangement";
+    callback previous(); callback next(); callback return-arrangement();
+    background: Theme.panel; border-radius: Theme.radius;
+    HorizontalLayout {
+        padding: 6px; spacing: 6px;
+        Button { text: "<"; clicked => { root.previous(); } }
+        VerticalLayout {
+            Text { text: root.track; color: Theme.foreground; overflow: elide; horizontal-alignment: center; }
+            Text { text: root.owner; color: root.owner == "Session" ? Theme.accent : Theme.muted; overflow: elide; horizontal-alignment: center; }
+        }
+        Button { text: ">"; clicked => { root.next(); } }
+        Button { text: "Return"; enabled: root.owner != "Arrangement"; clicked => { root.return-arrangement(); } }
+    }
+}
+
+export component PerformanceSlot inherits Rectangle {
+    in property <string> label: "Unavailable";
+    in property <string> state: "Unavailable";
+    in property <bool> selected: false;
+    in property <bool> available: false;
+    callback invoked();
+    background: selected ? Theme.accent : (state == "Playing" ? Theme.selected : (state == "Queued" ? Theme.warning : Theme.background));
+    border-width: 1px; border-color: available ? Theme.accent : Theme.muted; border-radius: Theme.radius;
+    VerticalLayout {
+        padding: 6px; spacing: 2px;
+        Text { text: root.label; color: root.selected ? Theme.background : (root.available ? Theme.foreground : Theme.muted); overflow: elide; horizontal-alignment: center; }
+        Text { text: root.state; color: root.selected ? Theme.background : Theme.muted; overflow: elide; horizontal-alignment: center; font-size: 12px; }
+    }
+    TouchArea { enabled: root.available; clicked => { root.invoked(); } }
+}
+
+export component EmptyState inherits Rectangle {
+    in property <string> title: "Unavailable";
+    in property <string> message: "This page is not implemented yet.";
     background: Theme.panel; border-radius: Theme.radius;
     VerticalLayout {
-        padding: 8px; spacing: 2px;
-        Text { text: root.track; color: Theme.foreground; overflow: elide; }
-        Text { text: root.content; color: root.content == "Unavailable" ? Theme.muted : Theme.accent; overflow: elide; }
+        alignment: center; spacing: 8px;
+        Text { text: root.title; color: Theme.foreground; font-size: 28px; horizontal-alignment: center; }
+        Text { text: root.message; color: Theme.muted; horizontal-alignment: center; wrap: word-wrap; }
     }
 }
 
@@ -62,16 +118,17 @@ export component ParameterDisplay inherits Rectangle {
 
 export component Notification inherits Rectangle {
     in property <string> message: "";
-    visible: message != "";
-    background: Theme.warning; border-radius: Theme.radius;
+    callback dismissed();
+    visible: message != ""; background: Theme.warning; border-radius: Theme.radius;
     Text { text: root.message; color: #151515; overflow: elide; horizontal-alignment: center; vertical-alignment: center; }
+    TouchArea { clicked => { root.dismissed(); } }
 }
 
 export component ModalDialog inherits Rectangle {
     in property <string> title: "";
     in property <string> message: "";
     callback accepted(); callback rejected();
-    background: #dd11151a; border-width: 1px; border-color: Theme.accent; border-radius: Theme.radius;
+    background: #ee11151a; border-width: 1px; border-color: Theme.accent; border-radius: Theme.radius;
     VerticalLayout {
         padding: 16px; spacing: 10px;
         Text { text: root.title; color: Theme.foreground; font-size: 20px; }

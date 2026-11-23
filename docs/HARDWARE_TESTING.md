@@ -100,6 +100,8 @@ calibration pulse. Callback duration is not round-trip latency.
 ./build/dev/neurogenic-diagnostics --display-test
 ./build/dev/neurogenic --gui --ui-scale 1.5
 ./build/dev/neurogenic --fullscreen --ui-scale 1.5
+# Slint-enabled build:
+./build/slint/neurogenic --frontend slint --fullscreen
 ```
 
 The display command emits `neurogenic.display-test.v1` with native SDL metrics
@@ -107,6 +109,11 @@ and 1920x1200, 1024x800, and 1024x600 QA profiles. Verify touch/pointer alignmen
 at all corners, step-grid targets, live scale changes, fullscreen, Performance
 view timing, and the on-screen keyboard. HDMI and USB HID touch remain host
 services; touch is optional and keyboard/data-wheel navigation must work.
+For Slint, validate the 1920x1200 reference mode and 1024x600 minimum: all
+eight page labels, upper context fields, lower function labels and both rows of
+eight performance slots must remain visible and touchable. Headless model tests
+do not establish physical touch alignment, latency, readability or visual
+quality.
 
 ## MIDI and controller inspection
 

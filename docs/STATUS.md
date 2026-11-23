@@ -1,5 +1,12 @@
 # Implementation status
 
+- Task 072: Slint is selectable in the production appliance with
+  `--frontend slint`; the shared shell provides eight registered destinations,
+  authoritative transport/project/context status, track ownership, semantic
+  transport/track/slot/return actions and responsive 2x8 performance slots.
+  Seven pages, record workflow selection, dedicated scene/macro widgets and
+  physical touchscreen validation remain deferred.
+
 - Task 067: optional pinned Slint 1.19 frontend, renderer-independent
   state/action adapter, reusable component foundation and responsive initial
   performance page. SDL3 and headless builds remain available. Full workflow

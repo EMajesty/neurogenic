@@ -4,7 +4,9 @@
 #include "neurogenic/application/parameter_binding.hpp"
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace neurogenic {
 
@@ -15,16 +17,32 @@ struct SlintContextItem {
 };
 
 struct SlintPadItem {
+    std::string label, status{"Unavailable"};
+    std::uint64_t slot_id{};
+    bool active{}, queued{}, selected{}, available{};
+};
+
+struct SlintPageItem {
+    std::string id, title;
+    bool implemented{};
+};
+
+struct SlintSceneItem {
     std::string label;
-    bool active{}, selected{};
+    bool queued{};
 };
 
 struct SlintPerformancePageState {
     std::uint64_t revision{};
-    bool playing{};
+    bool playing{}, recording{}, project_dirty{};
     double tempo_bpm{120.0};
-    std::string transport{"Stopped"}, selected_track{"Unavailable"},
-        active_content{"Unavailable"}, notification;
+    std::string project_name{"Untitled"}, transport{"Stopped"},
+        time_signature{"4/4"}, position{"1.1.1"},
+        selected_track{"Unavailable"}, active_content{"Unavailable"},
+        track_owner{"Arrangement"}, launch_quantization{"Bar"},
+        page_id{"performance"}, page_title{"Performance"}, notification;
+    std::vector<SlintPageItem> pages;
+    std::vector<SlintSceneItem> scenes;
     std::array<SlintContextItem, 8> encoders;
     std::array<SlintContextItem, 8> functions;
     std::array<SlintPadItem, 16> pads;
@@ -45,6 +63,14 @@ class SlintFrontendAdapter {
                                     bool fine = false);
     [[nodiscard]] bool invoke_function(std::size_t index);
     [[nodiscard]] bool press_pad(std::size_t index, bool pressed = true);
+    [[nodiscard]] bool select_page(std::size_t index);
+    [[nodiscard]] bool select_track(int direction);
+    [[nodiscard]] bool launch_scene(std::size_t index);
+    [[nodiscard]] bool return_to_arrangement();
+    [[nodiscard]] bool set_launch_quantization(std::string value);
+    [[nodiscard]] bool cycle_launch_quantization();
+    [[nodiscard]] bool transport_record();
+    void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }
     [[nodiscard]] bool active() const noexcept { return active_; }
@@ -64,6 +90,8 @@ class SlintFrontendAdapter {
 struct SlintOptions {
     int width{1280}, height{800};
     bool fullscreen{};
+    std::function<bool()> request_close;
+    std::function<bool()> external_stop_requested;
 };
 
 [[nodiscard]] bool slint_available() noexcept;

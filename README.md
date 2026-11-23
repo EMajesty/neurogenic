@@ -149,11 +149,14 @@ ctest --preset sanitize
 ./build/dev/neurogenic --fullscreen --slot 0=samples/kick.wav
 cmake --preset slint
 cmake --build --preset slint
-./build/slint/neurogenic-slint --width 1920 --height 1200
+./build/slint/neurogenic --frontend slint --headless
 ```
 
 Slint is the preferred new frontend foundation and remains opt-in while it
-reaches workflow parity. Its initial performance page and reusable component
+reaches workflow parity. `--frontend slint` selects it in the production
+appliance; `--frontend sdl` or the legacy `--gui` selects SDL3, and
+`--frontend headless` selects no graphical loop. Its application shell,
+initial performance page and reusable component
 architecture are documented in [docs/SLINT_UI.md](docs/SLINT_UI.md). The SDL3
 graphical frontend is preserved; omit `--gui` for the existing CLI or headless
 application. See [docs/GUI.md](docs/GUI.md) for SDL3 controls and scaling.

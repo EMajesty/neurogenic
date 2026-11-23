@@ -13,6 +13,7 @@
 #include "neurogenic/timeline/edit.hpp"
 #include "neurogenic/timeline/io.hpp"
 #include "neurogenic/ui/gui.hpp"
+#include "neurogenic/ui/slint_adapter.hpp"
 #include <array>
 #include <atomic>
 #include <charconv>
@@ -65,6 +66,7 @@ void usage() {
            "  --list-devices    enumerate audio and MIDI devices\n"
            "  --headless        explicitly select null audio\n"
            "  --gui             launch the optional graphical frontend\n"
+           "  --frontend NAME   select headless, sdl, or slint frontend\n"
            "  --fullscreen      launch the graphical frontend fullscreen\n"
            "  --ui-scale SCALE  override GUI scale (1.0..2.5)\n"
            "  --reset-ui-scale  restore automatic GUI scaling\n"
@@ -127,6 +129,7 @@ int main(int argc, char **argv) {
         std::vector<std::pair<std::uint32_t, std::filesystem::path>> slot_files;
         std::vector<std::pair<std::uint8_t, std::uint32_t>> note_maps;
         bool list = false, headless = false, interactive = false, gui = false,
+             slint = false,
              fullscreen = false, reset_ui_scale = false, stats = false,
              synth = false;
         bool audio_explicit{}, input_explicit{}, midi_input_explicit{},
@@ -206,6 +209,23 @@ int main(int argc, char **argv) {
                 interactive = true;
             else if (arg == "--gui")
                 gui = true;
+            else if (arg == "--frontend" && i + 1 < argc) {
+                const std::string frontend = argv[++i];
+                if (frontend == "headless") {
+                    headless = true;
+                    gui = slint = false;
+                } else if (frontend == "sdl") {
+                    headless = false;
+                    gui = true;
+                    slint = false;
+                } else if (frontend == "slint") {
+                    headless = false;
+                    gui = true;
+                    slint = true;
+                } else
+                    throw std::invalid_argument(
+                        "--frontend must be headless, sdl, or slint");
+            }
             else if (arg == "--fullscreen") {
                 gui = true;
                 fullscreen = true;
@@ -715,7 +735,18 @@ int main(int argc, char **argv) {
             gui_options.external_stop_requested = [] {
                 return !running.load();
             };
-            exit_code = neurogenic::run_gui(application, gui_options, error);
+            if (slint) {
+                neurogenic::SlintOptions slint_options;
+                slint_options.fullscreen = fullscreen;
+                slint_options.request_close = approve_shutdown;
+                slint_options.external_stop_requested = [] {
+                    return !running.load();
+                };
+                exit_code = neurogenic::run_slint_frontend(
+                    application, slint_options, error);
+            } else
+                exit_code =
+                    neurogenic::run_gui(application, gui_options, error);
             if (exit_code != 0) {
                 lifecycle.issue(neurogenic::StartupStage::gui, error, true);
                 std::cerr << "GUI unavailable: " << error << '\n';

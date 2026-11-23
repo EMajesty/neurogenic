@@ -2,6 +2,27 @@
 #include <algorithm>
 
 namespace neurogenic {
+namespace {
+constexpr std::array<std::pair<std::string_view, std::string_view>, 8> pages{{
+    {"performance", "Performance"}, {"sequencer", "Sequencer"},
+    {"sample", "Sample"},           {"sound", "Sound"},
+    {"mixer", "Mixer"},             {"fx", "FX"},
+    {"browser", "Browser"},         {"setup", "Setup"}}};
+
+std::string quantization_name(LaunchQuantization value) {
+    switch (value) {
+    case LaunchQuantization::immediate: return "Immediate";
+    case LaunchQuantization::quarter: return "Beat";
+    case LaunchQuantization::bar: return "Bar";
+    case LaunchQuantization::two_bars: return "2 Bars";
+    case LaunchQuantization::four_bars: return "4 Bars";
+    case LaunchQuantization::eight_bars: return "8 Bars";
+    case LaunchQuantization::subdivision: return "Subdivision";
+    case LaunchQuantization::pattern_end: return "Pattern End";
+    }
+    return "Unavailable";
+}
+} // namespace
 
 SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application)
     : application_(application), bindings_(application) {
@@ -17,8 +38,39 @@ bool SlintFrontendAdapter::refresh() {
     SlintPerformancePageState next;
     next.revision = snapshot.revision;
     next.playing = snapshot.playing;
+    next.recording = snapshot.recording.state != RecordingState::idle;
+    next.project_dirty = snapshot.project_dirty;
+    next.project_name = snapshot.project_name.empty() ? "Untitled"
+                                                       : snapshot.project_name;
     next.tempo_bpm = snapshot.tempo_bpm;
-    next.transport = snapshot.playing ? "Playing" : "Stopped";
+    next.transport = next.recording ? "Recording"
+                                    : snapshot.playing ? "Playing" : "Stopped";
+    next.time_signature =
+        std::to_string(snapshot.time_signature_numerator) + "/" +
+        std::to_string(snapshot.time_signature_denominator);
+    const auto quarter = snapshot.transport_tick / ticks_per_quarter;
+    const auto beats_per_bar = std::max<std::uint16_t>(
+        1, snapshot.time_signature_numerator);
+    next.position = std::to_string(quarter / beats_per_bar + 1) + "." +
+                    std::to_string(quarter % beats_per_bar + 1) + "." +
+                    std::to_string(snapshot.transport_tick % ticks_per_quarter);
+    next.page_id = state_.page_id.empty() ? "performance" : state_.page_id;
+    next.page_title = state_.page_title.empty() ? "Performance"
+                                                : state_.page_title;
+    for (const auto &[id, title] : pages)
+        next.pages.push_back(
+            {std::string(id), std::string(title), id == "performance"});
+    next.launch_quantization = quantization_name(snapshot.launch_quantization);
+    for (const auto &scene : snapshot.performance_launching.scenes) {
+        const auto queued = std::any_of(
+            snapshot.performance_launching.pending.begin(),
+            snapshot.performance_launching.pending.end(),
+            [&](const auto &launch) { return launch.scene == scene.id; });
+        next.scenes.push_back(
+            {scene.name.empty() ? "Scene " + std::to_string(scene.id)
+                                : scene.name,
+             queued});
+    }
     if (const auto track = std::find_if(
             snapshot.tracks.begin(), snapshot.tracks.end(), [&](const auto &t) {
                 return t.id == snapshot.selected_track;
@@ -33,6 +85,22 @@ bool SlintFrontendAdapter::refresh() {
     else if (snapshot.playback_mode == TimelinePlaybackMode::song &&
              !snapshot.audio_clips.empty())
         next.active_content = "Arrangement";
+
+    if (const auto owner = std::find_if(
+            snapshot.performance_launching.ownership.begin(),
+            snapshot.performance_launching.ownership.end(), [&](const auto &v) {
+                return v.track == snapshot.selected_track;
+            });
+        owner != snapshot.performance_launching.ownership.end()) {
+        switch (owner->owner) {
+        case TrackPlaybackOwner::arrangement: next.track_owner = "Arrangement"; break;
+        case TrackPlaybackOwner::session: next.track_owner = "Session"; break;
+        case TrackPlaybackOwner::transitioning_to_session:
+            next.track_owner = "Queued Session"; break;
+        case TrackPlaybackOwner::transitioning_to_arrangement:
+            next.track_owner = "Queued Arrangement"; break;
+        }
+    }
 
     const auto context = build_controller_context(snapshot);
     for (std::size_t i = 0; i < 8; ++i) {
@@ -70,6 +138,31 @@ bool SlintFrontendAdapter::refresh() {
         } else
             next.pads[i].active = snapshot.region_pad_assignments[i].has_value() ||
                                   snapshot.slice_pad_assignments[i].has_value();
+        if (i < snapshot.performance_launching.slots.size()) {
+            const auto &slot = snapshot.performance_launching.slots[i];
+            next.pads[i].slot_id = slot.id;
+            next.pads[i].available = true;
+            next.pads[i].label = "Slot " + std::to_string(slot.id);
+            const auto pending = std::find_if(
+                snapshot.performance_launching.pending.begin(),
+                snapshot.performance_launching.pending.end(),
+                [&](const auto &launch) { return launch.slot == slot.id; });
+            next.pads[i].queued =
+                pending != snapshot.performance_launching.pending.end();
+            const auto ownership = std::find_if(
+                snapshot.performance_launching.ownership.begin(),
+                snapshot.performance_launching.ownership.end(),
+                [&](const auto &owner) {
+                    return owner.slot == slot.id &&
+                           owner.owner == TrackPlaybackOwner::session;
+                });
+            next.pads[i].active =
+                ownership != snapshot.performance_launching.ownership.end();
+            next.pads[i].status = next.pads[i].queued
+                                      ? "Queued"
+                                      : next.pads[i].active ? "Playing"
+                                                            : "Stopped";
+        }
     }
     next.notification = last_error_;
     state_ = std::move(next);
@@ -143,6 +236,10 @@ bool SlintFrontendAdapter::press_pad(std::size_t index, bool pressed) {
     if (!pressed)
         return execute({"pad.release.v1",
                         {{"pad", static_cast<std::int64_t>(index)}}, {}, 0});
+    if (state_.page_id == "performance" && state_.pads[index].available)
+        return execute({"performance.slot-launch.v1",
+                        {{"slot", static_cast<std::int64_t>(
+                                      state_.pads[index].slot_id)}}, {}, 0});
     PerformanceGrid grid;
     const auto snapshot = application_.snapshot();
     grid.set_mode(snapshot.pad_mode);
@@ -158,6 +255,73 @@ bool SlintFrontendAdapter::press_pad(std::size_t index, bool pressed) {
     return execute(*command);
 }
 
+bool SlintFrontendAdapter::select_page(std::size_t index) {
+    if (index >= pages.size()) {
+        last_error_ = "Page is unavailable";
+        state_.notification = last_error_;
+        return false;
+    }
+    state_.page_id = std::string(pages[index].first);
+    state_.page_title = std::string(pages[index].second);
+    state_.notification = index == 0 ? std::string{}
+                                     : state_.page_title + " is not implemented yet";
+    last_error_ = state_.notification;
+    return true;
+}
+
+bool SlintFrontendAdapter::select_track(int direction) {
+    return invoke_action(direction < 0 ? "track.previous.v1" : "track.next.v1");
+}
+
+bool SlintFrontendAdapter::launch_scene(std::size_t index) {
+    const auto snapshot = application_.snapshot();
+    if (index >= snapshot.performance_launching.scenes.size()) {
+        last_error_ = "Performance scene is unavailable";
+        state_.notification = last_error_;
+        return false;
+    }
+    return execute({"performance.scene-launch.v1",
+                    {{"scene", static_cast<std::int64_t>(
+                                   snapshot.performance_launching.scenes[index].id)}},
+                    {}, 0});
+}
+
+bool SlintFrontendAdapter::return_to_arrangement() {
+    return execute({"performance.return-arrangement.v1",
+                    {{"track", static_cast<std::int64_t>(
+                                   application_.snapshot().selected_track)}},
+                    {}, 0});
+}
+
+bool SlintFrontendAdapter::set_launch_quantization(std::string value) {
+    return execute({"pattern.launch-quantization.v1",
+                    {{"quantization", std::move(value)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::cycle_launch_quantization() {
+    const auto current = application_.snapshot().launch_quantization;
+    switch (current) {
+    case LaunchQuantization::immediate:
+        return set_launch_quantization("quarter");
+    case LaunchQuantization::quarter:
+        return set_launch_quantization("bar");
+    case LaunchQuantization::bar:
+        return set_launch_quantization("two-bars");
+    default: return set_launch_quantization("immediate");
+    }
+}
+
+bool SlintFrontendAdapter::transport_record() {
+    last_error_ = "Transport record has no single semantic action";
+    state_.notification = last_error_;
+    return false;
+}
+
+void SlintFrontendAdapter::dismiss_notification() noexcept {
+    last_error_.clear();
+    state_.notification.clear();
+}
+
 bool SlintFrontendAdapter::keyboard_action(std::string_view key, bool pressed) {
     if (key == "space" && pressed)
         return invoke_action(state_.playing ? "transport.stop.v1"
@@ -167,6 +331,9 @@ bool SlintFrontendAdapter::keyboard_action(std::string_view key, bool pressed) {
             {"modifier.shift.v1", {{"active", pressed}}, {}, 0});
     if (pressed && key.size() == 1 && key[0] >= '1' && key[0] <= '8')
         return press_pad(static_cast<std::size_t>(key[0] - '1'));
+    if (pressed && key.size() == 2 && key[0] == 'f' && key[1] >= '1' &&
+        key[1] <= '8')
+        return select_page(static_cast<std::size_t>(key[1] - '1'));
     last_error_ = "Keyboard action is unavailable";
     return false;
 }

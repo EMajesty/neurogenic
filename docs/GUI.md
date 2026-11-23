@@ -16,7 +16,7 @@ clock ownership and Shift+Enter invokes panic. Detailed port and routing-rule
 editing currently uses semantic actions, project data, and native CLI port
 selection.
 
-NEUROGENIC uses SDL3's built-in 2D renderer behind a renderer-independent C++
+NEUROGENIC retains SDL3's built-in 2D renderer behind a renderer-independent C++
 UI model. SDL3 supplies X11/Wayland windows and keyboard, pointer and touch
 events while leaving a future KMSDRM route. GLFW was considered, but would also
 need a 2D renderer and separate touch handling; a retained desktop toolkit adds
@@ -24,6 +24,10 @@ policy and weight not needed by this instrument interface. Primary references:
 [Wayland](https://wiki.libsdl.org/SDL3/README-wayland),
 [high DPI](https://wiki.libsdl.org/SDL3/README-highdpi), and
 [video/KMSDRM settings](https://wiki.libsdl.org/SDL3/EnvironmentVariables).
+The preferred Slint shell is selected with `--frontend slint` in a Slint-enabled
+build. `--frontend sdl` and `--gui` retain this legacy frontend, while
+`--frontend headless` selects neither graphical event loop. Both clients use
+one production `ApplicationService`; see `SLINT_UI.md`.
 
 The Routing view shows two external FX loops, send/return pairs, wet/dry,
 manual latency, return levels and scene rows. Up/Down selects a loop,

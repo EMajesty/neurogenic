@@ -311,6 +311,14 @@ commands; the SDL3 adapter only owns windowing, events and rendering. It never
 accesses real-time playback structures. X/Y dragging is coalesced to a bounded
 125 Hz command rate. Headless operation does not depend on SDL3.
 
+The optional Slint frontend is a second presentation client of the same
+facade. `SlintFrontendAdapter` copies revisioned state, resolves context through
+the shared controller-context builder, and writes parameters through
+`ParameterBindingService`; Slint components receive no engine objects. The
+production executable selects exactly one of headless, SDL3, or Slint, so
+graphical event loops never compete. Page and focus state are presentation
+state, not musical authority.
+
 The GUI keeps SDL window coordinates, drawable pixels, responsive logical
 workspace dimensions, and the persisted UI scale as distinct values. SDL
 events are normalized into drawable coordinates before `GuiModel` hit testing.

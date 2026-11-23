@@ -1,66 +1,69 @@
-import { PageNavigation, ContextualEncoder, ContextualFunctionButton, TransportStatus, TrackClipStatus, Notification } from "components.slint";
+import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, TransportControls, TrackSelector, PerformanceSlot, EmptyState, Notification, ModalDialog } from "components.slint";
 import { Theme } from "theme.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
-export struct PadItem { label: string, active: bool, selected: bool }
+export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
+export struct PageItem { id: string, title: string, implemented: bool }
+export struct SceneItem { label: string, queued: bool }
 
 export component PerformanceWindow inherits Window {
-    title: "NEUROGENIC — Slint Performance Prototype";
-    preferred-width: 1280px; preferred-height: 800px;
-    min-width: 1024px; min-height: 600px;
-    background: Theme.background;
+    title: "NEUROGENIC"; preferred-width: 1280px; preferred-height: 800px;
+    min-width: 1024px; min-height: 600px; background: Theme.background;
+    in property <string> project-name: "Untitled";
+    in property <bool> project-dirty: false;
     in property <string> transport-state: "Stopped";
     in property <string> tempo: "120 BPM";
+    in property <string> time-signature: "4/4";
+    in property <string> position: "1.1.0";
+    in property <string> page-id: "performance";
+    in property <string> page-title: "Performance";
     in property <string> selected-track: "Unavailable";
+    in property <string> track-owner: "Arrangement";
     in property <string> active-content: "Unavailable";
+    in property <string> launch-quantization: "Bar";
     in property <string> notification: "";
+    in property <[PageItem]> pages;
     in property <[ContextItem]> encoders;
     in property <[ContextItem]> functions;
     in property <[PadItem]> pads;
-    callback encoder-turned(int, int);
-    callback function-invoked(int);
-    callback pad-invoked(int, bool);
-    callback keyboard-input(string, bool);
+    in property <[SceneItem]> scenes;
+    in-out property <bool> modal-visible: false;
+    callback encoder-turned(int, int); callback function-invoked(int);
+    callback pad-invoked(int, bool); callback keyboard-input(string, bool);
+    callback page-selected(int); callback transport-invoked(string);
+    callback track-selected(int); callback return-arrangement();
+    callback scene-invoked(int); callback notification-dismissed();
+    callback quantization-invoked();
 
-    FocusScope {
-        key-pressed(event) => { root.keyboard-input(event.text, true); accept }
-        key-released(event) => { root.keyboard-input(event.text, false); accept }
-    }
-
+    FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
-        padding: 12px; spacing: 10px;
+        padding: 8px; spacing: 6px;
+        GlobalStatus { height: 48px; project: root.project-name; dirty: root.project-dirty; transport: root.transport-state; tempo: root.tempo; signature: root.time-signature; position: root.position; page-title: root.page-title; }
         HorizontalLayout {
-            spacing: 10px; height: 64px;
-            PageNavigation { title: "PERFORMANCE"; horizontal-stretch: 1; }
-            TransportStatus { status: root.transport-state; tempo: root.tempo; horizontal-stretch: 2; }
-            TrackClipStatus { track: root.selected-track; content: root.active-content; horizontal-stretch: 2; }
-        }
-        HorizontalLayout {
-            spacing: 6px; height: 84px;
-            for item[i] in root.encoders: ContextualEncoder {
-                label: item.label; value: item.value; unit: item.unit; active: item.active;
-                turned(delta) => { root.encoder-turned(i, delta); }
-            }
-        }
-        Rectangle {
-            background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 1;
-            GridLayout {
-                padding: 12px; spacing: 8px;
-                for pad[i] in root.pads: Rectangle {
-                    row: i / 8; col: mod(i, 8);
-                    background: pad.selected ? Theme.accent : (pad.active ? Theme.selected : Theme.background);
-                    border-width: 1px; border-color: pad.active ? Theme.accent : Theme.muted; border-radius: Theme.radius;
-                    Text { text: pad.label; color: pad.selected ? Theme.background : Theme.foreground; horizontal-alignment: center; vertical-alignment: center; font-size: 18px; }
-                    TouchArea { clicked => { root.pad-invoked(i, true); } }
-                }
-            }
+            height: 44px; spacing: 4px;
+            for page[i] in root.pages: PageButton { text: page.title; selected: page.id == root.page-id; implemented: page.implemented; clicked => { root.page-selected(i); } }
         }
         HorizontalLayout {
-            spacing: 6px; height: 62px;
-            for item[i] in root.functions: ContextualFunctionButton {
-                text: item.label; available: item.active; clicked => { root.function-invoked(i); }
+            spacing: 5px; height: 72px;
+            for item[i] in root.encoders: ContextualEncoder { label: item.label; value: item.value; unit: item.unit; active: item.active; turned(delta) => { root.encoder-turned(i, delta); } }
+        }
+        if root.page-id == "performance": VerticalLayout {
+            spacing: 6px; vertical-stretch: 1;
+            HorizontalLayout {
+                height: 58px; spacing: 6px;
+                TransportControls { state: root.transport-state; play => { root.transport-invoked("play"); } stop => { root.transport-invoked("stop"); } record => { root.transport-invoked("record"); } }
+                TrackSelector { horizontal-stretch: 2; track: root.selected-track; owner: root.track-owner; previous => { root.track-selected(-1); } next => { root.track-selected(1); } return-arrangement => { root.return-arrangement(); } }
+                Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius; VerticalLayout { padding: 6px; Text { text: root.active-content; color: Theme.foreground; overflow: elide; } Text { text: "Launch: " + root.launch-quantization; color: Theme.muted; overflow: elide; } } TouchArea { clicked => { root.quantization-invoked(); } } }
+            }
+            if root.scenes.length > 0: HorizontalLayout { height: 38px; spacing: 5px; for scene[i] in root.scenes: PageButton { text: scene.label + (scene.queued ? " (Queued)" : ""); implemented: true; clicked => { root.scene-invoked(i); } } }
+            Rectangle {
+                background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 1;
+                GridLayout { padding: 8px; spacing: 6px; for pad[i] in root.pads: PerformanceSlot { row: i / 8; col: mod(i, 8); label: pad.label; state: pad.status; selected: pad.selected; available: pad.available; invoked => { root.pad-invoked(i, true); } } }
             }
         }
-        Notification { message: root.notification; height: 34px; }
+        if root.page-id != "performance": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented in Task 072."; }
+        HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
+        Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }
+    if root.modal-visible: Rectangle { x: 0; y: 0; background: #88111111; ModalDialog { width: min(520px, parent.width - 48px); height: 210px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: "Confirm"; message: "Confirm this operation."; accepted => { root.modal-visible = false; } rejected => { root.modal-visible = false; } } }
 }

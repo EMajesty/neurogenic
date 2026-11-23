@@ -127,7 +127,11 @@ if(NEUROGENIC_FETCH_DEPENDENCIES)
 endif()
 
 add_executable(neurogenic apps/neurogenic.cpp)
-target_link_libraries(neurogenic PRIVATE neurogenic_engine neurogenic_live neurogenic_gui)
+target_link_libraries(neurogenic PRIVATE neurogenic_engine neurogenic_live neurogenic_gui
+  neurogenic_slint_adapter)
+if(NEUROGENIC_ENABLE_SLINT)
+  target_link_libraries(neurogenic PRIVATE neurogenic_slint_frontend)
+endif()
 add_executable(neurogenic_diagnostics apps/neurogenic_diagnostics.cpp)
 target_link_libraries(neurogenic_diagnostics PRIVATE neurogenic_engine neurogenic_live neurogenic_gui)
 set_target_properties(neurogenic_diagnostics PROPERTIES OUTPUT_NAME neurogenic-diagnostics)
@@ -186,6 +190,16 @@ if(NEUROGENIC_BUILD_TESTS)
       -DNEUROGENIC_ENABLE_SLINT=${NEUROGENIC_ENABLE_SLINT}
       -DNEUROGENIC_SLINT_TARGET=$<TARGET_EXISTS:neurogenic_slint>
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyOptionalSlint.cmake)
+  add_test(NAME neurogenic_frontend_selection_validation
+    COMMAND neurogenic --frontend invalid)
+  set_tests_properties(neurogenic_frontend_selection_validation PROPERTIES
+    WILL_FAIL TRUE TIMEOUT 10)
+  if(NEUROGENIC_ENABLE_SLINT)
+    add_test(NAME neurogenic_slint_missing_display
+      COMMAND neurogenic --frontend slint --headless --run-for 0.05)
+    set_tests_properties(neurogenic_slint_missing_display PROPERTIES
+      WILL_FAIL TRUE TIMEOUT 10 ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=")
+  endif()
   add_executable(neurogenic_preset_tests tests/preset_tests.cpp)
   target_link_libraries(neurogenic_preset_tests PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_preset_tests COMMAND neurogenic_preset_tests)
