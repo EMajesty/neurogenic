@@ -502,8 +502,7 @@ resolution, bounded capability-aware feedback and an opt-in generic MIDI
 control-surface adapter. The Task 068 RP2040 inventory remains a built-in
 descriptor/profile and CDC protocol 1.0–1.2 remains compatible. Multiple
 sessions now keep pages, modifiers and pickup state independent while sharing
-authoritative application parameters. Physical RP2040 validation, automatic
-MIDI learn, appliance-level enumeration of several serial devices and native
+authoritative application parameters. Physical RP2040 validation and native
 CDC text-display packets remain outstanding.
 
 Task 070 hardens delivery and makes this architecture operational in the
@@ -515,3 +514,12 @@ relative and note mappings, soft takeover, optional feedback, explicit
 learn/cancel/timeout and atomic save. Musical MIDI remains independent.
 Physical multi-controller/MIDI feedback interoperability and RP2040 validation
 remain unmeasured; MIDI learn has no graphical page.
+
+Task 071 stabilizes the integration: shipped and legacy MIDI mode names now
+round-trip to one canonical format, adapter registration is synchronized and
+explicitly removed on failed setup/shutdown, and controller device selection
+is exact with backend-identity reconnect. Logical-port conflicts are rejected,
+intentional musical/controller sharing preserves unmatched musical messages,
+and bounded feedback retries regenerate authoritative state after transport
+failure or reconnect. These are software-verified; physical USB CDC, hotplug,
+and third-party MIDI feedback remain hardware validation work.

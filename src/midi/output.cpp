@@ -45,14 +45,24 @@ std::vector<MidiPortInfo> MidiOutput::outputs() const {
 }
 bool MidiOutput::connect(MidiPortId logical, const std::string &selector,
                          std::string &error) {
+    return connect_impl(logical, selector, false, error);
+}
+bool MidiOutput::connect_exact(MidiPortId logical, const std::string &selector,
+                               std::string &error) {
+    return connect_impl(logical, selector, true, error);
+}
+bool MidiOutput::connect_impl(MidiPortId logical, const std::string &selector,
+                              bool exact, std::string &error) {
 #ifdef NEUROGENIC_HAS_LIBREMIDI
     if (!logical || logical > maximum_midi_ports) {
         error = "invalid logical MIDI output port";
         return false;
     }
+    impl_->ports[logical - 1].reset();
+    impl_->configured_names[logical - 1].clear();
     const auto available = impl_->observer.get_output_ports();
     auto selected = available.end();
-    const bool numeric =
+    const bool numeric = !exact &&
         !selector.empty() &&
         std::all_of(selector.begin(), selector.end(),
                     [](unsigned char c) { return c >= '0' && c <= '9'; });
@@ -63,13 +73,20 @@ bool MidiOutput::connect(MidiPortId logical, const std::string &selector,
     } else
         selected = std::find_if(
             available.begin(), available.end(), [&](const auto &port) {
+                const auto name = port.display_name.empty() ? port.port_name
+                                                            : port.display_name;
                 return selector.empty() ||
-                       port.port_name.find(selector) != std::string::npos ||
-                       port.display_name.find(selector) != std::string::npos;
+                       (exact ? name == selector
+                              : port.port_name.find(selector) !=
+                                        std::string::npos ||
+                                    port.display_name.find(selector) !=
+                                        std::string::npos);
             });
     if (selected == available.end()) {
-        error = available.empty() ? "no MIDI outputs discovered"
-                                  : "no matching MIDI output";
+        error = available.empty()
+                    ? "no MIDI outputs discovered"
+                    : exact ? "no exact MIDI output match"
+                            : "no matching MIDI output";
         return false;
     }
     try {
@@ -81,9 +98,7 @@ bool MidiOutput::connect(MidiPortId logical, const std::string &selector,
         if (status != stdx::error{})
             status.throw_exception();
         impl_->ports[logical - 1] = std::move(output);
-        impl_->configured_names[logical - 1] =
-            selected->display_name.empty() ? selected->port_name
-                                           : selected->display_name;
+        impl_->configured_names[logical - 1] = selected->port_name;
         error.clear();
         return true;
     } catch (const std::exception &exception) {
@@ -141,9 +156,7 @@ std::size_t MidiOutput::reconnect_missing(std::string &error) noexcept {
             continue;
         const auto found = std::find_if(available.begin(), available.end(),
                                         [&](const auto &port) {
-            const auto name = port.display_name.empty() ? port.port_name
-                                                        : port.display_name;
-            return name == impl_->configured_names[i];
+            return port.port_name == impl_->configured_names[i];
         });
         if (found == available.end())
             continue;

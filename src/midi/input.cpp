@@ -73,11 +73,22 @@ bool MidiInput::open(const std::string &selector, std::string &error) {
 }
 bool MidiInput::connect(std::uint32_t logical, const std::string &selector,
                         std::string &error) {
+    return connect_impl(logical, selector, false, error);
+}
+bool MidiInput::connect_exact(std::uint32_t logical,
+                              const std::string &selector,
+                              std::string &error) {
+    return connect_impl(logical, selector, true, error);
+}
+bool MidiInput::connect_impl(std::uint32_t logical, const std::string &selector,
+                             bool exact, std::string &error) {
 #ifdef NEUROGENIC_HAS_LIBREMIDI
     if (!logical || logical > maximum_midi_ports) {
         error = "invalid logical MIDI input port";
         return false;
     }
+    impl_->inputs[logical - 1].reset();
+    impl_->configured_names[logical - 1].clear();
     try {
         if (impl_->observer.get_current_api() == libremidi::API::DUMMY) {
             error = alsa_compiled()
@@ -89,7 +100,7 @@ bool MidiInput::connect(std::uint32_t logical, const std::string &selector,
         }
         const auto ports = impl_->observer.get_input_ports();
         auto selected = ports.end();
-        const bool numeric =
+        const bool numeric = !exact &&
             !selector.empty() &&
             std::all_of(selector.begin(), selector.end(),
                         [](unsigned char c) { return c >= '0' && c <= '9'; });
@@ -100,16 +111,24 @@ bool MidiInput::connect(std::uint32_t logical, const std::string &selector,
         } else
             selected =
                 std::find_if(ports.begin(), ports.end(), [&](const auto &port) {
+                    const auto name = port.display_name.empty()
+                                          ? port.port_name
+                                          : port.display_name;
                     return selector.empty() ||
-                           port.port_name.find(selector) != std::string::npos ||
-                           port.display_name.find(selector) !=
-                               std::string::npos;
+                           (exact ? name == selector
+                                  : port.port_name.find(selector) !=
+                                            std::string::npos ||
+                                        port.display_name.find(selector) !=
+                                            std::string::npos);
                 });
         if (selected == ports.end()) {
             error = ports.empty()
                         ? "ALSA sequencer backend is active, but no MIDI "
                           "inputs were discovered"
-                        : "ALSA sequencer backend found no matching MIDI input";
+                        : exact ? "ALSA sequencer backend found no exact MIDI "
+                                  "input match"
+                                : "ALSA sequencer backend found no matching "
+                                  "MIDI input";
             return false;
         }
         libremidi::input_configuration configuration;
@@ -135,9 +154,9 @@ bool MidiInput::connect(std::uint32_t logical, const std::string &selector,
         if (status != stdx::error{})
             status.throw_exception();
         impl_->inputs[logical - 1] = std::move(input);
-        impl_->configured_names[logical - 1] =
-            selected->display_name.empty() ? selected->port_name
-                                           : selected->display_name;
+        // Preserve the backend port identity for reconnect; display names are
+        // not guaranteed unique and must not cause substitution.
+        impl_->configured_names[logical - 1] = selected->port_name;
         error.clear();
         return true;
     } catch (const std::exception &exception) {
@@ -174,9 +193,7 @@ std::size_t MidiInput::reconnect_missing(std::string &error) noexcept {
             continue;
         const auto found = std::find_if(available.begin(), available.end(),
                                         [&](const auto &port) {
-            const auto name = port.display_name.empty() ? port.port_name
-                                                        : port.display_name;
-            return name == impl_->configured_names[i];
+            return port.port_name == impl_->configured_names[i];
         });
         if (found == available.end())
             continue;

@@ -18,10 +18,13 @@ std::string_view mode_name(MidiControlMode mode) {
 }
 std::optional<MidiControlMode> parse_mode(std::string_view value) {
     if (value == "note") return MidiControlMode::note_momentary;
-    if (value == "cc-absolute") return MidiControlMode::cc_absolute;
-    if (value == "cc-relative-2c")
+    if (value == "cc-absolute" || value == "absolute")
+        return MidiControlMode::cc_absolute;
+    if (value == "cc-relative-2c" || value == "relative-twos" ||
+        value == "relative-twos-complement")
         return MidiControlMode::cc_relative_twos_complement;
-    if (value == "cc-relative-offset")
+    if (value == "cc-relative-offset" || value == "relative-offset" ||
+        value == "relative-binary-offset")
         return MidiControlMode::cc_relative_binary_offset;
     return {};
 }
@@ -46,6 +49,21 @@ void MidiMapper::map_button(std::uint8_t channel, std::uint8_t note,
         std::move(id), std::move(action)};
 }
 
+bool MidiMapper::add_control_surface(MidiControlSurfaceAdapter &surface) {
+    std::lock_guard lock(control_surfaces_mutex_);
+    if (std::find(control_surfaces_.begin(), control_surfaces_.end(), &surface) !=
+        control_surfaces_.end())
+        return false;
+    control_surfaces_.push_back(&surface);
+    return true;
+}
+
+void MidiMapper::remove_control_surface(
+    MidiControlSurfaceAdapter &surface) noexcept {
+    std::lock_guard lock(control_surfaces_mutex_);
+    std::erase(control_surfaces_, &surface);
+}
+
 bool MidiMapper::receive(const MidiMessage &message) noexcept {
     if (!inbox_.push(message)) {
         dropped_.fetch_add(1, std::memory_order_relaxed);
@@ -61,9 +79,16 @@ bool MidiMapper::dispatch_one() {
     if (!inbox_.pop(message))
         return false;
     std::string surface_error;
-    const auto consumed = std::any_of(
-        control_surfaces_.begin(), control_surfaces_.end(),
-        [&](auto *surface) { return surface->dispatch(message, surface_error); });
+    bool consumed{};
+    {
+        // Registration changes are control-side operations. Holding this lock
+        // while dispatching ensures unregister waits for any in-flight use.
+        std::lock_guard lock(control_surfaces_mutex_);
+        consumed = std::any_of(control_surfaces_.begin(), control_surfaces_.end(),
+                               [&](auto *surface) {
+            return surface->dispatch(message, surface_error);
+        });
+    }
     if (consumed) return true;
     if (raw_handler_)
         raw_handler_(message);
@@ -110,10 +135,14 @@ bool parse_midi_controller_profile(std::string_view source,
             std::uint32_t port{}, channel{}, number{};
             const auto mode = parse_mode(parts[4]);
             if (!parse_u32(parts[1], port) || !parse_u32(parts[2], channel) ||
-                !parse_u32(parts[3], number) || !mode || !port || channel > 15 ||
-                number > 127 || parts[5].empty()) {
+                !parse_u32(parts[3], number) || !mode || !port ||
+                port > maximum_midi_ports || channel > 15 ||
+                number > 127 || parts[5].empty() ||
+                (parts.size() == 7 && parts[6] != "feedback")) {
                 error = "line " + std::to_string(line_number) +
-                        ": invalid MIDI port/channel/message";
+                        ": invalid MIDI port/channel/message, mode, or option; "
+                        "expected note, cc-absolute, cc-relative-2c, or "
+                        "cc-relative-offset with optional feedback";
                 return false;
             }
             parsed.midi.push_back({port, static_cast<std::uint8_t>(channel),
@@ -200,7 +229,8 @@ std::size_t MidiMapper::dispatch_pending() {
 bool MidiControlSurfaceAdapter::add(MidiControlBinding binding,
                                     std::string &error) {
     std::lock_guard lock(mutex_);
-    if (binding.channel > 15 || binding.number > 127 ||
+    if (!binding.port || binding.port > maximum_midi_ports ||
+        binding.channel > 15 || binding.number > 127 ||
         binding.control_id.empty()) {
         error = "MIDI control binding has an invalid channel, number or ID";
         return false;
@@ -364,7 +394,10 @@ void MidiControlSurfaceAdapter::observe(const ApplicationState &state) {
 
 void MidiControlSurfaceAdapter::requeue_feedback(MidiMessage value) {
     std::lock_guard lock(mutex_);
-    feedback_.push_front(std::move(value));
+    if (feedback_.size() < 128)
+        feedback_.push_front(std::move(value));
+    else
+        session_->feedback_delivery_failed();
 }
 
 std::optional<MidiMessage> MidiControlSurfaceAdapter::next_feedback() {
@@ -385,7 +418,20 @@ MidiLearnStatus MidiControlSurfaceAdapter::learn_status() const {
     return learn_;
 }
 
+ControllerSessionState MidiControlSurfaceAdapter::session_state() const {
+    std::lock_guard lock(mutex_);
+    return session_->state();
+}
+
 void MidiControlSurfaceAdapter::reconnect() noexcept {
+    std::lock_guard lock(mutex_);
+    feedback_.clear();
     if (session_) session_->reconnect();
+}
+
+void MidiControlSurfaceAdapter::disconnect() noexcept {
+    std::lock_guard lock(mutex_);
+    feedback_.clear();
+    if (session_) session_->feedback_delivery_failed();
 }
 } // namespace neurogenic

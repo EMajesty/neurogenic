@@ -32,6 +32,11 @@ explicit unassigned state. `.ngc` remains the text format; legacy records parse
 unchanged, while `semantic`, `context=`, `index=`, and `pickup` extend it.
 Serialization is deterministic. Profile validation rejects unknown controls,
 actions, parameters, device mismatches, ambiguous targets and malformed data.
+The built-in RP2040 descriptors are selected from negotiated protocol identity
+and capabilities (but remain physically unverified). Generic MIDI inventory is
+explicitly user-declared because MIDI 1.0 does not advertise surface controls;
+those declarations are configuration claims, not firmware capabilities, and
+cannot augment a dedicated-controller descriptor.
 
 Each `ControllerSession` owns its profile, local page, modifiers, pickup state,
 feedback cache/queue, counters and resynchronization state. Musical state is
@@ -53,7 +58,9 @@ channel, note/CC and configured mode into a session control ID. Supported modes
 are note momentary, CC absolute, two's-complement relative and binary-offset
 relative. Unmatched MIDI continues through the existing musical note/raw MIDI
 path, so a keyboard is not implicitly treated as a control surface. Existing
-MIDI device selectors provide exact device matching and reconnect behavior.
+Controller-profile selectors require an exact device display name on first
+connection. Reconnect uses the backend port identity captured at that
+connection, not a substring or a possibly duplicated display label.
 MIDI learn is explicit and control-side: the caller selects a descriptor
 control and input mode, then the next eligible note/CC records its exact
 logical port, channel and number. Cancellation and timeout leave the profile
@@ -65,7 +72,10 @@ MIDI-aware `.ngc` files add `midi-device|EXACT SELECTOR` and
 `midi|PORT|CHANNEL|NUMBER|MODE|CONTROL|feedback` records around ordinary
 schema-2 controller records. `--midi-controller-profile FILE` loads one in the
 appliance. Profiles are saved atomically through the control-side API; MIDI
-learn does not yet have a Slint page.
+learn does not yet have a Slint page. The serializer emits canonical modes
+`note`, `cc-absolute`, `cc-relative-2c`, and `cc-relative-offset`; the parser
+also accepts the documented legacy aliases `absolute`, `relative-twos`, and
+`relative-offset` (plus their long forms).
 
 ## Feedback and overflow
 
@@ -77,6 +87,12 @@ resynchronization. Local page/modifier/pickup changes have their own revision;
 reconnect/reset requests a full refresh. Logical LED IDs never imply physical chain positions. Contextual data
 comes from `resolve_controller_context()`, which is also used by the SDL3 and
 Slint adapters without requiring a connected controller.
+
+`MidiMapper` registration is explicit and synchronized. A coordinator removes
+each adapter before destroying its session, including failed endpoint setup and
+shutdown, so the dispatcher cannot retain a stale adapter pointer. MIDI
+feedback send failure retains one bounded pending message; disconnect/reconnect
+invalidates queued feedback and regenerates a full authoritative refresh.
 
 ## Compatibility and limitations
 

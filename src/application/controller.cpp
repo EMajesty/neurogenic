@@ -346,8 +346,25 @@ bool parse_controller_profile(std::string_view source,
                     "line " + std::to_string(number) + ": unknown control type";
                 return false;
             }
-            parsed.capabilities.controls.push_back(
-                {fields[1], fields[3], *type, {}});
+            ControlCapability descriptor{fields[1], fields[3], *type, {}};
+            for (std::size_t i = 4; i < fields.size(); ++i) {
+                if (fields[i] == "feedback=rgb")
+                    descriptor.feedback.push_back(FeedbackType::rgb_led);
+                else if (fields[i] == "feedback=indicator")
+                    descriptor.feedback.push_back(FeedbackType::single_led);
+                else if (fields[i] == "feedback=text")
+                    descriptor.feedback.push_back(FeedbackType::text_display);
+                else if (fields[i] == "feedback=value")
+                    descriptor.feedback.push_back(FeedbackType::parameter_value);
+                else if (fields[i] == "feedback=motorized")
+                    descriptor.feedback.push_back(FeedbackType::motorized_fader);
+                else {
+                    error = "line " + std::to_string(number) +
+                            ": unknown control capability option";
+                    return false;
+                }
+            }
+            parsed.capabilities.controls.push_back(std::move(descriptor));
         } else if (fields[0] == "bind" && fields.size() >= 4) {
             ControlBinding binding;
             binding.control_id = fields[1];
@@ -466,9 +483,21 @@ std::string serialize_controller_profile(const ControllerProfile &profile) {
            << '|' << profile.device_id << '\n';
     output << "controller|" << profile.capabilities.controller_id << '|'
            << profile.capabilities.name << '\n';
-    for (const auto &value : profile.capabilities.controls)
+    for (const auto &value : profile.capabilities.controls) {
         output << "control|" << value.id << '|'
-               << control_type_name(value.type) << '|' << value.label << '\n';
+               << control_type_name(value.type) << '|' << value.label;
+        for (const auto feedback : value.feedback) {
+            output << "|feedback=";
+            switch (feedback) {
+            case FeedbackType::rgb_led: output << "rgb"; break;
+            case FeedbackType::single_led: output << "indicator"; break;
+            case FeedbackType::text_display: output << "text"; break;
+            case FeedbackType::parameter_value: output << "value"; break;
+            case FeedbackType::motorized_fader: output << "motorized"; break;
+            }
+        }
+        output << '\n';
+    }
     for (const auto &binding : profile.bindings) {
         output << "bind|" << binding.control_id << '|';
         if (!binding.action_id.empty())

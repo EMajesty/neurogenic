@@ -164,9 +164,14 @@ bind|page-1|semantic|local-context|context=mixer
 bind|unused|unassigned|-
 ```
 
-Unknown records, control types, modifier options, controls and actions fail
-validation. The parser does not yet persist feedback capability declarations
-or static action arguments. Complete examples are under
+Optional control capabilities are declared as `feedback=rgb`,
+`feedback=indicator`, `feedback=text`, `feedback=value`, or
+`feedback=motorized`; a binding's
+`feedback=CONTROL_ID` then selects that declared output. Profiles cannot gain
+feedback functionality merely by adding a MIDI output mapping.
+
+Unknown records, control types, capability/modifier options, controls and
+actions fail validation. Complete examples are under
 [`examples/controllers`](../examples/controllers):
 
 - `full-performance.ngc`: a legacy representative profile. The C++ dedicated
@@ -178,6 +183,11 @@ or static action arguments. Complete examples are under
 - `generic-midi-surface.ngc`: runnable MIDI wrapper records with an exact
   selector placeholder, absolute pickup, relative encoding and optional
   feedback.
+
+MIDI wrapper serialization uses `note`, `cc-absolute`, `cc-relative-2c`, and
+`cc-relative-offset`. Earlier `absolute`, `relative-twos`, and
+`relative-offset` spellings remain load-compatible. Unknown modes and trailing
+options are rejected with the accepted values in the diagnostic.
 
 These profiles describe capabilities; they do not claim physical hardware has
 been tested. MIDI learn is available through the control-side adapter API with

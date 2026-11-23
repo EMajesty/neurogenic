@@ -433,6 +433,23 @@ int main(int argc, char **argv) {
         neurogenic::ControllerCoordinator controllers(application);
         std::vector<std::pair<neurogenic::MidiPortId, std::string>>
             controller_midi_inputs;
+        std::vector<std::pair<neurogenic::MidiPortId, std::string>>
+            controller_midi_outputs;
+        const auto add_controller_port = [](auto &ports,
+                                            neurogenic::MidiPortId port,
+                                            const std::string &selector,
+                                            std::string &port_error) {
+            const auto existing = std::find_if(
+                ports.begin(), ports.end(),
+                [&](const auto &entry) { return entry.first == port; });
+            if (existing != ports.end() && existing->second != selector) {
+                port_error = "logical MIDI port " + std::to_string(port) +
+                             " is assigned to conflicting exact devices";
+                return false;
+            }
+            if (existing == ports.end()) ports.emplace_back(port, selector);
+            return true;
+        };
         for (const auto &profile_path : midi_controller_profiles) {
             neurogenic::MidiControllerProfile profile;
             std::string profile_error;
@@ -444,20 +461,37 @@ int main(int argc, char **argv) {
                 profile.controller.profile_id.empty()
                     ? std::filesystem::path(profile_path).stem().string()
                     : profile.controller.profile_id;
-            for (const auto &binding : profile.midi)
-                if (!profile.port_selector.empty() &&
-                    std::find(controller_midi_inputs.begin(),
-                              controller_midi_inputs.end(),
-                              std::pair{binding.port,
-                                        profile.port_selector}) ==
-                        controller_midi_inputs.end())
-                    controller_midi_inputs.emplace_back(binding.port,
-                                                        profile.port_selector);
+            if (profile.port_selector.empty())
+                throw std::runtime_error(
+                    "MIDI controller profile requires an exact midi-device "
+                    "selector");
+            for (const auto &binding : profile.midi) {
+                if (!add_controller_port(controller_midi_inputs, binding.port,
+                                         profile.port_selector, profile_error) ||
+                    (binding.feedback &&
+                     !add_controller_port(controller_midi_outputs, binding.port,
+                                          profile.port_selector,
+                                          profile_error)))
+                    throw std::runtime_error("MIDI controller profile: " +
+                                             profile_error);
+            }
             if (!controllers.add_midi(endpoint_id, std::move(profile), mapper,
                                       profile_error))
                 throw std::runtime_error("MIDI controller profile: " +
                                          profile_error);
         }
+        for (const auto &[port, selector] : controller_midi_inputs)
+            if (port <= midi_inputs.size() && !midi_inputs[port - 1].empty() &&
+                midi_inputs[port - 1] != selector)
+                throw std::runtime_error(
+                    "MIDI controller logical input port conflicts with the "
+                    "configured musical MIDI device");
+        for (const auto &[port, selector] : controller_midi_outputs)
+            if (port <= midi_outputs.size() && !midi_outputs[port - 1].empty() &&
+                midi_outputs[port - 1] != selector)
+                throw std::runtime_error(
+                    "MIDI controller logical output port conflicts with the "
+                    "configured musical MIDI device");
         mapper.set_raw_handler([&](const neurogenic::MidiMessage &message) {
             (void)application.receive_midi(
                 {message.port,
@@ -539,12 +573,21 @@ int main(int argc, char **argv) {
                 std::cout << "MIDI input " << i + 1 << " active\n";
         }
         for (const auto &[port, selector] : controller_midi_inputs) {
-            if (!midi.connect(port, selector, error)) {
+            if (!midi.connect_exact(port, selector, error)) {
                 lifecycle.issue(neurogenic::StartupStage::midi, error, true);
                 std::cerr << "MIDI controller input unavailable: " << error
                           << '\n';
             } else
                 std::cout << "MIDI controller input "
+                          << static_cast<unsigned>(port) << " active\n";
+        }
+        for (const auto &[port, selector] : controller_midi_outputs) {
+            if (!midi_output.connect_exact(port, selector, error)) {
+                lifecycle.issue(neurogenic::StartupStage::midi, error, true);
+                std::cerr << "MIDI controller feedback output unavailable: "
+                          << error << '\n';
+            } else
+                std::cout << "MIDI controller output "
                           << static_cast<unsigned>(port) << " active\n";
         }
         for (std::size_t i = 0;
@@ -785,6 +828,7 @@ int main(int argc, char **argv) {
         controller_dispatcher.request_stop();
         controller_dispatcher.join();
         midi.close();
+        controllers.disconnect_midi();
         dispatcher.stop();
         samples.shutdown();
         if (!application.snapshot().project_path.empty())

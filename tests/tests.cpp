@@ -5947,9 +5947,56 @@ void test_controller_agnostic_sessions() {
     check(save_midi_controller_profile(profile_path, stored, error) &&
               load_midi_controller_profile(profile_path, restored, error) &&
               restored.port_selector == stored.port_selector &&
-              restored.midi.size() == stored.midi.size(),
+              restored.midi == stored.midi &&
+              serialize_midi_controller_profile(restored) ==
+                  serialize_midi_controller_profile(stored),
           "MIDI controller profile persistence");
     std::filesystem::remove(profile_path);
+
+    const auto legacy_modes =
+        serialize_controller_profile(midi_profile) +
+        "midi-device|Exact MIDI Port\n"
+        "midi|1|0|1|absolute|knob.1\n"
+        "midi|1|0|2|relative-twos|encoder.1\n"
+        "midi|1|0|3|relative-offset|encoder.1\n";
+    MidiControllerProfile legacy_mode_profile;
+    check(parse_midi_controller_profile(legacy_modes, legacy_mode_profile,
+                                        error) &&
+              legacy_mode_profile.midi.size() == 3 &&
+              serialize_midi_controller_profile(legacy_mode_profile).find(
+                  "cc-relative-2c") != std::string::npos,
+          "legacy MIDI mode aliases parse and serialize canonically");
+    check(!parse_midi_controller_profile(
+              serialize_controller_profile(midi_profile) +
+                  "midi|1|0|1|mystery|knob.1\n",
+              legacy_mode_profile, error) &&
+              error.find("expected note") != std::string::npos,
+          "unknown MIDI mode reports accepted values");
+    check(!parse_midi_controller_profile(
+              serialize_controller_profile(midi_profile) +
+                  "midi|1|0|1|cc-absolute|knob.1|surprise\n",
+              legacy_mode_profile, error) &&
+              error.find("option") != std::string::npos,
+          "unknown MIDI mapping option is rejected actionably");
+    check(!parse_midi_controller_profile(
+              serialize_controller_profile(midi_profile) +
+                  "midi|9|0|1|cc-absolute|knob.1\n",
+              legacy_mode_profile, error),
+          "out-of-range logical MIDI port is rejected");
+    for (const auto &name : {"minimal.ngc", "generic-midi.ngc",
+                             "full-performance.ngc",
+                             "generic-midi-surface.ngc"}) {
+        std::ifstream example(std::filesystem::path(NEUROGENIC_SOURCE_DIR) /
+                              "examples/controllers" / name);
+        std::ostringstream contents;
+        contents << example.rdbuf();
+        MidiControllerProfile parsed_example;
+        check(example && parse_midi_controller_profile(
+                             contents.str(), parsed_example, error) &&
+                  validate_profile(parsed_example.controller,
+                                   application.actions(), error),
+              "shipped controller example parses and validates");
+    }
 
     first.observe(application.snapshot(), true);
     std::size_t feedback_count{};
@@ -5987,19 +6034,85 @@ void test_controller_agnostic_sessions() {
           "mapping profile cannot add controls absent from device inventory");
 
     ControllerCoordinator coordinator(application);
-    MidiControllerProfile coordinated{midi_profile, "Exact MIDI Port", {}};
+    auto feedback_profile = midi_profile;
+    auto feedback_control = std::find_if(
+        feedback_profile.capabilities.controls.begin(),
+        feedback_profile.capabilities.controls.end(),
+        [](const auto &control) { return control.id == "button.1"; });
+    feedback_control->feedback = {FeedbackType::single_led};
+    auto feedback_binding = std::find_if(
+        feedback_profile.bindings.begin(), feedback_profile.bindings.end(),
+        [](const auto &binding) { return binding.control_id == "button.1"; });
+    feedback_binding->feedback_id = "button.1";
+    MidiControllerProfile coordinated{feedback_profile, "Exact MIDI Port", {}};
     coordinated.midi.push_back(
         {4, 0, 22, MidiControlMode::cc_relative_binary_offset, "encoder.1"});
+    coordinated.midi.push_back(
+        {4, 0, 60, MidiControlMode::note_momentary, "button.1", true});
     MidiMapper coordinated_mapper;
     check(coordinator.add_midi("midi-one", coordinated, coordinated_mapper,
                                error) &&
               coordinator.states().size() == 1,
           "running coordinator owns an independent MIDI controller session");
     coordinator.poll(application.snapshot());
+    check(coordinator.dispatch_midi_feedback(
+              [](const MidiMessage &) { return false; }) == 0,
+          "failed MIDI feedback send retains pending feedback");
+    check(coordinator.dispatch_midi_feedback(
+              [](const MidiMessage &) { return true; }) > 0,
+          "MIDI feedback converges after transport send recovery");
     coordinator.reconnect_midi();
     check(coordinator.states().front().session.resync_required,
           "MIDI controller reconnect requests a full feedback refresh");
+    coordinator.poll(application.snapshot());
+    check(coordinator.dispatch_midi_feedback(
+              [](const MidiMessage &) { return true; }) > 0,
+          "MIDI reconnect regenerates authoritative feedback without state change");
+    coordinator.disconnect_midi();
+    coordinator.reconnect_midi();
+    coordinator.poll(application.snapshot());
+    check(coordinator.dispatch_midi_feedback(
+              [](const MidiMessage &) { return true; }) > 0,
+          "disconnect during pending feedback converges after reconnect");
     coordinator.shutdown();
+
+    std::size_t raw_after_endpoint_destruction{};
+    MidiMapper lifetime_mapper;
+    lifetime_mapper.set_raw_handler(
+        [&](const MidiMessage &) { ++raw_after_endpoint_destruction; });
+    {
+        ControllerCoordinator lifetime_coordinator(application);
+        check(lifetime_coordinator.add_midi("temporary", coordinated,
+                                            lifetime_mapper, error),
+              "temporary MIDI surface registration");
+    }
+    check(lifetime_mapper.receive({0xb0, 99, 1, 0, 4, 3}) &&
+              lifetime_mapper.dispatch_one() &&
+              raw_after_endpoint_destruction == 1,
+          "destroyed MIDI adapter is unregistered before further dispatch");
+    {
+        ControllerCoordinator failed_coordinator(application);
+        auto invalid = coordinated;
+        invalid.midi.push_back(
+            {4, 0, 61, MidiControlMode::note_momentary, "missing.control"});
+        check(!failed_coordinator.add_midi("invalid", invalid, lifetime_mapper,
+                                           error),
+              "partial MIDI endpoint initialization fails safely");
+    }
+    check(lifetime_mapper.receive({0xb0, 98, 1, 0, 4, 3}) &&
+              lifetime_mapper.dispatch_one() &&
+              raw_after_endpoint_destruction == 2,
+          "failed MIDI endpoint leaves no mapper registration");
+    {
+        ControllerCoordinator reverse_lifetime(application);
+        {
+            MidiMapper shorter_lived_mapper;
+            check(reverse_lifetime.add_midi("reverse-lifetime", coordinated,
+                                            shorter_lived_mapper, error),
+                  "MIDI endpoint accepts explicit mapper lifetime token");
+        }
+        reverse_lifetime.shutdown();
+    }
 }
 
 void test_interactive_step_sequencer() {

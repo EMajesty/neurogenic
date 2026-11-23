@@ -23,6 +23,8 @@ struct ControllerCoordinator::MidiEndpoint {
     ControllerDeviceDescriptor descriptor;
     ControllerSession session;
     MidiControlSurfaceAdapter adapter;
+    MidiMapper *mapper{};
+    std::weak_ptr<void> mapper_lifetime;
     MidiEndpoint(ApplicationService &application, std::string endpoint_id,
                  MidiControllerProfile configured,
                  ControllerDeviceDescriptor device)
@@ -30,6 +32,10 @@ struct ControllerCoordinator::MidiEndpoint {
           descriptor(std::move(device)),
           session(application, descriptor, profile.controller, id, 128),
           adapter(session) {}
+    ~MidiEndpoint() {
+        if (mapper && !mapper_lifetime.expired())
+            mapper->remove_control_surface(adapter);
+    }
 };
 ControllerCoordinator::ControllerCoordinator(ApplicationService &application)
     : application_(&application) {}
@@ -85,7 +91,12 @@ bool ControllerCoordinator::add_midi(std::string endpoint_id,
     }
     for (const auto &binding : endpoint->profile.midi)
         if (!endpoint->adapter.add(binding, error)) return false;
-    mapper.add_control_surface(endpoint->adapter);
+    if (!mapper.add_control_surface(endpoint->adapter)) {
+        error = "MIDI controller adapter is already registered";
+        return false;
+    }
+    endpoint->mapper = &mapper;
+    endpoint->mapper_lifetime = mapper.lifetime_token();
     midi_.push_back(std::move(endpoint));
     error.clear();
     return true;
@@ -132,6 +143,9 @@ std::size_t ControllerCoordinator::dispatch_midi_feedback(
 void ControllerCoordinator::reconnect_midi() noexcept {
     for (auto &endpoint : midi_) endpoint->adapter.reconnect();
 }
+void ControllerCoordinator::disconnect_midi() noexcept {
+    for (auto &endpoint : midi_) endpoint->adapter.disconnect();
+}
 std::vector<ControllerEndpointState> ControllerCoordinator::states() const {
     std::vector<ControllerEndpointState> result;
     for (const auto &endpoint : serial_) {
@@ -144,7 +158,7 @@ std::vector<ControllerEndpointState> ControllerCoordinator::states() const {
                           endpoint->host.session_snapshot()});
     }
     for (const auto &endpoint : midi_) {
-        const auto &state = endpoint->session.state();
+        const auto state = endpoint->adapter.session_state();
         result.push_back({endpoint->id, "midi", endpoint->profile.port_selector,
                           endpoint->descriptor.device_id, endpoint->error, true,
                           0, state.received, 0,
@@ -181,6 +195,14 @@ void ControllerCoordinator::shutdown() noexcept {
     for (auto &endpoint : serial_) {
         endpoint->host.disconnected("application shutdown");
         endpoint->transport.close();
+    }
+    for (auto &endpoint : midi_) {
+        endpoint->adapter.disconnect();
+        if (endpoint->mapper && !endpoint->mapper_lifetime.expired()) {
+            endpoint->mapper->remove_control_surface(endpoint->adapter);
+        }
+        endpoint->mapper = nullptr;
+        endpoint->mapper_lifetime.reset();
     }
 }
 } // namespace neurogenic

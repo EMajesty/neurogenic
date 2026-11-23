@@ -24,6 +24,7 @@ class ControllerCoordinator {
     std::size_t dispatch_midi_feedback(
         const std::function<bool(const MidiMessage &)> &sender);
     void reconnect_midi() noexcept;
+    void disconnect_midi() noexcept;
     [[nodiscard]] std::vector<ControllerEndpointState> states() const;
     [[nodiscard]] MidiControlSurfaceAdapter *midi_surface(std::string_view id);
     [[nodiscard]] const MidiControllerProfile *midi_profile(std::string_view id) const;

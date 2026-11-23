@@ -1,6 +1,7 @@
 #pragma once
 #include "neurogenic/application/controller.hpp"
 #include "neurogenic/core/spsc_queue.hpp"
+#include "neurogenic/midi/routing.hpp"
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -8,6 +9,7 @@
 #include <deque>
 #include <filesystem>
 #include <mutex>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -15,6 +17,7 @@
 
 namespace neurogenic {
 class ControllerSession;
+struct ControllerSessionState;
 struct MidiMessage {
     std::uint8_t status{}, data1{}, data2{};
     std::uint64_t timestamp_ns{};
@@ -41,8 +44,10 @@ class MidiMapper {
     void set_raw_handler(RawHandler handler) {
         raw_handler_ = std::move(handler);
     }
-    void add_control_surface(class MidiControlSurfaceAdapter &surface) {
-        control_surfaces_.push_back(&surface);
+    bool add_control_surface(class MidiControlSurfaceAdapter &surface);
+    void remove_control_surface(class MidiControlSurfaceAdapter &surface) noexcept;
+    [[nodiscard]] std::weak_ptr<void> lifetime_token() const noexcept {
+        return lifetime_token_;
     }
     bool receive(const MidiMessage &) noexcept;
     bool dispatch_one();
@@ -57,11 +62,13 @@ class MidiMapper {
         std::string id;
         Action action;
     };
+    std::shared_ptr<void> lifetime_token_{std::make_shared<int>(0)};
     SpscQueue<MidiMessage, 257> inbox_;
     std::unordered_map<std::uint16_t, Entry> buttons_;
     NoteHandler note_handler_;
     NoteEventHandler note_event_handler_;
     RawHandler raw_handler_;
+    mutable std::mutex control_surfaces_mutex_;
     std::vector<class MidiControlSurfaceAdapter *> control_surfaces_;
     std::atomic<std::uint64_t> dropped_{}, sequence_{};
 };
@@ -78,6 +85,7 @@ struct MidiControlBinding {
     MidiControlMode mode{MidiControlMode::cc_absolute};
     std::string control_id;
     bool feedback{};
+    bool operator==(const MidiControlBinding &) const = default;
 };
 struct MidiControllerProfile {
     ControllerProfile controller;
@@ -112,11 +120,13 @@ class MidiControlSurfaceAdapter {
     void cancel_learn() noexcept;
     void update_learn_timeout() noexcept;
     [[nodiscard]] MidiLearnStatus learn_status() const;
+    [[nodiscard]] ControllerSessionState session_state() const;
     [[nodiscard]] std::vector<MidiControlBinding> bindings() const;
     void observe(const ApplicationState &);
     [[nodiscard]] std::optional<MidiMessage> next_feedback();
     void requeue_feedback(MidiMessage);
     void reconnect() noexcept;
+    void disconnect() noexcept;
   private:
     ControllerSession *session_{};
     std::vector<MidiControlBinding> bindings_;

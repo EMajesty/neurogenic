@@ -79,16 +79,24 @@ Multiple `--midi` and `--midi-out` options bind logical ports in command-line
 order. Projects persist logical selectors, routes, track assignments, clock
 source/output/forwarding settings, and latency-offset metadata. A non-real-time
 monitor checks once per second. A disconnected port reconnects only when the
-exact configured display name reappears; it never selects a different device.
+captured backend port identity reappears; it never selects a different device.
 Output reconnect requests panic cleanup.
 
 Third-party control-surface setup remains separate from projects. Create a
 schema-2 `.ngc` profile, add `midi-device|EXACT PORT NAME`, then add
-`midi|PORT|CHANNEL|NUMBER|MODE|CONTROL|feedback` records. Supported mode names
-are `note`, `absolute`, `relative-twos`, and `relative-offset`. Launch with
-`--midi-controller-profile profile.ngc`; configure a matching `--midi-out` when
-feedback is enabled. Profile authoring exposes begin-learn, cancel, status and
+`midi|PORT|CHANNEL|NUMBER|MODE|CONTROL|feedback` records. Canonical mode names
+are `note`, `cc-absolute`, `cc-relative-2c`, and `cc-relative-offset`;
+`absolute`, `relative-twos`, and `relative-offset` remain accepted aliases.
+Launch with `--midi-controller-profile profile.ngc`. Feedback mappings connect
+the same exact device on the corresponding logical output port when that
+device exposes MIDI output. Profile authoring exposes begin-learn, cancel, status and
 atomic save through the control-side C++ API; no graphical setup page exists.
+
+A logical port can intentionally carry both musical input and controller
+messages only when both configurations name the same exact device. Explicitly
+mapped messages are consumed by the controller session; unmatched notes, CCs
+and other messages continue through ordinary musical routing. Conflicting
+device selectors for one logical port are rejected before device startup.
 
 ## Hardware limits
 
