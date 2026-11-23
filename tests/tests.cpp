@@ -5608,6 +5608,21 @@ void test_physical_controller_protocol() {
     check(simulator.negotiate("test-controller") &&
               host.snapshot().connection == ControllerConnection::connected,
           "controller protocol negotiation");
+    check(host.snapshot().protocol_minor == 2 &&
+              (host.snapshot().capabilities & controller_inventory_068) &&
+              !(host.snapshot().capabilities & controller_analog),
+          "controller 1.2 inventory capabilities");
+    const auto dedicated_profile = full_performance_profile();
+    check(std::none_of(dedicated_profile.capabilities.controls.begin(),
+                       dedicated_profile.capabilities.controls.end(),
+                       [](const auto &control) {
+                           return control.type == ControlType::fader ||
+                                  control.type == ControlType::crossfader ||
+                                  control.id == "data.push";
+                       }),
+          "dedicated controller has no analog or encoder-push assumptions");
+    check(!simulator.analog(0, 32768),
+          "unavailable dedicated-controller analog input rejected");
     std::string protocol_error;
     check(
         host.receive({ControllerMessageType::capabilities, 2, {0x3f, 0, 0, 0}},
@@ -5718,13 +5733,29 @@ void test_physical_controller_protocol() {
     for (const auto id :
          {DedicatedControlId::play, DedicatedControlId::stop,
           DedicatedControlId::record, DedicatedControlId::select,
-          DedicatedControlId::data_push, DedicatedControlId::mode_step,
+          DedicatedControlId::mode_step,
           DedicatedControlId::mode_levels, DedicatedControlId::mode_notes,
           DedicatedControlId::page_previous, DedicatedControlId::page_next})
         check(simulator.button(static_cast<std::uint16_t>(id), true) &&
                   simulator.button(static_cast<std::uint16_t>(id), false),
               "controller dedicated button protocol");
+    for (std::uint16_t id = 36; id <= 69; ++id)
+        check(simulator.button(id, true) && simulator.button(id, false),
+              "controller Task 068 inventory event");
     (void)application.dispatch_pending();
+    check(simulator.button(50, true) && simulator.button(50, false) &&
+              simulator.button(999, true) && simulator.button(999, false),
+          "unassigned and unknown controller buttons are harmless");
+    host.set_brightness_limit(32);
+    host.publish(application.snapshot());
+    const auto dim_feedback = simulator.drain_feedback();
+    check(std::all_of(dim_feedback.begin(), dim_feedback.end(),
+                      [](const auto &packet) {
+                          return packet.type != ControllerMessageType::led ||
+                                 (!packet.payload.empty() &&
+                                  packet.payload.back() <= 32);
+                      }),
+          "controller RGB brightness limit");
     host.disconnected("test");
     check(host.snapshot().connection == ControllerConnection::disconnected,
           "controller disconnect lifecycle");
@@ -5767,6 +5798,12 @@ void test_physical_controller_protocol() {
                                  p.payload.size() <= 40;
                       }),
           "legacy contextual feedback payload");
+    ControllerHost version_11(application);
+    SimulatedController simulator_11(version_11);
+    check(simulator_11.negotiate("version-1.1", 1) &&
+              version_11.snapshot().connection ==
+                  ControllerConnection::connected,
+          "controller protocol 1.1 minor compatibility");
 
     ControllerHost bounded(application, 1);
     SimulatedController bounded_simulator(bounded);

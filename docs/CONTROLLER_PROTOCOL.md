@@ -35,8 +35,10 @@ All integers are little-endian. Messages are bounded to 256 payload bytes and
 
 The decoder resynchronizes after malformed bytes, rejects oversized and
 CRC-invalid frames, and retains incomplete frames. A major-version mismatch is
-fatal for that connection. Protocol 1.1 is current. A 1.0 device remains valid
-and receives the original label-only `CONTEXT` payload.
+fatal for that connection. Protocol 1.2 is current. A 1.0 device remains valid
+and receives the original label-only `CONTEXT` payload; 1.1 retains its extended
+context and historical inventory. Version 1.2 changes no framing or message
+encoding. It adds an inventory capability and non-overlapping IDs.
 
 ## Messages and control IDs
 
@@ -47,13 +49,15 @@ Stable message IDs are `HELLO=1`, `HELLO_REPLY=2`, `CAPABILITIES=3`,
 - `HELLO`: host major and minor (`u8`, `u8`).
 - `HELLO_REPLY`: major, minor, device-ID length, firmware-string length, then
   UTF-8 identity and firmware bytes.
-- `CAPABILITIES`: `u32` mask. Initial firmware advertises buttons, relative
-  encoders, absolute analog inputs, RGB, contextual feedback and heartbeat.
+- `CAPABILITIES`: `u32` mask: buttons (bit 0), relative encoders (1), optional
+  analog inputs (2), RGB (3), contextual feedback (4), heartbeat (5), and the
+  Task 068 inventory (6). The current dedicated surface does not set bit 2.
 - `BUTTON`: ID (`u16`) and pressed (`u8`). Both transitions are sent. See the
   stable control table below.
-- `ENCODER`: ID (`u16`) and signed delta (`i16`). IDs 0–7 are the smooth upper
-  encoders; ID 8 is the detented data wheel. No upper encoder push is assumed.
-- `ANALOG`: ID (`u16`) and raw `u16`. IDs 0–3 are faders and ID 4 crossfader.
+- `ENCODER`: ID (`u16`) and signed delta (`i16`). IDs 0–7 are contextual
+  encoders; ID 8 is the main data encoder. None has a push switch.
+- `ANALOG`: ID (`u16`) and raw `u16`, retained for optional/legacy controllers.
+  The current dedicated surface advertises no analog capability.
 - `LED`: ID (`u16`), RGB (`0x00RRGGBB`, `u32`), brightness (`u8`).
 - `CONTEXT` 1.0: ID (`u16`), active (`u8`), label length (`u8`), label.
 - `CONTEXT` 1.1: ID (`u16`), flags (`u8`: active, bipolar, pickup), signed
@@ -81,7 +85,7 @@ effective parameter target. Direction is observable; acquisition occurs within
 the calibrated dead zone. Scene/automation changes invalidate acquisition when
 the control is no longer near the new target. Firmware reports raw detents;
 Shift selects 0.1× fine steps and deltas of four or more receive bounded 2×
-host acceleration.
+host acceleration for contextual and data encoders.
 
 Named contexts select explicit parameters for sequencer, sample, instrument,
 mixer, routing and modulation pages; they never depend on registry order. Every
@@ -94,33 +98,29 @@ lower buttons to Undo/Redo. GUI and serial use `build_controller_context()`.
 |---:|---|
 | 0–15 | performance grid, physical 2×8 |
 | 16–23 | contextual lower buttons 1–8 |
-| 24 | Play |
-| 25 | Stop |
-| 26 | Record |
-| 27 | Shift |
-| 28 | Select |
-| 29 | data-wheel push |
-| 30 | STEP mode |
-| 31 | PAD mode |
-| 32 | 16 LEVELS mode |
-| 33 | 16 NOTES mode |
-| 34 | previous page |
-| 35 | next page |
+| 24–35 | legacy 1.1 Play, Stop, Record, Shift, Select, data-push, modes and page pair |
+| 36–43 | page-selection buttons 1–8 |
+| 44–53 | editing-cluster buttons 1–10 (unassigned positions remain inert) |
+| 54–63 | transport/performance-cluster buttons 1–10 (unassigned positions remain inert) |
+| 64–69 | navigation Up, Down, Left, Right, Confirm, Back |
 
-Encoder IDs 0–7 are upper controls and 8 is the data wheel. Analog IDs 0–3
-are faders and 4 is the crossfader. Protocol 1.0 retains its historical 24–27
-mode-button interpretation; firmware using this table must negotiate 1.1.
+Encoder IDs 0–7 are contextual controls and 8 is the main data encoder. The
+1.2 controller sends no encoder-button event. IDs 24–35 are not reinterpreted:
+they remain available to 1.1 devices, while new firmware uses the 1.2 ranges.
+Protocol 1.0 retains its historical 24–27 mode-button interpretation.
 
 Grid LEDs show programmed steps, playhead, selection, pad assignment and
 velocity/note modes. Dedicated LEDs show mode, Play, Record, Shift and Select.
-Only changes are sent, brightness is capped at 224, and queue overflow forces a
-later full refresh rather than accepting a partial state.
+Only changes are sent, brightness has a configurable host cap (224 default),
+and queue overflow forces a later full refresh rather than accepting a partial
+state. LED IDs are logical control IDs; firmware maps them to chain offsets.
 
 ## Simulator and diagnostics
 
 `SimulatedController` uses the same session and application dispatch as serial.
-Tests negotiate, toggle a real step, switch modes, exercise fader pickup,
-receive RGB/context packets, disconnect and saturate feedback queues.
+Tests negotiate legacy and current versions, exercise every 1.2 control group,
+reject absent analog controls, receive RGB/context packets, reconnect and
+saturate feedback queues.
 
 ```sh
 ./build/dev/neurogenic-diagnostics --controller-protocol-test
@@ -132,9 +132,9 @@ receive RGB/context packets, disconnect and saturate feedback queues.
 
 Firmware must implement framing/CRC, bounded receive storage, negotiation,
 stable identity, capabilities, press/release events, signed encoder deltas,
-raw 16-bit analog values, RGB/brightness output, heartbeat, reset notification
-and full output refresh. It should debounce buttons and retain calibration but
-must not infer STEP/PAD musical behavior.
+RGB/brightness output, heartbeat, reset notification and full output refresh.
+Analog reports are optional. Firmware owns switch debouncing, quadrature
+decoding and logical-ID-to-scan/LED mapping, but must not infer musical behavior.
 
 USB descriptors, pin mapping, electrical LED limits, bootloader and firmware
 update behavior are outside this task. Current limitations: no HID adapter,

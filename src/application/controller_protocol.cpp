@@ -456,7 +456,7 @@ bool ControllerHost::receive(const ControllerPacket &p,
                                            p.sequence});
         else if (id == static_cast<std::uint16_t>(
                            DedicatedControlId::data_push) &&
-                 pressed)
+                 pressed && state_.protocol_minor <= 1)
             queued = application_->submit({"navigation.confirm.v1",
                                            {},
                                            "physical-controller",
@@ -484,6 +484,23 @@ bool ControllerHost::receive(const ControllerPacket &p,
                  pressed)
             queued = application_->submit(
                 {"step.page-next.v1", {}, "physical-controller", p.sequence});
+        else if (id >= 36 && id <= 43 && pressed) {
+            static constexpr std::string_view contexts[]{
+                "sequencer", "samples", "parameters", "mixer",
+                "modulation", "routing", "recording", "midi"};
+            queued = application_->submit(
+                {"controller.context-select.v1",
+                 {{"context", std::string(contexts[id - 36])}},
+                 "physical-controller", p.sequence});
+        } else if (id >= 64 && id <= 69 && pressed) {
+            static constexpr std::string_view actions[]{
+                "navigation.focus-previous.v1", "navigation.focus-next.v1",
+                "step.page-previous.v1", "step.page-next.v1",
+                "navigation.confirm.v1", "navigation.cancel.v1"};
+            queued = application_->submit(
+                {std::string(actions[id - 64]), {}, "physical-controller",
+                 p.sequence});
+        }
         if (!queued)
             ++state_.dropped_input;
     } else if (p.type == ControllerMessageType::encoder) {
@@ -512,11 +529,23 @@ bool ControllerHost::receive(const ControllerPacket &p,
                      "physical-controller",
                      p.sequence}))
                 ++state_.dropped_input;
-        } else
-            dispatch_input("data", delta, true, p.sequence);
+        } else if (id == 8) {
+            const auto snapshot = application_->snapshot();
+            double steps = delta;
+            if (snapshot.modifiers.shift || snapshot.modifiers.shift_latched)
+                steps *= 0.1;
+            else if (std::abs(delta) >= 4)
+                steps *= 2;
+            dispatch_input("data", steps, true, p.sequence);
+        }
     } else if (p.type == ControllerMessageType::analog) {
         if (p.payload.size() != 4) {
             error = "invalid analog payload";
+            return false;
+        }
+        if (state_.protocol_minor >= 2 &&
+            !(state_.capabilities & controller_analog)) {
+            error = "analog controls are unavailable in negotiated profile";
             return false;
         }
         const auto id = read16(p.payload.data()),
@@ -582,7 +611,7 @@ void ControllerHost::publish(const ApplicationState &s) {
         std::vector<std::uint8_t> b;
         append16(b, id);
         append32(b, color);
-        b.push_back(std::min<std::uint8_t>(brightness, 224));
+        b.push_back(std::min(brightness, brightness_limit_));
         enqueue({ControllerMessageType::led, sequence_++, std::move(b)});
     };
     const auto track =
@@ -799,7 +828,20 @@ bool SimulatedController::negotiate(std::string id, std::uint8_t minor) {
                                 static_cast<std::uint8_t>(id.size()), 3};
     p.insert(p.end(), id.begin(), id.end());
     p.insert(p.end(), {'s', 'i', 'm'});
-    return send(ControllerMessageType::hello_reply, std::move(p));
+    if (!send(ControllerMessageType::hello_reply, std::move(p)))
+        return false;
+    if (minor >= 2) {
+        const auto capabilities =
+            controller_buttons | controller_relative_encoders | controller_rgb |
+            controller_context_feedback | controller_heartbeat |
+            controller_inventory_068;
+        return send(ControllerMessageType::capabilities,
+                    {static_cast<std::uint8_t>(capabilities),
+                     static_cast<std::uint8_t>(capabilities >> 8),
+                     static_cast<std::uint8_t>(capabilities >> 16),
+                     static_cast<std::uint8_t>(capabilities >> 24)});
+    }
+    return true;
 }
 bool SimulatedController::button(std::uint16_t id, bool pressed) {
     std::vector<std::uint8_t> p;

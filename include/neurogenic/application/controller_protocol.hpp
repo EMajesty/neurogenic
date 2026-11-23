@@ -11,7 +11,7 @@
 
 namespace neurogenic {
 inline constexpr std::uint8_t controller_protocol_major = 1;
-inline constexpr std::uint8_t controller_protocol_minor = 1;
+inline constexpr std::uint8_t controller_protocol_minor = 2;
 inline constexpr std::size_t controller_maximum_payload = 256;
 inline constexpr std::size_t controller_maximum_frame = 268;
 
@@ -71,6 +71,7 @@ struct ContextControl {
     std::uint64_t feedback_revision{};
 };
 enum class DedicatedControlId : std::uint16_t {
+    // 24..35 retain their protocol-1.1 meanings for legacy devices.
     play = 24,
     stop,
     record,
@@ -82,7 +83,50 @@ enum class DedicatedControlId : std::uint16_t {
     mode_levels,
     mode_notes,
     page_previous,
-    page_next
+    page_next,
+    page_select_1 = 36,
+    page_select_2,
+    page_select_3,
+    page_select_4,
+    page_select_5,
+    page_select_6,
+    page_select_7,
+    page_select_8 = 43,
+    edit_1 = 44,
+    edit_2,
+    edit_3,
+    edit_4,
+    edit_5,
+    edit_6,
+    edit_7,
+    edit_8,
+    edit_9,
+    edit_10 = 53,
+    performance_1 = 54,
+    performance_2,
+    performance_3,
+    performance_4,
+    performance_5,
+    performance_6,
+    performance_7,
+    performance_8,
+    performance_9,
+    performance_10 = 63,
+    navigation_up = 64,
+    navigation_down,
+    navigation_left,
+    navigation_right,
+    navigation_confirm,
+    navigation_back
+};
+enum ControllerCapability : std::uint32_t {
+    controller_buttons = 1u << 0,
+    controller_relative_encoders = 1u << 1,
+    controller_analog = 1u << 2,
+    controller_rgb = 1u << 3,
+    controller_context_feedback = 1u << 4,
+    controller_heartbeat = 1u << 5,
+    controller_inventory_068 = 1u << 6
 };
 struct AnalogCalibration {
     std::uint16_t minimum{}, maximum{65535}, dead_zone{128};
@@ -101,7 +145,7 @@ struct ControllerProtocolState {
     std::array<bool, 5> pickup_acquired{};
     std::array<std::int8_t, 5> pickup_direction{};
     std::array<std::int32_t, 9> encoders{};
-    std::array<std::uint32_t, 48> leds{};
+    std::array<std::uint32_t, 70> leds{};
     std::array<ContextControl, 16> context{};
 };
 
@@ -116,6 +160,10 @@ class ControllerHost {
     void disconnected(std::string reason = {});
     bool set_analog_calibration(std::size_t, AnalogCalibration,
                                 std::string &error) noexcept;
+    void set_brightness_limit(std::uint8_t value) noexcept {
+        brightness_limit_ = value;
+        state_.feedback_revision = ~std::uint64_t{};
+    }
     [[nodiscard]] std::optional<ControllerPacket> next_output() noexcept;
     [[nodiscard]] ControllerProtocolState snapshot() const { return state_; }
 
@@ -132,6 +180,7 @@ class ControllerHost {
     std::array<bool, 5> pickup_{};
     std::array<double, 5> pickup_target_{};
     std::array<double, 5> last_effective_target_{};
+    std::uint8_t brightness_limit_{224};
 };
 
 class ControllerSerialTransport {

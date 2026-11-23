@@ -286,15 +286,34 @@ ControllerProfile full_performance_profile() {
             "parameter." + std::to_string(i), ControlType::relative_encoder,
             "Parameter " + std::to_string(i + 1),
             {FeedbackType::parameter_value}));
+    for (int i = 0; i < 8; ++i) {
+        profile.capabilities.controls.push_back(control(
+            "function." + std::to_string(i), ControlType::momentary_button,
+            "Context Function " + std::to_string(i + 1),
+            {FeedbackType::single_led}));
+        profile.capabilities.controls.push_back(control(
+            "page." + std::to_string(i), ControlType::momentary_button,
+            "Page " + std::to_string(i + 1), {FeedbackType::single_led}));
+    }
+    for (int i = 0; i < 10; ++i) {
+        profile.capabilities.controls.push_back(control(
+            "edit." + std::to_string(i), ControlType::momentary_button,
+            "Edit " + std::to_string(i + 1), {FeedbackType::single_led}));
+        profile.capabilities.controls.push_back(control(
+            "performance." + std::to_string(i),
+            ControlType::momentary_button,
+            "Performance " + std::to_string(i + 1),
+            {FeedbackType::single_led}));
+    }
+    static constexpr std::string_view navigation[]{"up", "down", "left",
+                                                    "right", "confirm", "back"};
+    for (const auto name : navigation)
+        profile.capabilities.controls.push_back(control(
+            "navigation." + std::string(name), ControlType::momentary_button,
+            "Navigation " + std::string(name), {FeedbackType::single_led}));
     profile.capabilities.controls.insert(
         profile.capabilities.controls.end(),
         {control("data", ControlType::relative_encoder, "Data"),
-         control("data.push", ControlType::momentary_button, "Enter"),
-         control("fader.1", ControlType::fader),
-         control("fader.2", ControlType::fader),
-         control("fader.3", ControlType::fader),
-         control("fader.4", ControlType::fader),
-         control("crossfader", ControlType::crossfader),
          control("play", ControlType::momentary_button, "Play",
                  {FeedbackType::single_led}),
          control("stop", ControlType::momentary_button, "Stop",
@@ -307,12 +326,7 @@ ControllerProfile full_performance_profile() {
     data.feedback_id = "parameter.display.0";
     profile.bindings = {action_binding("play", "transport.play.v1", "led.play"),
                         action_binding("stop", "transport.stop.v1", "led.stop"),
-                        action_binding("data.push", "navigation.confirm.v1"),
                         std::move(data)};
-    auto preview = action_binding("data.push", "slice.preview.v1");
-    preview.shift = true;
-    preview.label = "Preview selected slice";
-    profile.bindings.push_back(std::move(preview));
     return profile;
 }
 ControllerProfile minimal_controller_profile() {

@@ -122,9 +122,11 @@ negotiation, semantic dispatch and revisioned feedback. None is visible to the
 audio callback. The packet/session boundary permits a future HID transport.
 The revisioned `ApplicationState::controller_context` selects explicit mapping
 groups. `build_controller_context()` combines context, focus, modifiers,
-performance mode and parameter metadata for both GUI and CDC clients. Absolute
-pickup compares calibrated raw state against effective values and cannot write
-DSP parameters until acquired.
+performance mode and parameter metadata for SDL3, Slint and CDC clients. The
+protocol exposes logical controls and LEDs, never RP2040 GPIOs, shift-register
+positions or LED-chain offsets. Protocol 1.2's current dedicated profile has no
+analog controls; optional MIDI/legacy analog adapters retain binding-service
+pickup independently.
 
 Timeline-owned sample and synth voices render into fixed per-track buffers.
 The bounded mixer applies channel gain/pan/mute/solo, eight acyclic stereo group

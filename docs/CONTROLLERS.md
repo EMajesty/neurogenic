@@ -24,15 +24,18 @@ without assuming a 16-button bank. Task 044 adds no physical mapping.
 The dedicated 2×8 controller uses the host protocol in
 [CONTROLLER_PROTOCOL.md](CONTROLLER_PROTOCOL.md). Its MCU reports raw controls;
 the host resolves pages, modes, actions, parameters and RGB feedback. The eight
-upper parameter encoders are explicitly smooth, non-push controls.
+upper parameter encoders and the main data encoder are explicitly non-push
+controls. Eight page buttons, eight lower contextual buttons, two ten-position
+clusters and six navigation buttons are distinct logical groups. See the
+[hardware boundary](CONTROLLER_HARDWARE_MAPPING.md).
 
 `build_controller_context()` is the mapping source for serial feedback and GUI
 edge labels. Contexts name explicit stable parameters rather than taking the
 first eight registry entries. Relative encoders clamp through
 `ParameterRegistry`; Shift gives fine adjustment and larger deltas receive
-bounded acceleration. Faders and the crossfader use calibrated target-aware
-soft takeover. The stable ID table and 1.0/1.1 formats are in the protocol
-document.
+bounded acceleration. The dedicated profile has no integrated faders or
+crossfader; generic MIDI controllers may still use binding-service pickup. The
+stable ID table and 1.0–1.2 formats are in the protocol document.
 
 Mixer clients use `mixer.channel-select.v1`, `mixer.gain-set.v1`,
 `mixer.pan-set.v1`, `mixer.mute-toggle.v1`, `mixer.solo-toggle.v1`,
@@ -146,10 +149,10 @@ validation. The parser does not yet persist feedback capability declarations
 or static action arguments. Complete examples are under
 [`examples/controllers`](../examples/controllers):
 
-- `full-performance.ngc`: representative performance controls, encoders,
-  fader and transport bindings. The C++ built-in capability profile additionally
-  declares 16 RGB grid buttons, eight encoders, four faders, a crossfader,
-  Shift/Select, mode buttons and optional touchscreen.
+- `full-performance.ngc`: a legacy representative profile. The C++ dedicated
+  capability profile declares 16 RGB performance buttons, eight contextual
+  encoders, a non-push data encoder and semantic transport/modifier controls;
+  it deliberately declares no integrated analog controls.
 - `minimal.ngc`: data encoder, Enter, Back and optional joystick/display.
 - `generic-midi.ngc`: generic buttons, knob and fader mappings.
 

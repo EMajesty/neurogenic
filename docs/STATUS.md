@@ -133,6 +133,13 @@ IDs, typed descriptors, semantic actions, modulation/automation destinations and
 versioned persistence. Plugin hosting, topology crossfades, presets and latency
 compensation remain deferred.
 
+Task 068 reconciles the dedicated controller with the current modular RP2040
+surface. Compatible protocol 1.2 adds explicit page, edit, performance and
+navigation groups, removes analog and encoder-push requirements from the current
+capability profile, preserves legacy IDs, shares authoritative contextual data
+with Slint/SDL3, and keeps LED-chain/scanning details in future firmware.
+Physical electrical and firmware validation remain outstanding.
+
 Task 037 advances the controller protocol to compatible version 1.1 with
 bounded formatted values/ranges/units/revisions, explicit page mappings shared
 by GUI and hardware, finalized dedicated IDs, fine/accelerated encoders,
