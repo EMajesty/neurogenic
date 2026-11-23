@@ -116,6 +116,37 @@ export component ParameterDisplay inherits Rectangle {
     Text { text: root.name + ": " + root.value; color: Theme.foreground; overflow: elide; vertical-alignment: center; }
 }
 
+export component WaveformOverview inherits Rectangle {
+    in property <[float]> left-peaks;
+    in property <[float]> right-peaks;
+    in property <[float]> markers;
+    in property <float> region-start: 0;
+    in property <float> region-end: 1;
+    in property <bool> stereo: false;
+    in property <float> zoom: 1;
+    callback position-selected(float);
+    callback zoom-requested(float);
+    background: Theme.background; border-width: 1px; border-color: Theme.muted;
+    Rectangle { x: root.region-start * parent.width; width: max(2px, (root.region-end - root.region-start) * parent.width); height: parent.height; background: #223fb9c5; }
+    for peak[i] in root.left-peaks: Rectangle {
+        x: i * root.width / max(1, root.left-peaks.length);
+        width: max(1px, root.width / max(1, root.left-peaks.length));
+        height: max(1px, peak * (root.stereo ? root.height * 0.42 : root.height * 0.82));
+        y: (root.stereo ? root.height * 0.25 : root.height * 0.5) - self.height / 2;
+        background: Theme.accent;
+    }
+    for peak[i] in root.right-peaks: Rectangle {
+        visible: root.stereo;
+        x: i * root.width / max(1, root.right-peaks.length);
+        width: max(1px, root.width / max(1, root.right-peaks.length));
+        height: max(1px, peak * root.height * 0.42);
+        y: root.height * 0.75 - self.height / 2;
+        background: Theme.selected;
+    }
+    for marker in root.markers: Rectangle { x: marker * root.width; width: 2px; height: root.height; background: Theme.warning; }
+    TouchArea { clicked => { root.position-selected(self.mouse-x / max(1px, self.width)); } }
+}
+
 export component Notification inherits Rectangle {
     in property <string> message: "";
     callback dismissed();

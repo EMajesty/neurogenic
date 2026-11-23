@@ -2,6 +2,7 @@
 #include "performance.h"
 #include <slint.h>
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -34,6 +35,16 @@ void publish(const SlintUiState &state,
     window->set_selected_velocity(text(state.sequencer.selected_velocity));
     window->set_selected_duration(text(state.sequencer.selected_duration));
     window->set_arrangement_loop(text(state.sequencer.loop_range));
+    window->set_sample_slot(static_cast<int>(state.sample.slot));
+    window->set_sample_name(text(state.sample.name));
+    window->set_sample_status(text(state.sample.status));
+    window->set_sample_metadata(text(state.sample.metadata));
+    window->set_sample_error(text(state.sample.error));
+    window->set_analysis_status(text(state.sample.analysis_status));
+    window->set_processing_status(text(state.sample.processing_status));
+    window->set_sample_ready(state.sample.ready);
+    window->set_sample_stereo(state.sample.channels > 1);
+    window->set_waveform_zoom(state.sample.zoom);
     std::vector<ContextItem> encoders, functions;
     std::vector<PageItem> pages;
     std::vector<SceneItem> scenes;
@@ -84,6 +95,58 @@ void publish(const SlintUiState &state,
                                item.enabled});
     window->set_arrangement_items(
         std::make_shared<slint::VectorModel<ArrangementItem>>(std::move(arrangement)));
+    const auto visible_fraction = 1.0F / std::max(1.0F, state.sample.zoom);
+    const auto visible_start = state.sample.offset * (1.0F - visible_fraction);
+    const auto visible_end = visible_start + visible_fraction;
+    const auto first_peak = static_cast<std::size_t>(
+        visible_start * state.sample.waveform.size());
+    const auto last_peak = std::min(state.sample.waveform.size(),
+        static_cast<std::size_t>(std::ceil(visible_end * state.sample.waveform.size())));
+    std::vector<float> waveform_left, waveform_right, markers;
+    waveform_left.reserve(last_peak - std::min(first_peak, last_peak));
+    waveform_right.reserve(last_peak - std::min(first_peak, last_peak));
+    for (auto i = first_peak; i < last_peak; ++i) {
+        const auto &peak = state.sample.waveform[i];
+        waveform_left.push_back(std::max(std::abs(peak.left_min), std::abs(peak.left_max)));
+        waveform_right.push_back(std::max(std::abs(peak.right_min), std::abs(peak.right_max)));
+    }
+    if (state.sample.frames)
+        for (const auto &slice : state.sample.slices) {
+            const auto normalized = static_cast<float>(slice.start_frame) /
+                                    static_cast<float>(state.sample.frames);
+            if (normalized >= visible_start && normalized <= visible_end)
+                markers.push_back((normalized - visible_start) / visible_fraction);
+        }
+    window->set_waveform_left(
+        std::make_shared<slint::VectorModel<float>>(std::move(waveform_left)));
+    window->set_waveform_right(
+        std::make_shared<slint::VectorModel<float>>(std::move(waveform_right)));
+    window->set_slice_markers(
+        std::make_shared<slint::VectorModel<float>>(std::move(markers)));
+    const auto normalized_region_start = state.sample.frames
+        ? static_cast<float>(state.sample.region_start) / state.sample.frames : 0.0F;
+    const auto normalized_region_end = state.sample.frames
+        ? static_cast<float>(state.sample.region_end) / state.sample.frames : 1.0F;
+    window->set_region_start(std::clamp((normalized_region_start - visible_start) /
+                                        visible_fraction, 0.0F, 1.0F));
+    window->set_region_end(std::clamp((normalized_region_end - visible_start) /
+                                      visible_fraction, 0.0F, 1.0F));
+    std::vector<SliceItem> slices;
+    for (const auto &slice : state.sample.slices)
+        slices.push_back({static_cast<int>(slice.id), text(slice.label),
+                          text(std::to_string(slice.start_frame) + ".." +
+                               std::to_string(slice.end_frame)),
+                          slice.selected, slice.assigned});
+    window->set_sample_slices(
+        std::make_shared<slint::VectorModel<SliceItem>>(std::move(slices)));
+    std::vector<RegionItem> regions;
+    for (const auto &region : state.sample.regions)
+        regions.push_back({static_cast<int>(region.id), text(region.label),
+                           text(std::to_string(region.start_frame) + ".." +
+                                std::to_string(region.end_frame)),
+                           text(region.fade), text(region.loop), region.selected});
+    window->set_sample_regions(
+        std::make_shared<slint::VectorModel<RegionItem>>(std::move(regions)));
 }
 } // namespace
 
@@ -185,6 +248,81 @@ int run_slint_frontend(ApplicationService &application,
                 (void)adapter.set_step_velocity(std::max(0.0, snapshot.selected_event ? snapshot.selected_event->velocity - 0.05 : 0.0));
             else if (operation == "length-up")
                 (void)adapter.set_step_duration(snapshot.selected_event ? snapshot.selected_event->duration + snapshot.step_ticks : snapshot.step_ticks);
+            publish(adapter.state(), window);
+        });
+        window->on_sample_slot_selected([&](int direction) {
+            (void)adapter.select_sample_slot(direction);
+            publish(adapter.state(), window);
+        });
+        window->on_sample_load([&](slint::SharedString path) {
+            (void)adapter.load_sample(path.data());
+            publish(adapter.state(), window);
+        });
+        window->on_waveform_selected([&](float normalized) {
+            const auto &sample = adapter.state().sample;
+            const auto visible_fraction = 1.0F / std::max(1.0F, sample.zoom);
+            const auto absolute = sample.offset * (1.0F - visible_fraction) +
+                                  normalized * visible_fraction;
+            (void)adapter.create_slice(static_cast<std::uint64_t>(
+                absolute * sample.frames));
+            publish(adapter.state(), window);
+        });
+        window->on_waveform_zoomed([&](float zoom) {
+            (void)adapter.set_waveform_view(zoom, adapter.state().sample.offset);
+            publish(adapter.state(), window);
+        });
+        window->on_slice_selected([&](int index) {
+            (void)adapter.select_slice(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_slice_action([&](slint::SharedString operation) {
+            if (operation == "delete")
+                (void)adapter.delete_selected_slice();
+            else if (operation == "assign")
+                (void)adapter.assign_selected_slice(application.snapshot().selected_pad);
+            publish(adapter.state(), window);
+        });
+        window->on_region_selected([&](int index) {
+            (void)adapter.select_region(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_region_action([&](slint::SharedString operation) {
+            const auto &sample = adapter.state().sample;
+            const auto increment = std::max<std::uint64_t>(1, sample.frames / 1000);
+            if (operation == "loop")
+                (void)adapter.toggle_region_loop();
+            else if (operation == "start-down")
+                (void)adapter.set_region_bounds(sample.region_start > increment
+                    ? sample.region_start - increment : 0, sample.region_end);
+            else if (operation == "start-up")
+                (void)adapter.set_region_bounds(sample.region_start + increment,
+                                                sample.region_end);
+            else if (operation == "end-down")
+                (void)adapter.set_region_bounds(sample.region_start,
+                    sample.region_end > increment ? sample.region_end - increment : 0);
+            else if (operation == "end-up")
+                (void)adapter.set_region_bounds(sample.region_start,
+                    std::min(sample.frames, sample.region_end + increment));
+            else if (operation == "fade-in")
+                (void)adapter.set_region_fades(sample.fade_in + increment,
+                                               sample.fade_out);
+            else if (operation == "fade-out")
+                (void)adapter.set_region_fades(sample.fade_in,
+                                               sample.fade_out + increment);
+            publish(adapter.state(), window);
+        });
+        window->on_sample_preview([&](slint::SharedString target) {
+            if (target == "stop") (void)adapter.stop_preview();
+            else (void)adapter.preview_sample(target.data());
+            publish(adapter.state(), window);
+        });
+        window->on_sample_analysis([&](slint::SharedString operation) {
+            if (operation == "start") (void)adapter.analyze_transients();
+            else (void)adapter.apply_analysis(operation == "accept");
+            publish(adapter.state(), window);
+        });
+        window->on_sample_processing([&](slint::SharedString operation) {
+            (void)adapter.start_processing(operation.data());
             publish(adapter.state(), window);
         });
         window->on_notification_dismissed([&] {

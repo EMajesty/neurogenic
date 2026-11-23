@@ -91,11 +91,44 @@ struct SlintSequencerPageState {
     std::string loop_range{"Off"};
 };
 
+struct SlintWaveformPeak {
+    float left_min{}, left_max{}, right_min{}, right_max{};
+};
+
+struct SlintSliceMarker {
+    std::uint64_t id{}, start_frame{}, end_frame{};
+    std::string label;
+    bool selected{}, assigned{};
+};
+
+struct SlintRegionItem {
+    std::uint64_t id{}, start_frame{}, end_frame{};
+    std::string label, fade, loop;
+    bool selected{};
+};
+
+struct SlintSamplePageState {
+    std::uint32_t slot{};
+    std::string name{"Empty slot"}, status{"Empty"}, metadata{"Unavailable"},
+        analysis_status{"Idle"}, processing_status{"Idle"}, error;
+    std::uint64_t active_revision{}, frames{}, region_start{}, region_end{};
+    std::uint32_t sample_rate{};
+    std::uint16_t channels{};
+    double duration_seconds{};
+    float zoom{1.0F}, offset{};
+    bool ready{}, loading{}, missing{}, previewing{}, loop_enabled{};
+    std::uint64_t fade_in{}, fade_out{}, loop_start{}, loop_end{};
+    std::vector<SlintWaveformPeak> waveform;
+    std::vector<SlintSliceMarker> slices;
+    std::vector<SlintRegionItem> regions;
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
     SlintPerformancePageState performance;
     SlintSequencerPageState sequencer;
+    SlintSamplePageState sample;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -128,6 +161,26 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool cycle_step_resolution();
     [[nodiscard]] bool toggle_arrangement_view();
     [[nodiscard]] bool select_arrangement_clip(std::size_t index);
+    [[nodiscard]] bool select_sample_slot(int direction);
+    [[nodiscard]] bool load_sample(std::string path);
+    [[nodiscard]] bool select_slice(std::size_t index);
+    [[nodiscard]] bool create_slice(std::uint64_t frame);
+    [[nodiscard]] bool move_selected_slice(std::uint64_t start,
+                                           std::uint64_t end);
+    [[nodiscard]] bool delete_selected_slice();
+    [[nodiscard]] bool assign_selected_slice(std::size_t pad);
+    [[nodiscard]] bool preview_sample(std::string_view target);
+    [[nodiscard]] bool stop_preview();
+    [[nodiscard]] bool analyze_transients();
+    [[nodiscard]] bool apply_analysis(bool accept);
+    [[nodiscard]] bool select_region(std::size_t index);
+    [[nodiscard]] bool set_region_bounds(std::uint64_t start,
+                                         std::uint64_t end);
+    [[nodiscard]] bool toggle_region_loop();
+    [[nodiscard]] bool set_region_fades(std::uint64_t fade_in,
+                                        std::uint64_t fade_out);
+    [[nodiscard]] bool start_processing(std::string operation);
+    [[nodiscard]] bool set_waveform_view(float zoom, float offset);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }

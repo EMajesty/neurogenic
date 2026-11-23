@@ -1,5 +1,6 @@
 #include "neurogenic/ui/slint_adapter.hpp"
 #include <algorithm>
+#include <cmath>
 
 namespace neurogenic {
 namespace {
@@ -81,7 +82,8 @@ bool SlintFrontendAdapter::refresh() {
                                 : state_.shell.page_title;
     for (const auto &[id, title] : pages)
         next.shell.pages.push_back({std::string(id), std::string(title),
-                                    id == "performance" || id == "sequencer"});
+                                    id == "performance" || id == "sequencer" ||
+                                        id == "sample"});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -125,7 +127,12 @@ bool SlintFrontendAdapter::refresh() {
         }
     }
 
-    const auto context = build_controller_context(snapshot);
+    const auto context_name = next.shell.page_id == "sample"
+        ? std::string_view("samples")
+        : next.shell.page_id == "performance" ? std::string_view("performance")
+                                                : std::string_view("sequencer");
+    const auto context =
+        resolve_controller_context(snapshot, context_name, snapshot.modifiers);
     for (std::size_t i = 0; i < 8; ++i) {
         const auto copy = [](const ContextControl &from) {
             return SlintContextItem{from.label.empty() ? "Unavailable"
@@ -237,6 +244,105 @@ bool SlintFrontendAdapter::refresh() {
         ? std::to_string(snapshot.arrangement_loop_start) + " - " +
               std::to_string(snapshot.arrangement_loop_end)
         : "Off";
+
+    next.sample.slot = snapshot.selected_sample_slot.value;
+    next.sample.zoom = state_.sample.zoom <= 0 ? 1.0F : state_.sample.zoom;
+    next.sample.offset = state_.sample.offset;
+    if (const auto slot = std::find_if(
+            snapshot.sample_slots.begin(), snapshot.sample_slots.end(),
+            [&](const auto &value) {
+                return value.id == snapshot.selected_sample_slot;
+            });
+        slot != snapshot.sample_slots.end()) {
+        next.sample.active_revision = slot->active_revision;
+        next.sample.frames = slot->frames;
+        next.sample.sample_rate = slot->source_sample_rate;
+        next.sample.channels = slot->channels;
+        next.sample.duration_seconds = slot->duration_seconds;
+        next.sample.name = slot->source_path.empty()
+            ? "Slot " + std::to_string(slot->id.value)
+            : slot->source_path.filename().string();
+        next.sample.error = slot->error;
+        next.sample.ready = slot->state == SampleSlotLoadState::loaded;
+        next.sample.loading = slot->state == SampleSlotLoadState::queued ||
+                              slot->state == SampleSlotLoadState::preparing ||
+                              slot->state == SampleSlotLoadState::prepared ||
+                              slot->state == SampleSlotLoadState::pending_activation;
+        next.sample.missing = slot->state == SampleSlotLoadState::error;
+        switch (slot->state) {
+        case SampleSlotLoadState::empty: next.sample.status = "Empty"; break;
+        case SampleSlotLoadState::queued: next.sample.status = "Queued"; break;
+        case SampleSlotLoadState::preparing: next.sample.status = "Loading"; break;
+        case SampleSlotLoadState::prepared: next.sample.status = "Prepared"; break;
+        case SampleSlotLoadState::pending_activation:
+            next.sample.status = "Activating"; break;
+        case SampleSlotLoadState::loaded: next.sample.status = "Ready"; break;
+        case SampleSlotLoadState::error: next.sample.status = "Error"; break;
+        }
+        next.sample.metadata = slot->has_sample
+            ? std::to_string(slot->source_sample_rate) + " Hz  " +
+                  std::to_string(slot->channels) + " ch  " +
+                  std::to_string(slot->frames) + " frames"
+            : "No active sample";
+    }
+    next.sample.waveform.reserve(snapshot.waveform_peaks.size());
+    for (const auto &peak : snapshot.waveform_peaks)
+        next.sample.waveform.push_back(
+            {peak.left_min, peak.left_max, peak.right_min, peak.right_max});
+    for (const auto &slice : snapshot.slices) {
+        const auto assigned = std::any_of(
+            snapshot.slice_pad_assignments.begin(),
+            snapshot.slice_pad_assignments.end(),
+            [&](const auto &id) { return id && *id == slice.id; });
+        next.sample.slices.push_back(
+            {slice.id, slice.start_frame, slice.end_frame,
+             slice.name.empty() ? "Slice " + std::to_string(slice.id)
+                                : slice.name,
+             slice.id == snapshot.selected_slice, assigned});
+    }
+    for (const auto &region : snapshot.regions) {
+        next.sample.regions.push_back(
+            {region.id, region.start_frame, region.end_frame,
+             region.name.empty() ? "Region " + std::to_string(region.id)
+                                 : region.name,
+             std::to_string(region.fade_in_frames) + "/" +
+                 std::to_string(region.fade_out_frames),
+             region.loop_enabled
+                 ? std::to_string(region.loop_start_frame) + ".." +
+                       std::to_string(region.loop_end_frame)
+                 : "Off",
+             region.id == snapshot.selected_region});
+        if (region.id == snapshot.selected_region) {
+            next.sample.region_start = region.start_frame;
+            next.sample.region_end = region.end_frame;
+            next.sample.fade_in = region.fade_in_frames;
+            next.sample.fade_out = region.fade_out_frames;
+            next.sample.loop_enabled = region.loop_enabled;
+            next.sample.loop_start = region.loop_start_frame;
+            next.sample.loop_end = region.loop_end_frame;
+        }
+    }
+    if (const auto analysis = std::find_if(
+            snapshot.sample_analysis_sessions.begin(),
+            snapshot.sample_analysis_sessions.end(), [&](const auto &value) {
+                return value.id == snapshot.selected_analysis_session;
+            });
+        analysis != snapshot.sample_analysis_sessions.end()) {
+        next.sample.analysis_status = sample_analysis_status_name(analysis->status);
+        if (!analysis->error.empty())
+            next.sample.error = analysis->error;
+    }
+    if (const auto processing = std::find_if(
+            snapshot.sample_processing_jobs.begin(),
+            snapshot.sample_processing_jobs.end(), [&](const auto &value) {
+                return value.id == snapshot.selected_processing_job;
+            });
+        processing != snapshot.sample_processing_jobs.end()) {
+        next.sample.processing_status =
+            sample_processing_status_name(processing->status);
+        if (!processing->error.empty())
+            next.sample.error = processing->error;
+    }
     next.shell.notification = last_error_;
     state_ = std::move(next);
     published_local_revision_ = local_revision_;
@@ -340,7 +446,7 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
-    state_.shell.notification = index < 2
+    state_.shell.notification = index < 3
         ? std::string{}
         : state_.shell.page_title + " is not implemented yet";
     last_error_ = state_.shell.notification;
@@ -474,6 +580,184 @@ bool SlintFrontendAdapter::select_arrangement_clip(std::size_t index) {
         return false;
     }
     state_.sequencer.selected_clip_id = state_.sequencer.arrangement[index].id;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::select_sample_slot(int direction) {
+    const auto snapshot = application_.snapshot();
+    if (snapshot.sample_slots.empty()) {
+        last_error_ = "No sample slots are available";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    auto found = std::find_if(snapshot.sample_slots.begin(),
+                              snapshot.sample_slots.end(), [&](const auto &slot) {
+                                  return slot.id == snapshot.selected_sample_slot;
+                              });
+    auto index = found == snapshot.sample_slots.end()
+        ? std::size_t{}
+        : static_cast<std::size_t>(found - snapshot.sample_slots.begin());
+    index = direction < 0
+        ? (index + snapshot.sample_slots.size() - 1) % snapshot.sample_slots.size()
+        : (index + 1) % snapshot.sample_slots.size();
+    return execute({"sample.slot-select.v1",
+                    {{"slot_id", static_cast<std::int64_t>(
+                                     snapshot.sample_slots[index].id.value)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::load_sample(std::string path) {
+    if (path.empty()) {
+        last_error_ = "A WAV path is required";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    return execute({state_.sample.ready ? "sample.replace.v1" : "sample.load.v1",
+                    {{"slot_id", static_cast<std::int64_t>(state_.sample.slot)},
+                     {"path", std::move(path)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_slice(std::size_t index) {
+    if (index >= state_.sample.slices.size()) {
+        last_error_ = "Slice is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    return execute({"slice.select.v1",
+                    {{"slice_id", static_cast<std::int64_t>(
+                                      state_.sample.slices[index].id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::create_slice(std::uint64_t frame) {
+    if (!state_.sample.ready || frame >= state_.sample.frames) {
+        last_error_ = "Slice position is outside the active sample";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto length = std::max<std::uint64_t>(
+        1, state_.sample.sample_rate ? state_.sample.sample_rate / 4 : 1);
+    const auto end = std::min(state_.sample.frames, frame + length);
+    return execute({"slice.create.v1",
+                    {{"start_frame", static_cast<std::int64_t>(frame)},
+                     {"end_frame", static_cast<std::int64_t>(end)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::move_selected_slice(std::uint64_t start,
+                                                std::uint64_t end) {
+    return execute({"slice.bounds-set.v1",
+                    {{"start_frame", static_cast<std::int64_t>(start)},
+                     {"end_frame", static_cast<std::int64_t>(end)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::delete_selected_slice() {
+    return invoke_action("slice.delete.v1");
+}
+
+bool SlintFrontendAdapter::assign_selected_slice(std::size_t pad) {
+    return execute({"slice.pad-assign.v1",
+                    {{"pad", static_cast<std::int64_t>(pad)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::preview_sample(std::string_view target) {
+    if (target == "sample")
+        return invoke_action("sample.preview.v1");
+    if (target == "slice")
+        return invoke_action("slice.preview.v1");
+    if (target == "region")
+        return invoke_action("region.preview.v1");
+    last_error_ = "Preview target is unavailable";
+    state_.shell.notification = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::stop_preview() {
+    return invoke_action("slice.preview-stop.v1");
+}
+
+bool SlintFrontendAdapter::analyze_transients() {
+    return execute({"sample-analysis.start.v1",
+                    {{"algorithm", std::string("transients")},
+                     {"sensitivity", 0.5},
+                     {"minimum_frames", static_cast<std::int64_t>(
+                                            std::max<std::uint32_t>(1, state_.sample.sample_rate / 20))}},
+                    {}, 0});
+}
+
+bool SlintFrontendAdapter::apply_analysis(bool accept) {
+    if (!accept)
+        return invoke_action("sample-analysis.discard.v1");
+    return execute({"sample-analysis.apply.v1",
+                    {{"target", std::string("slices")},
+                     {"mode", std::string("replace")},
+                     {"assign_pads", false}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_region(std::size_t index) {
+    if (index >= state_.sample.regions.size()) {
+        last_error_ = "Region is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    return execute({"region.select.v1",
+                    {{"region_id", static_cast<std::int64_t>(
+                                       state_.sample.regions[index].id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::set_region_bounds(std::uint64_t start,
+                                              std::uint64_t end) {
+    return execute({"region.bounds-set.v1",
+                    {{"start_frame", static_cast<std::int64_t>(start)},
+                     {"end_frame", static_cast<std::int64_t>(end)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::toggle_region_loop() {
+    return execute({"region.loop-set.v1",
+                    {{"enabled", !state_.sample.loop_enabled},
+                     {"start_frame", static_cast<std::int64_t>(state_.sample.region_start)},
+                     {"end_frame", static_cast<std::int64_t>(state_.sample.region_end)},
+                     {"crossfade_frames", std::int64_t{0}}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::set_region_fades(std::uint64_t fade_in,
+                                             std::uint64_t fade_out) {
+    return execute({"region.fades-set.v1",
+                    {{"fade_in_frames", static_cast<std::int64_t>(fade_in)},
+                     {"fade_out_frames", static_cast<std::int64_t>(fade_out)},
+                     {"curve", std::string("linear")}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::start_processing(std::string operation) {
+    if (operation != "normalize-peak" && operation != "reverse" &&
+        operation != "trim" && operation != "fade") {
+        last_error_ = "Processing operation is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto source = state_.sample.region_end > state_.sample.region_start
+        ? std::string("region") : std::string("sample");
+    std::map<std::string, ApplicationValue> create{{"source", source}};
+    if (source == "region")
+        create.emplace("source_id", static_cast<std::int64_t>(
+            application_.snapshot().selected_region));
+    if (!execute({"sample-processing.create.v1", std::move(create), {}, 0}))
+        return false;
+    std::map<std::string, ApplicationValue> arguments{{"operation", operation}};
+    if (operation == "trim") {
+        arguments.emplace("start_frame", static_cast<std::int64_t>(state_.sample.region_start));
+        arguments.emplace("end_frame", static_cast<std::int64_t>(state_.sample.region_end));
+    } else if (operation == "fade") {
+        arguments.emplace("start_frame", static_cast<std::int64_t>(state_.sample.fade_in));
+        arguments.emplace("end_frame", static_cast<std::int64_t>(state_.sample.fade_out));
+    }
+    return execute({"sample-processing.operation-add.v1", std::move(arguments), {}, 0}) &&
+           invoke_action("sample-processing.start.v1");
+}
+
+bool SlintFrontendAdapter::set_waveform_view(float zoom, float offset) {
+    if (!std::isfinite(zoom) || !std::isfinite(offset))
+        return false;
+    state_.sample.zoom = std::clamp(zoom, 1.0F, 64.0F);
+    state_.sample.offset = std::clamp(offset, 0.0F, 1.0F);
     ++local_revision_;
     return refresh();
 }

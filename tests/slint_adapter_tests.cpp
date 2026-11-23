@@ -42,6 +42,18 @@ int main() {
             return engine.queue_timeline(value, error);
         }, initial);
         ApplicationService application(engine, timeline, samples);
+        Sample sample{48'000, 2, {}};
+        sample.interleaved.resize(4'800 * 2);
+        for (std::size_t i = 0; i < 4'800; ++i) {
+            sample.interleaved[i * 2] = static_cast<float>(i % 100) / 100.0F;
+            sample.interleaved[i * 2 + 1] = -sample.interleaved[i * 2];
+        }
+        require(samples.publish_prepared(
+                    SampleSlotId{0}, std::make_shared<const Sample>(sample),
+                    "ui-stereo.wav"),
+                "sample fixture publication");
+        std::array<float, 16> ack_left{}, ack_right{};
+        engine.process(ack_left, ack_right);
         SlintFrontendAdapter adapter(application);
         require(adapter.active(), "adapter lifecycle starts active");
         require(adapter.state().performance.selected_track == "UI Track",
@@ -101,7 +113,6 @@ int main() {
                     application.snapshot().selected_event &&
                     application.snapshot().selected_event->velocity == 0.5F,
                 "selected step velocity edits through semantic action");
-        std::array<float, 16> ack_left{}, ack_right{};
         engine.process(ack_left, ack_right);
         (void)adapter.refresh();
         require(adapter.set_step_duration(ticks_per_quarter / 2),
@@ -129,6 +140,55 @@ int main() {
         require(adapter.select_page(0) &&
                     adapter.state().shell.page_id == "performance",
                 "performance navigation restores working page");
+        require(adapter.select_page(2) &&
+                    adapter.state().shell.page_id == "sample" &&
+                    adapter.state().shell.notification.empty() &&
+                    adapter.state().sample.ready &&
+                    adapter.state().sample.channels == 2 &&
+                    !adapter.state().sample.waveform.empty(),
+                "sample page exposes bounded stereo waveform metadata");
+        require(adapter.set_waveform_view(4.0F, 0.5F) &&
+                    adapter.state().sample.zoom == 4.0F,
+                "waveform zoom is page-local and revisioned");
+        require(adapter.create_slice(100) &&
+                    !adapter.state().sample.slices.empty(),
+                "manual slice insertion uses semantic action");
+        require(adapter.select_slice(0) && adapter.assign_selected_slice(2),
+                "slice selection and pad assignment use semantic actions");
+        require(adapter.preview_sample("slice") && adapter.stop_preview(),
+                "slice preview uses production preview actions");
+        require(application.execute(
+                    {"region.create.v1",
+                     {{"start_frame", std::int64_t{0}},
+                      {"end_frame", std::int64_t{1000}},
+                      {"name", std::string("UI Region")}}}).accepted &&
+                    adapter.refresh() && !adapter.state().sample.regions.empty(),
+                "region fixture created through semantic action");
+        require(adapter.select_region(0) &&
+                    adapter.set_region_bounds(10, 900) &&
+                    adapter.set_region_fades(20, 30) &&
+                    adapter.toggle_region_loop(),
+                "region bounds fades and loop use semantic actions");
+        require(!adapter.load_sample("") && !adapter.last_error().empty(),
+                "missing sample path is actionable");
+        require(adapter.analyze_transients(),
+                "transient analysis starts through semantic action");
+        require(adapter.apply_analysis(false),
+                "analysis proposals can be rejected");
+        require(adapter.start_processing("normalize-peak"),
+                "offline processing lifecycle uses semantic actions");
+        Sample replacement{48'000, 1, std::vector<float>(2'400, 0.25F)};
+        require(samples.publish_prepared(
+                    SampleSlotId{0},
+                    std::make_shared<const Sample>(std::move(replacement)),
+                    "ui-mono.wav"),
+                "replacement sample publication");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().sample.channels == 1 &&
+                    adapter.state().sample.name == "ui-mono.wav" &&
+                    !adapter.state().sample.waveform.empty(),
+                "acknowledged replacement refreshes mono waveform state");
+        require(adapter.select_page(0), "sample page returns through navigation");
         require(!adapter.transport_record() &&
                     adapter.last_error().find("semantic action") !=
                         std::string::npos,

@@ -145,6 +145,13 @@ mapping takes precedence; clearing it restores the note-to-slot fallback. STEP
 events retain velocity, probability, conditions and ratchets. Preview uses the
 existing voice pool and stops preview-owned voices without stopping transport.
 
+The production Slint Sample Editor presents the same stable slice and region
+objects. Its waveform is the bounded cached stereo peak overview, not PCM copied
+from the audio engine. Manual marker edits, transient analysis, pad assignment
+and preview all dispatch the actions documented above. Loading and offline
+processing remain asynchronous and the UI changes its active metadata only
+after the normal sample-publication acknowledgement.
+
 `NEUROGENIC_SLICES 2` is a backward-compatible sidecar format for metadata,
 pad assignments, playback settings and external sample paths; PCM is never
 embedded. Version-one files load with compatibility defaults. Missing

@@ -111,7 +111,9 @@ view timing, and the on-screen keyboard. HDMI and USB HID touch remain host
 services; touch is optional and keyboard/data-wheel navigation must work.
 For Slint, validate the 1920x1200 reference mode and 1024x600 minimum: all
 eight page labels, upper context fields, lower function labels and both rows of
-eight performance slots must remain visible and touchable. Headless model tests
+eight performance slots must remain visible and touchable. On the Sample page,
+verify waveform marker insertion, zoom, region boundary controls, preview stop
+and path-entry keyboard use at both resolutions. Headless model tests
 do not establish physical touch alignment, latency, readability or visual
 quality.
 

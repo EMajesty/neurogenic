@@ -58,6 +58,11 @@ recording's immutable publication. Multiple requests retain independent source
 versions. Cancellation is cooperative at an analysis-block boundary; a partial
 result is never published as complete.
 
+The Slint Sample page exposes this transient workflow without adding another
+analysis implementation. It reports session progress and errors and offers
+explicit Accept and Reject operations. Detailed candidate editing remains
+available through the same semantic API for future inspectors.
+
 ## Resource bounds
 
 Temporary memory is linear in analysis length at one or two floats per

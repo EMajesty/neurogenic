@@ -539,3 +539,12 @@ duration operations. The Arrangement subview provides clip/loop inspection
 and local selection. Launch pads use ascending stable slot IDs. Pattern-length
 and full arrangement editing remain deferred where no suitable semantic action
 is available.
+
+Task 074 adds a production Slint Sample Editor backed exclusively by existing
+sample services. It shows callback-acknowledged metadata and bounded mono/stereo
+waveform overviews, edits stable slices and regions, assigns pads, runs preview,
+transient analysis and offline-processing actions, and handles local zoom
+without waiting for unrelated application revisions. Path entry replaces a
+decorative file picker. Processing publication, detailed candidate editing and
+preview-playhead feedback remain explicit or deferred where the application API
+does not expose an acknowledgement.

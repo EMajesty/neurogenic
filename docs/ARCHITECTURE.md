@@ -319,10 +319,14 @@ production executable selects exactly one of headless, SDL3, or Slint, so
 graphical event loops never compete. Page and focus state are presentation
 state, not musical authority.
 
-The Slint snapshot is divided into shell, contextual, Performance and
-Sequencer models. Page-local revisions are independent of application
+The Slint snapshot is divided into shell, contextual, Performance, Sequencer
+and Sample models. Page-local revisions are independent of application
 revisions, while every musical edit still passes through `ApplicationService`.
 The step grid and Arrangement reader never retain or mutate timeline objects.
+The Sample model copies metadata, stable IDs and bounded waveform overview
+buckets only. It never owns PCM or a `SampleVersion`; slice, region, analysis,
+processing and preview commands remain semantic service calls. This preserves
+callback-acknowledged active/pending sample state and safe retirement.
 
 The GUI keeps SDL window coordinates, drawable pixels, responsive logical
 workspace dimensions, and the persisted UI scale as distinct values. SDL
