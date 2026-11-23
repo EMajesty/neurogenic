@@ -319,6 +319,11 @@ production executable selects exactly one of headless, SDL3, or Slint, so
 graphical event loops never compete. Page and focus state are presentation
 state, not musical authority.
 
+The Slint snapshot is divided into shell, contextual, Performance and
+Sequencer models. Page-local revisions are independent of application
+revisions, while every musical edit still passes through `ApplicationService`.
+The step grid and Arrangement reader never retain or mutate timeline objects.
+
 The GUI keeps SDL window coordinates, drawable pixels, responsive logical
 workspace dimensions, and the persisted UI scale as distinct values. SDL
 events are normalized into drawable coordinates before `GuiModel` hit testing.

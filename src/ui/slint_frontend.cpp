@@ -1,6 +1,7 @@
 #include "neurogenic/ui/slint_adapter.hpp"
 #include "performance.h"
 #include <slint.h>
+#include <algorithm>
 #include <chrono>
 #include <cstdlib>
 #include <memory>
@@ -11,41 +12,48 @@ slint::SharedString text(const std::string &value) {
     return slint::SharedString(std::string_view(value));
 }
 
-void publish(const SlintPerformancePageState &state,
+void publish(const SlintUiState &state,
              const slint::ComponentHandle<PerformanceWindow> &window) {
-    window->set_transport_state(text(state.transport));
-    window->set_tempo(text(std::to_string(state.tempo_bpm) + " BPM"));
-    window->set_project_name(text(state.project_name));
-    window->set_project_dirty(state.project_dirty);
-    window->set_time_signature(text(state.time_signature));
-    window->set_position(text(state.position));
-    window->set_page_id(text(state.page_id));
-    window->set_page_title(text(state.page_title));
-    window->set_selected_track(text(state.selected_track));
-    window->set_track_owner(text(state.track_owner));
-    window->set_active_content(text(state.active_content));
-    window->set_launch_quantization(text(state.launch_quantization));
-    window->set_notification(text(state.notification));
+    window->set_transport_state(text(state.shell.transport));
+    window->set_tempo(text(std::to_string(state.shell.tempo_bpm) + " BPM"));
+    window->set_project_name(text(state.shell.project_name));
+    window->set_project_dirty(state.shell.project_dirty);
+    window->set_time_signature(text(state.shell.time_signature));
+    window->set_position(text(state.shell.position));
+    window->set_page_id(text(state.shell.page_id));
+    window->set_page_title(text(state.shell.page_title));
+    window->set_selected_track(text(state.performance.selected_track));
+    window->set_track_owner(text(state.performance.track_owner));
+    window->set_active_content(text(state.performance.active_content));
+    window->set_launch_quantization(text(state.performance.launch_quantization));
+    window->set_notification(text(state.shell.notification));
+    window->set_arrangement_view(state.sequencer.arrangement_view);
+    window->set_selected_pattern(text(state.sequencer.selected_pattern));
+    window->set_pattern_length(text(state.sequencer.pattern_length));
+    window->set_step_resolution(text(state.sequencer.resolution));
+    window->set_selected_velocity(text(state.sequencer.selected_velocity));
+    window->set_selected_duration(text(state.sequencer.selected_duration));
+    window->set_arrangement_loop(text(state.sequencer.loop_range));
     std::vector<ContextItem> encoders, functions;
     std::vector<PageItem> pages;
     std::vector<SceneItem> scenes;
-    encoders.reserve(state.encoders.size());
-    functions.reserve(state.functions.size());
-    for (const auto &item : state.encoders)
+    encoders.reserve(state.context.encoders.size());
+    functions.reserve(state.context.functions.size());
+    for (const auto &item : state.context.encoders)
         encoders.push_back({text(item.label), text(item.value), text(item.unit),
                             item.available});
-    for (const auto &item : state.functions)
+    for (const auto &item : state.context.functions)
         functions.push_back({text(item.label), text(item.value), text(item.unit),
                             item.available});
-    pages.reserve(state.pages.size());
-    for (const auto &page : state.pages)
+    pages.reserve(state.shell.pages.size());
+    for (const auto &page : state.shell.pages)
         pages.push_back({text(page.id), text(page.title), page.implemented});
-    scenes.reserve(state.scenes.size());
-    for (const auto &scene : state.scenes)
+    scenes.reserve(state.performance.scenes.size());
+    for (const auto &scene : state.performance.scenes)
         scenes.push_back({text(scene.label), scene.queued});
     std::vector<PadItem> pads;
-    pads.reserve(state.pads.size());
-    for (const auto &pad : state.pads)
+    pads.reserve(state.performance.pads.size());
+    for (const auto &pad : state.performance.pads)
         pads.push_back({text(pad.label), text(pad.status), pad.active,
                         pad.queued, pad.selected, pad.available});
     window->set_pages(
@@ -58,6 +66,24 @@ void publish(const SlintPerformancePageState &state,
         std::move(functions)));
     window->set_pads(
         std::make_shared<slint::VectorModel<PadItem>>(std::move(pads)));
+    std::vector<StepItem> steps;
+    for (const auto &step : state.sequencer.steps)
+        steps.push_back({text(step.label), text(step.status), step.active,
+                         step.selected, step.playhead, step.available});
+    window->set_steps(std::make_shared<slint::VectorModel<StepItem>>(std::move(steps)));
+    std::vector<PatternItem> patterns;
+    for (const auto &pattern : state.sequencer.patterns)
+        patterns.push_back({static_cast<int>(pattern.id), text(pattern.name),
+                            pattern.selected, pattern.active, pattern.queued});
+    window->set_patterns(
+        std::make_shared<slint::VectorModel<PatternItem>>(std::move(patterns)));
+    std::vector<ArrangementItem> arrangement;
+    for (const auto &item : state.sequencer.arrangement)
+        arrangement.push_back({static_cast<int>(item.id), text(item.label),
+                               text(item.range), text(item.kind), item.selected,
+                               item.enabled});
+    window->set_arrangement_items(
+        std::make_shared<slint::VectorModel<ArrangementItem>>(std::move(arrangement)));
 }
 } // namespace
 
@@ -125,6 +151,40 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_quantization_invoked([&] {
             (void)adapter.cycle_launch_quantization();
+            publish(adapter.state(), window);
+        });
+        window->on_sequencer_step_invoked([&](int index) {
+            (void)adapter.select_step(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_pattern_invoked([&](int index, bool launch) {
+            (void)adapter.select_pattern(static_cast<std::size_t>(index), launch);
+            publish(adapter.state(), window);
+        });
+        window->on_pattern_create([&](bool duplicate) {
+            (void)adapter.create_pattern(duplicate);
+            publish(adapter.state(), window);
+        });
+        window->on_resolution_invoked([&] {
+            (void)adapter.cycle_step_resolution();
+            publish(adapter.state(), window);
+        });
+        window->on_arrangement_toggle([&] {
+            (void)adapter.toggle_arrangement_view();
+            publish(adapter.state(), window);
+        });
+        window->on_arrangement_item_invoked([&](int index) {
+            (void)adapter.select_arrangement_clip(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_step_edit([&](slint::SharedString operation) {
+            const auto snapshot = application.snapshot();
+            if (operation == "velocity-up")
+                (void)adapter.set_step_velocity(std::min(1.0, snapshot.selected_event ? snapshot.selected_event->velocity + 0.05 : 1.0));
+            else if (operation == "velocity-down")
+                (void)adapter.set_step_velocity(std::max(0.0, snapshot.selected_event ? snapshot.selected_event->velocity - 0.05 : 0.0));
+            else if (operation == "length-up")
+                (void)adapter.set_step_duration(snapshot.selected_event ? snapshot.selected_event->duration + snapshot.step_ticks : snapshot.step_ticks);
             publish(adapter.state(), window);
         });
         window->on_notification_dismissed([&] {

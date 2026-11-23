@@ -46,9 +46,11 @@ real application state and semantic callbacks require `neurogenic-slint`.
 - `ui/slint/components.slint` contains navigation, contextual controls,
   transport, track/content, parameter, notification and modal components.
 - `ui/slint/performance.slint` composes the shared application shell, page
-  registry, responsive Performance page and honest placeholder destinations.
-- `SlintFrontendAdapter` is renderer-independent and copies revisioned state,
-  contextual mappings and pad status from production application services.
+  registry, responsive Performance and Sequencer pages, and honest placeholder
+  destinations.
+- `SlintFrontendAdapter` is renderer-independent. Its `SlintUiState` separates
+  shell, contextual, Performance and Sequencer presentation models while all
+  values remain copied from production application services.
 - `slint_frontend.cpp` marshals adapter snapshots onto Slint's event loop.
 
 The page uses flexible layout at both 1920x1200 and the 1024x600 minimum rather
@@ -58,10 +60,10 @@ visibly unavailable, and touch/mouse hit handling is provided by Slint.
 ## Input and state
 
 The shell exposes Performance, Sequencer, Sample, Sound, Mixer, FX, Browser and
-Setup. Only Performance is implemented; selecting another destination keeps
-navigation operational and labels it as a placeholder. Arrangement belongs
-under Sequencer, modulation under Sound/FX, and MIDI/controller/system work
-under Setup.
+Setup. Performance and Sequencer are implemented; selecting another destination
+keeps navigation operational and labels it as a placeholder. Sequencer has Step
+and Arrangement subviews. Modulation remains under Sound/FX, and
+MIDI/controller/system work under Setup.
 
 Contextual buttons invoke the action IDs supplied by the shared controller
 mapping. Encoders use `ParameterBindingService`; pads use `PerformanceGrid` and
@@ -78,15 +80,33 @@ development convenience, not a physical-controller layout contract.
 
 A 16 ms event-loop timer obtains copied revisioned snapshots. It does not touch
 engine internals, perform audio callback work or establish another state
-authority. Shutdown stops the timer before releasing the adapter.
+authority. Page-local focus and subview revisions are tracked separately, so a
+subview or selection update is published without waiting for an unrelated
+application revision. Shutdown stops the timer before releasing the adapter.
+
+## Sequencer
+
+The Step subview displays the selected track and pattern, length, resolution,
+sixteen steps for the current page, playhead, selection and note presence.
+Step presses invoke `step.toggle.v1`; pattern selection, creation/duplication,
+resolution, velocity and duration changes use existing semantic actions. The
+same 2x8 positions are the step-entry surface. The Arrangement subview reads
+existing pattern and audio clips plus the loop range. It supports clip
+selection only; unavailable DAW-style edits are intentionally absent.
+
+Performance launch slots map to displayed positions by ascending stable slot
+ID, independent of collection order. Empty positions are unavailable.
+Recording presentation distinguishes Idle, Armed and Recording. Musical
+position uses the configured denominator to determine beat length.
 
 ## Current limits
 
-This is a functional shell, not a replacement-complete frontend. Scene launch
-and macro services are represented by the adapter but do not yet have dedicated
-widgets. Quantization is displayed; editing it needs a future selector.
+This is a functional shell, not a replacement-complete frontend. Macro services
+are represented by contextual mappings but do not yet have dedicated widgets.
+Pattern-length editing is not exposed because the semantic API has no matching
+action; arrangement clip movement and resizing are also deferred.
 Confirmation infrastructure exists, while project save/open dialogs and the
-seven non-Performance pages remain deferred. Some arrangement/clip activity
+six non-Performance/Sequencer pages remain deferred. Some arrangement activity
 lacks a single authoritative active-object field and is shown as `Unavailable`
 rather than inferred. Physical touch quality, accessibility and screenshot
 validation still require display hardware; model tests remain headless.

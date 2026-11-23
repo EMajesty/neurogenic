@@ -10,6 +10,12 @@
 
 namespace neurogenic {
 
+[[nodiscard]] std::string format_slint_musical_position(
+    MusicalTick tick, std::uint16_t numerator,
+    std::uint16_t denominator);
+[[nodiscard]] std::string slint_recording_label(RecordingState state,
+                                                bool playing);
+
 struct SlintContextItem {
     std::string label{"Unavailable"}, value{"--"}, unit, parameter_id,
         action_id;
@@ -32,9 +38,9 @@ struct SlintSceneItem {
     bool queued{};
 };
 
-struct SlintPerformancePageState {
+struct SlintShellState {
     std::uint64_t revision{};
-    bool playing{}, recording{}, project_dirty{};
+    bool playing{}, record_armed{}, recording{}, project_dirty{};
     double tempo_bpm{120.0};
     std::string project_name{"Untitled"}, transport{"Stopped"},
         time_signature{"4/4"}, position{"1.1.1"},
@@ -42,10 +48,54 @@ struct SlintPerformancePageState {
         track_owner{"Arrangement"}, launch_quantization{"Bar"},
         page_id{"performance"}, page_title{"Performance"}, notification;
     std::vector<SlintPageItem> pages;
-    std::vector<SlintSceneItem> scenes;
+};
+
+struct SlintContextState {
     std::array<SlintContextItem, 8> encoders;
     std::array<SlintContextItem, 8> functions;
+};
+
+struct SlintPerformancePageState {
+    std::string selected_track{"Unavailable"}, active_content{"Unavailable"},
+        track_owner{"Arrangement"}, launch_quantization{"Bar"};
+    std::vector<SlintSceneItem> scenes;
     std::array<SlintPadItem, 16> pads;
+};
+
+struct SlintStepItem {
+    std::string label, status{"Empty"};
+    bool active{}, selected{}, playhead{}, available{};
+};
+
+struct SlintPatternItem {
+    std::uint64_t id{};
+    std::string name;
+    bool selected{}, active{}, queued{};
+};
+
+struct SlintArrangementItem {
+    std::uint64_t id{};
+    std::string label, range, kind;
+    bool selected{}, enabled{};
+};
+
+struct SlintSequencerPageState {
+    std::string selected_track{"Unavailable"}, selected_pattern{"Unavailable"},
+        resolution{"1/16"}, pattern_length{"Unavailable"},
+        selected_velocity{"--"}, selected_duration{"--"};
+    std::uint64_t step_page{}, selected_pattern_id{}, selected_clip_id{};
+    bool arrangement_view{};
+    std::array<SlintStepItem, 16> steps;
+    std::vector<SlintPatternItem> patterns;
+    std::vector<SlintArrangementItem> arrangement;
+    std::string loop_range{"Off"};
+};
+
+struct SlintUiState {
+    SlintShellState shell;
+    SlintContextState context;
+    SlintPerformancePageState performance;
+    SlintSequencerPageState sequencer;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -55,7 +105,7 @@ class SlintFrontendAdapter {
   public:
     explicit SlintFrontendAdapter(ApplicationService &application);
     [[nodiscard]] bool refresh();
-    [[nodiscard]] const SlintPerformancePageState &state() const noexcept {
+    [[nodiscard]] const SlintUiState &state() const noexcept {
         return state_;
     }
     [[nodiscard]] bool invoke_action(std::string action_id);
@@ -70,6 +120,14 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool set_launch_quantization(std::string value);
     [[nodiscard]] bool cycle_launch_quantization();
     [[nodiscard]] bool transport_record();
+    [[nodiscard]] bool select_pattern(std::size_t index, bool launch = false);
+    [[nodiscard]] bool create_pattern(bool duplicate = false);
+    [[nodiscard]] bool select_step(std::size_t index);
+    [[nodiscard]] bool set_step_velocity(double value);
+    [[nodiscard]] bool set_step_duration(std::int64_t ticks);
+    [[nodiscard]] bool cycle_step_resolution();
+    [[nodiscard]] bool toggle_arrangement_view();
+    [[nodiscard]] bool select_arrangement_clip(std::size_t index);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }
@@ -82,9 +140,10 @@ class SlintFrontendAdapter {
     bool execute(ApplicationCommand command);
     ApplicationService &application_;
     ParameterBindingService bindings_;
-    SlintPerformancePageState state_;
+    SlintUiState state_;
     std::string last_error_;
     bool active_{true};
+    std::uint64_t local_revision_{1}, published_local_revision_{};
 };
 
 struct SlintOptions {

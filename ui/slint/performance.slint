@@ -1,10 +1,13 @@
-import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, TransportControls, TrackSelector, PerformanceSlot, EmptyState, Notification, ModalDialog } from "components.slint";
+import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, TransportControls, TrackSelector, PerformanceSlot, EmptyState, ParameterDisplay, Notification, ModalDialog } from "components.slint";
 import { Theme } from "theme.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
 export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
 export struct SceneItem { label: string, queued: bool }
+export struct StepItem { label: string, status: string, active: bool, selected: bool, playhead: bool, available: bool }
+export struct PatternItem { id: int, name: string, selected: bool, active: bool, queued: bool }
+export struct ArrangementItem { id: int, label: string, range: string, kind: string, selected: bool, enabled: bool }
 
 export component PerformanceWindow inherits Window {
     title: "NEUROGENIC"; preferred-width: 1280px; preferred-height: 800px;
@@ -22,11 +25,21 @@ export component PerformanceWindow inherits Window {
     in property <string> active-content: "Unavailable";
     in property <string> launch-quantization: "Bar";
     in property <string> notification: "";
+    in property <bool> arrangement-view: false;
+    in property <string> selected-pattern: "Unavailable";
+    in property <string> pattern-length: "Unavailable";
+    in property <string> step-resolution: "1/16";
+    in property <string> selected-velocity: "--";
+    in property <string> selected-duration: "--";
+    in property <string> arrangement-loop: "Off";
     in property <[PageItem]> pages;
     in property <[ContextItem]> encoders;
     in property <[ContextItem]> functions;
     in property <[PadItem]> pads;
     in property <[SceneItem]> scenes;
+    in property <[StepItem]> steps;
+    in property <[PatternItem]> patterns;
+    in property <[ArrangementItem]> arrangement-items;
     in-out property <bool> modal-visible: false;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
@@ -34,6 +47,10 @@ export component PerformanceWindow inherits Window {
     callback track-selected(int); callback return-arrangement();
     callback scene-invoked(int); callback notification-dismissed();
     callback quantization-invoked();
+    callback sequencer-step-invoked(int); callback pattern-invoked(int, bool);
+    callback pattern-create(bool); callback resolution-invoked();
+    callback arrangement-toggle(); callback arrangement-item-invoked(int);
+    callback step-edit(string);
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -61,7 +78,40 @@ export component PerformanceWindow inherits Window {
                 GridLayout { padding: 8px; spacing: 6px; for pad[i] in root.pads: PerformanceSlot { row: i / 8; col: mod(i, 8); label: pad.label; state: pad.status; selected: pad.selected; available: pad.available; invoked => { root.pad-invoked(i, true); } } }
             }
         }
-        if root.page-id != "performance": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented in Task 072."; }
+        if root.page-id == "sequencer": VerticalLayout {
+            spacing: 6px; vertical-stretch: 1;
+            HorizontalLayout {
+                height: 44px; spacing: 5px;
+                PageButton { text: "Steps"; selected: !root.arrangement-view; implemented: true; clicked => { if (root.arrangement-view) { root.arrangement-toggle(); } } }
+                PageButton { text: "Arrangement"; selected: root.arrangement-view; implemented: true; clicked => { if (!root.arrangement-view) { root.arrangement-toggle(); } } }
+                PageButton { text: root.selected-track; implemented: true; clicked => { root.track-selected(1); } }
+                PageButton { text: root.selected-pattern; implemented: true; clicked => { } }
+                PageButton { text: root.pattern-length; implemented: false; clicked => { } }
+                PageButton { text: root.step-resolution; implemented: true; clicked => { root.resolution-invoked(); } }
+            }
+            if !root.arrangement-view: HorizontalLayout {
+                spacing: 6px; vertical-stretch: 1;
+                Rectangle {
+                    background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 4;
+                    GridLayout { padding: 8px; spacing: 6px; for step[i] in root.steps: PerformanceSlot { row: i / 8; col: mod(i, 8); label: step.label + (step.playhead ? " >" : ""); state: step.status; selected: step.selected; available: step.available; invoked => { root.sequencer-step-invoked(i); } } }
+                }
+                VerticalLayout {
+                    spacing: 5px; horizontal-stretch: 2;
+                    Rectangle { background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 2; VerticalLayout { padding: 5px; spacing: 4px; Text { text: "Patterns"; color: Theme.accent; } for pattern[i] in root.patterns: PageButton { height: 32px; text: pattern.name + (pattern.queued ? " [Q]" : pattern.active ? " [A]" : ""); selected: pattern.selected; implemented: true; clicked => { root.pattern-invoked(i, false); } } } }
+                    HorizontalLayout { height: 36px; spacing: 4px; PageButton { text: "New"; implemented: true; clicked => { root.pattern-create(false); } } PageButton { text: "Duplicate"; implemented: true; clicked => { root.pattern-create(true); } } }
+                    ParameterDisplay { height: 34px; name: "Velocity"; value: root.selected-velocity; }
+                    ParameterDisplay { height: 34px; name: "Length"; value: root.selected-duration; }
+                    HorizontalLayout { height: 34px; spacing: 4px; PageButton { text: "Vel -"; implemented: true; clicked => { root.step-edit("velocity-down"); } } PageButton { text: "Vel +"; implemented: true; clicked => { root.step-edit("velocity-up"); } } PageButton { text: "Length +"; implemented: true; clicked => { root.step-edit("length-up"); } } }
+                }
+            }
+            if root.arrangement-view: VerticalLayout {
+                spacing: 5px;
+                Rectangle { height: 36px; background: Theme.panel; Text { text: "Loop: " + root.arrangement-loop; color: Theme.foreground; vertical-alignment: center; } }
+                if root.arrangement-items.length == 0: EmptyState { title: "Arrangement"; message: "No pattern or audio clips are placed in the arrangement."; }
+                for clip[i] in root.arrangement-items: PageButton { height: 38px; text: clip.kind + "  " + clip.label + "  " + clip.range; selected: clip.selected; implemented: clip.enabled; clicked => { root.arrangement-item-invoked(i); } }
+            }
+        }
+        if root.page-id != "performance" && root.page-id != "sequencer": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }

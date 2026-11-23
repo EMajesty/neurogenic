@@ -530,3 +530,12 @@ intentional musical/controller sharing preserves unmatched musical messages,
 and bounded feedback retries regenerate authoritative state after transport
 failure or reconnect. These are software-verified; physical USB CDC, hotplug,
 and third-party MIDI feedback remain hardware validation work.
+
+Task 073 adds the first interactive Slint Sequencer page. Renderer-neutral
+shell, contextual, Performance and Sequencer models have deterministic local
+revisions; recording states and non-quarter-denominator positions are correct.
+The Step view performs semantic note, pattern, resolution, velocity and
+duration operations. The Arrangement subview provides clip/loop inspection
+and local selection. Launch pads use ascending stable slot IDs. Pattern-length
+and full arrangement editing remain deferred where no suitable semantic action
+is available.
