@@ -46,9 +46,10 @@ real application state and semantic callbacks require `neurogenic-slint`.
 - `ui/slint/components.slint` contains navigation, contextual controls,
   transport, track/content, parameter, waveform, notification and modal
   components.
-- `ui/slint/performance.slint` composes the shared application shell, page
-  registry, responsive Performance and Sequencer pages, and honest placeholder
-  destinations.
+- `ui/slint/performance.slint` contains the shared application shell and page
+  registry. `performance_page.slint`, `sequencer_page.slint`,
+  `sample_page.slint` and `sound_page.slint` are independent typed page
+  components.
 - `SlintFrontendAdapter` is renderer-independent. Its `SlintUiState` separates
   shell, contextual, Performance, Sequencer and Sample presentation models
   while all values remain copied from production application services.
@@ -61,7 +62,7 @@ visibly unavailable, and touch/mouse hit handling is provided by Slint.
 ## Input and state
 
 The shell exposes Performance, Sequencer, Sample, Sound, Mixer, FX, Browser and
-Setup. Performance, Sequencer and Sample are implemented; selecting another
+Setup. Performance, Sequencer, Sample and Sound are implemented; selecting another
 destination keeps navigation operational and labels it as a placeholder.
 Sequencer has Step and Arrangement subviews. Modulation remains under Sound/FX, and
 MIDI/controller/system work under Setup.
@@ -124,6 +125,22 @@ waveform and metadata more space. These are layout/model checks, not physical
 touchscreen validation. The current application snapshot does not expose a
 preview-playhead acknowledgement, so preview state is not fabricated.
 
+## Sound and Instrument
+
+The Sound page follows the selected track and exposes the two production native
+instrument types: `sample.main` and `synth.subtractive.v1`. Instrument changes
+use `track.instrument-set.v1`. The synth panel is generated from authoritative
+parameter descriptors and edits the selected track's stable instrument instance
+through `instrument.instance-parameter-set.v1`; unsupported controls are never
+invented. Parameters are grouped as oscillator, filter, envelope and output.
+
+For sample instruments, the page displays the selected pad's playback mode,
+tuning and ADSR settings and dispatches existing pad semantic actions. Detailed
+waveform, region and slice editing stays on the Sample page. The Modulation
+subview lists track-owned assignments and supports bounded depth, enable and
+remove actions. The Presets subview supports transactional validate, prepare,
+apply and cancel with an explicit library path and preset ID.
+
 ## Current limits
 
 This is a functional shell, not a replacement-complete frontend. Macro services
@@ -132,6 +149,9 @@ Pattern-length editing is not exposed because the semantic API has no matching
 action; arrangement clip movement and resizing are also deferred. The Sample
 page uses path entry because no portable native picker is available, and
 processing-job results require the existing explicit save/publish workflow.
+The Sound preset view cannot enumerate, rename, delete or save presets until
+those operations have semantic application actions. Modulation creation and
+detailed graph editing remain deferred to the FX page.
 Confirmation infrastructure exists, while project save/open dialogs and the
 six non-Performance/Sequencer pages remain deferred. Some arrangement activity
 lacks a single authoritative active-object field and is shown as `Unavailable`

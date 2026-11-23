@@ -2,6 +2,7 @@
 #include "neurogenic/audio/sample_manager.hpp"
 #include "neurogenic/timeline/edit.hpp"
 #include "neurogenic/ui/slint_adapter.hpp"
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -201,6 +202,63 @@ int main() {
         require(!adapter.turn_encoder(99, 1) && !adapter.last_error().empty(),
                 "unavailable binding is visible");
         require(!adapter.press_pad(16), "invalid pad rejected");
+        require(adapter.select_page(3) &&
+                    adapter.state().shell.page_id == "sound" &&
+                    adapter.state().shell.notification.empty() &&
+                    adapter.state().sound.sample,
+                "Sound page exposes the selected sample instrument");
+        require(adapter.cycle_sample_playback_mode() &&
+                    adapter.adjust_sample_instrument("pitch", 1) &&
+                    adapter.adjust_sample_instrument("attack", 1),
+                "sample instrument playback tuning and envelope use actions");
+        require(adapter.set_track_instrument(
+                    std::string(subtractive_instrument_id)) &&
+                    adapter.state().sound.synth &&
+                    !adapter.state().sound.parameters.empty(),
+                "track instrument selection exposes synth parameters");
+        const auto cutoff = std::find_if(
+            adapter.state().sound.parameters.begin(),
+            adapter.state().sound.parameters.end(), [](const auto &parameter) {
+                return parameter.id == "synth.cutoff";
+            });
+        require(cutoff != adapter.state().sound.parameters.end() &&
+                    adapter.adjust_sound_parameter(static_cast<std::size_t>(
+                        cutoff - adapter.state().sound.parameters.begin()), 1),
+                "typed synth parameter editing uses instance semantic action");
+        require(application.execute(
+                    {"modulator.create.v1",
+                     {{"type", std::int64_t{static_cast<std::int64_t>(
+                                    ModulatorType::lfo)}},
+                      {"owner", std::int64_t{static_cast<std::int64_t>(
+                                     ModulatorOwnerKind::track)}},
+                      {"owner_id", static_cast<std::int64_t>(
+                                       application.snapshot().selected_track)},
+                      {"name", std::string("Sound LFO")}}}).accepted,
+                "track modulator fixture");
+        const auto sound_modulator =
+            application.snapshot().modulation.modulators[0].id;
+        require(application
+                    .execute({"modulator.route-create.v1",
+                              {{"source_id", static_cast<std::int64_t>(
+                                                 sound_modulator)},
+                               {"destination", std::string("synth.cutoff")},
+                               {"depth", 0.25}}})
+                    .accepted,
+                "local modulation route fixture");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    !adapter.state().sound.modulation.empty(),
+                "Sound page discovers local modulation assignments");
+        require(adapter.select_sound_subview("modulation") &&
+                    adapter.edit_sound_modulation("depth-up"),
+                "Sound modulation inspector edits local assignments");
+        require(adapter.select_sound_subview("presets") &&
+                    !adapter.preset_action("save", "", "") &&
+                    adapter.last_error().find("semantic action") !=
+                        std::string::npos,
+                "unavailable preset save remains explicit");
+        require(application.snapshot().project_dirty,
+                "instrument and sample edits preserve project dirty state");
         const auto revision = adapter.state().shell.revision;
         require(!adapter.refresh() || adapter.state().shell.revision >= revision,
                 "revisioned refresh");

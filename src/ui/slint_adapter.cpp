@@ -1,6 +1,9 @@
 #include "neurogenic/ui/slint_adapter.hpp"
+#include "neurogenic/audio/slicing.hpp"
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
 
 namespace neurogenic {
 namespace {
@@ -22,6 +25,21 @@ std::string quantization_name(LaunchQuantization value) {
     case LaunchQuantization::pattern_end: return "Pattern End";
     }
     return "Unavailable";
+}
+
+double numeric_value(const ApplicationValue &value) {
+    if (const auto *real = std::get_if<double>(&value)) return *real;
+    if (const auto *integer = std::get_if<std::int64_t>(&value))
+        return static_cast<double>(*integer);
+    if (const auto *boolean = std::get_if<bool>(&value)) return *boolean ? 1.0 : 0.0;
+    return 0.0;
+}
+
+std::string format_value(double value) {
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(std::abs(value) >= 100.0 ? 0 : 2)
+           << value;
+    return stream.str();
 }
 } // namespace
 
@@ -83,7 +101,7 @@ bool SlintFrontendAdapter::refresh() {
     for (const auto &[id, title] : pages)
         next.shell.pages.push_back({std::string(id), std::string(title),
                                     id == "performance" || id == "sequencer" ||
-                                        id == "sample"});
+                                        id == "sample" || id == "sound"});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -129,6 +147,7 @@ bool SlintFrontendAdapter::refresh() {
 
     const auto context_name = next.shell.page_id == "sample"
         ? std::string_view("samples")
+        : next.shell.page_id == "sound" ? std::string_view("parameters")
         : next.shell.page_id == "performance" ? std::string_view("performance")
                                                 : std::string_view("sequencer");
     const auto context =
@@ -343,6 +362,87 @@ bool SlintFrontendAdapter::refresh() {
         if (!processing->error.empty())
             next.sample.error = processing->error;
     }
+
+    next.sound.subview = state_.sound.subview.empty() ? "instrument"
+                                                       : state_.sound.subview;
+    next.sound.preset_library = state_.sound.preset_library;
+    next.sound.preset_id = state_.sound.preset_id;
+    next.sound.selected_parameter = state_.sound.selected_parameter;
+    next.sound.selected_modulation = state_.sound.selected_modulation;
+    if (const auto track = std::find_if(
+            snapshot.tracks.begin(), snapshot.tracks.end(), [&](const auto &value) {
+                return value.id == snapshot.selected_track;
+            });
+        track != snapshot.tracks.end()) {
+        next.sound.track_id = track->id;
+        next.sound.track = track->name.empty()
+            ? "Track " + std::to_string(track->id) : track->name;
+        next.sound.instrument_id = track->instrument_id;
+        next.sound.instrument_instance = track->instrument_instance_id;
+        next.sound.synth = track->instrument_id == subtractive_instrument_id;
+        next.sound.sample = track->instrument_id == sample_instrument_id;
+        next.sound.instrument_available = next.sound.synth || next.sound.sample;
+        next.sound.instrument = next.sound.synth ? "Subtractive Synth"
+            : next.sound.sample ? "Sample Instrument" : "Unavailable";
+    }
+    next.sound.groups = next.sound.synth
+        ? std::vector<std::string>{"Oscillator", "Filter", "Envelope", "Output"}
+        : std::vector<std::string>{"Playback", "Envelope", "Voice"};
+    const auto prefix = next.sound.synth ? std::string_view("synth.")
+                                         : std::string_view("sample.");
+    for (const auto &parameter : snapshot.parameters) {
+        if (parameter.id.rfind(prefix, 0) != 0) continue;
+        const auto minimum = numeric_value(parameter.minimum);
+        const auto maximum = numeric_value(parameter.maximum);
+        const auto current = numeric_value(parameter.current_value);
+        std::string group = "Output";
+        if (parameter.id.find("attack") != std::string::npos ||
+            parameter.id.find("decay") != std::string::npos ||
+            parameter.id.find("sustain") != std::string::npos ||
+            parameter.id.find("release") != std::string::npos)
+            group = "Envelope";
+        else if (parameter.id.find("cutoff") != std::string::npos ||
+                 parameter.id.find("resonance") != std::string::npos)
+            group = "Filter";
+        else if (parameter.id.find("waveform") != std::string::npos ||
+                 parameter.id.find("pitch") != std::string::npos ||
+                 parameter.id.find("pulse") != std::string::npos)
+            group = next.sound.synth ? "Oscillator" : "Playback";
+        next.sound.parameters.push_back(
+            {parameter.id, parameter.name, format_value(current), parameter.unit,
+             group, minimum, maximum,
+             maximum > minimum ? (current - minimum) / (maximum - minimum) : 0.0,
+             true, parameter.automatable, parameter.modulatable});
+    }
+    next.sound.sample_settings = snapshot.selected_pad_settings;
+    for (std::size_t index = 0; index < snapshot.modulation.route_count; ++index) {
+        const auto &route = snapshot.modulation.routes[index];
+        const auto source = std::find_if(
+            snapshot.modulation.modulators.begin(),
+            snapshot.modulation.modulators.begin() +
+                snapshot.modulation.modulator_count,
+            [&](const auto &value) { return value.id == route.source_instance; });
+        const auto local = route.track_id == snapshot.selected_track ||
+            (route.destination_owner_explicit &&
+             route.destination_owner_id == snapshot.selected_track) ||
+            (source != snapshot.modulation.modulators.begin() +
+                           snapshot.modulation.modulator_count &&
+             source->owner_kind == ModulatorOwnerKind::track &&
+             source->owner_id == snapshot.selected_track);
+        if (!local) continue;
+        next.sound.modulation.push_back(
+            {route.id, route.source_instance,
+             route.source_instance ? "Modulator " + std::to_string(route.source_instance)
+                                   : "Source " + std::to_string(static_cast<unsigned>(route.source)),
+             "Parameter " + std::to_string(route.destination.parameter),
+             format_value(route.depth), route.enabled});
+    }
+    next.sound.preset_status = snapshot.preset_application.status;
+    next.sound.error = snapshot.preset_application.error;
+    if (next.sound.selected_parameter >= next.sound.parameters.size())
+        next.sound.selected_parameter = 0;
+    if (next.sound.selected_modulation >= next.sound.modulation.size())
+        next.sound.selected_modulation = 0;
     next.shell.notification = last_error_;
     state_ = std::move(next);
     published_local_revision_ = local_revision_;
@@ -446,7 +546,7 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
-    state_.shell.notification = index < 3
+    state_.shell.notification = index < 4
         ? std::string{}
         : state_.shell.page_title + " is not implemented yet";
     last_error_ = state_.shell.notification;
@@ -760,6 +860,182 @@ bool SlintFrontendAdapter::set_waveform_view(float zoom, float offset) {
     state_.sample.offset = std::clamp(offset, 0.0F, 1.0F);
     ++local_revision_;
     return refresh();
+}
+
+bool SlintFrontendAdapter::select_sound_subview(std::string subview) {
+    if (subview != "instrument" && subview != "modulation" &&
+        subview != "presets") {
+        last_error_ = "Sound subview is unavailable";
+        return false;
+    }
+    state_.sound.subview = std::move(subview);
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_track_instrument(std::string instrument_id) {
+    if (instrument_id != sample_instrument_id &&
+        instrument_id != subtractive_instrument_id) {
+        last_error_ = "Instrument type is unsupported";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    return execute({"track.instrument-set.v1",
+                    {{"instrument_id", std::move(instrument_id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_sound_parameter(std::size_t index) {
+    if (index >= state_.sound.parameters.size()) {
+        last_error_ = "Sound parameter is unavailable";
+        return false;
+    }
+    state_.sound.selected_parameter = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::adjust_sound_parameter(std::size_t index,
+                                                   double steps) {
+    if (index >= state_.sound.parameters.size() || !std::isfinite(steps)) {
+        last_error_ = "Sound parameter is unavailable";
+        return false;
+    }
+    const auto &parameter = state_.sound.parameters[index];
+    const auto descriptor = application_.parameters().get(parameter.id);
+    if (!descriptor) {
+        last_error_ = "Sound parameter is stale";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto value = std::clamp(numeric_value(descriptor->current_value) +
+                                      descriptor->step * steps,
+                                  parameter.minimum, parameter.maximum);
+    if (state_.sound.synth)
+        return execute({"instrument.instance-parameter-set.v1",
+                        {{"instance_id", static_cast<std::int64_t>(
+                                             state_.sound.instrument_instance)},
+                         {"parameter_id", parameter.id}, {"value", value}}, {}, 0});
+    return execute({"parameter.set-normalized.v1",
+                    {{"parameter_id", parameter.id},
+                     {"value", parameter.maximum > parameter.minimum
+                                   ? (value - parameter.minimum) /
+                                         (parameter.maximum - parameter.minimum)
+                                   : 0.0}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::cycle_sample_playback_mode() {
+    auto mode = std::string("one-shot");
+    switch (state_.sound.sample_settings.mode) {
+    case SamplePlaybackMode::one_shot: mode = "gate"; break;
+    case SamplePlaybackMode::gate: mode = "toggle"; break;
+    case SamplePlaybackMode::toggle: mode = "one-shot"; break;
+    }
+    return execute({"pad.playback-mode-set.v1", {{"mode", mode}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::adjust_sample_instrument(std::string property,
+                                                     double steps) {
+    const auto settings = state_.sound.sample_settings;
+    if (property == "pitch")
+        return execute({"pad.pitch-set.v1",
+                        {{"semitones", std::clamp<double>(
+                            settings.semitones + steps, -48.0, 48.0)}}, {}, 0});
+    if (property == "fine")
+        return execute({"pad.fine-set.v1",
+                        {{"cents", std::clamp<double>(
+                            settings.fine_cents + steps, -100.0, 100.0)}}, {}, 0});
+    if (property == "gain")
+        return execute({"pad.gain-set.v1",
+                        {{"gain", std::clamp<double>(
+                            settings.gain + steps * 0.05, 0.0, 4.0)}}, {}, 0});
+    const auto delta = steps * 0.01;
+    auto attack = settings.attack_seconds;
+    auto decay = settings.decay_seconds;
+    auto sustain = settings.sustain;
+    auto release = settings.release_seconds;
+    if (property == "attack") attack = std::clamp<float>(attack + delta, 0, 60);
+    else if (property == "decay") decay = std::clamp<float>(decay + delta, 0, 60);
+    else if (property == "sustain") sustain = std::clamp<float>(sustain + delta, 0, 1);
+    else if (property == "release") release = std::clamp<float>(release + delta, 0, 60);
+    else {
+        last_error_ = "Sample instrument property is unavailable";
+        return false;
+    }
+    return execute({"pad.envelope-set.v1",
+                    {{"attack", static_cast<double>(attack)},
+                     {"decay", static_cast<double>(decay)},
+                     {"sustain", static_cast<double>(sustain)},
+                     {"release", static_cast<double>(release)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_sound_modulation(std::size_t index) {
+    if (index >= state_.sound.modulation.size()) {
+        last_error_ = "Modulation assignment is unavailable";
+        return false;
+    }
+    state_.sound.selected_modulation = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::edit_sound_modulation(std::string operation) {
+    if (state_.sound.selected_modulation >= state_.sound.modulation.size()) {
+        last_error_ = "Modulation assignment is unavailable";
+        return false;
+    }
+    const auto &route = state_.sound.modulation[state_.sound.selected_modulation];
+    if (operation == "delete")
+        return execute({"modulation.route-delete.v1",
+                        {{"route_id", static_cast<std::int64_t>(route.id)}}, {}, 0});
+    if (operation == "toggle")
+        return execute({"modulation.route-enable.v1",
+                        {{"route_id", static_cast<std::int64_t>(route.id)},
+                         {"enabled", !route.enabled}}, {}, 0});
+    const auto snapshot = application_.snapshot();
+    const auto found = std::find_if(snapshot.modulation.routes.begin(),
+        snapshot.modulation.routes.begin() + snapshot.modulation.route_count,
+        [&](const auto &value) { return value.id == route.id; });
+    if (found == snapshot.modulation.routes.begin() + snapshot.modulation.route_count) {
+        last_error_ = "Modulation assignment is stale";
+        return false;
+    }
+    const auto delta = operation == "depth-up" ? 0.05F
+                     : operation == "depth-down" ? -0.05F : 0.0F;
+    if (delta == 0) {
+        last_error_ = "Modulation operation is unavailable";
+        return false;
+    }
+    return execute({"modulation.route-depth.v1",
+                    {{"route_id", static_cast<std::int64_t>(route.id)},
+                     {"depth", static_cast<double>(
+                         std::clamp(found->depth + delta, -1.0F, 1.0F))}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::preset_action(std::string operation,
+                                          std::string library,
+                                          std::string preset_id) {
+    state_.sound.preset_library = library;
+    state_.sound.preset_id = preset_id;
+    if (operation == "apply") return invoke_action("preset.apply.v1");
+    if (operation == "cancel") return invoke_action("preset.cancel.v1");
+    if (operation == "save") {
+        last_error_ = "Saving the current instrument has no semantic action";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    if (library.empty() || preset_id.empty()) {
+        last_error_ = "Preset library and ID are required";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto action = operation == "validate" ? "preset.validate.v1"
+                                                 : "preset.prepare.v1";
+    return execute({action,
+                    {{"library", std::move(library)},
+                     {"preset_id", std::move(preset_id)},
+                     {"mode", std::string("replace")},
+                     {"track_id", static_cast<std::int64_t>(state_.sound.track_id)}},
+                    {}, 0});
 }
 
 void SlintFrontendAdapter::dismiss_notification() noexcept {

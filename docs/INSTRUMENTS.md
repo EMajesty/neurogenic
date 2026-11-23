@@ -44,6 +44,12 @@ synth and delay controls. Generic application commands use
 `track.instrument-set.v1` and the existing parameter actions. No GUI or
 controller touches DSP objects directly.
 
+The production Slint Sound page uses that same boundary. Its synth controls are
+descriptor-driven and instance-aware; oscillator, filter, ADSR and output
+groups contain only registered engine parameters. The sample instrument panel
+uses selected-pad playback, tuning and envelope actions and leaves region and
+slice editing to the separate Sample Editor.
+
 Timeline automation uses the same stable application parameter IDs. Synth
 destinations are valid only on tracks routed to the subtractive synth; the
 master delay is global and may be automated from any track. Resolution and

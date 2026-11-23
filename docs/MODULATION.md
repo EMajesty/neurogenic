@@ -106,6 +106,11 @@ The GUI `MOD` view selects routes with Up/Down, adjusts depth with Left/Right,
 and toggles enable with Enter. The same actions support pointer clients, eight
 encoders, a data wheel, XY, MIDI, and remote clients without Lua.
 
+The Slint Sound page provides a compact track-local assignment inspector. It
+can adjust depth, enable state or delete an existing route through the same
+semantic actions. It intentionally does not duplicate graph creation or
+topology validation; detailed multi-owner editing belongs to FX/Modulation.
+
 Projects write optional version-3 `modulation.ngm`. It preserves source settings, seeds,
 route IDs, scopes, track IDs, depths, and destinations. Older projects load an
 empty matrix. Forward versions and unsafe destinations are rejected.

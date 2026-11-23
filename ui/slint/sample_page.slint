@@ -1,0 +1,54 @@
+import { LineEdit } from "std-widgets.slint";
+import { PageButton, ParameterDisplay, WaveformOverview } from "components.slint";
+import { Theme } from "theme.slint";
+
+export struct SliceItem { id: int, label: string, range: string, selected: bool, assigned: bool }
+export struct RegionItem { id: int, label: string, range: string, fade: string, loop: string, selected: bool }
+
+export component SamplePage inherits VerticalLayout {
+    in property <int> sample-slot; in property <string> sample-name;
+    in property <string> sample-status; in property <string> sample-metadata;
+    in property <string> sample-error; in property <string> analysis-status;
+    in property <string> processing-status; in property <bool> sample-ready;
+    in property <bool> sample-stereo; in property <float> waveform-zoom;
+    in property <[float]> waveform-left; in property <[float]> waveform-right;
+    in property <[float]> slice-markers; in property <float> region-start;
+    in property <float> region-end; in property <[SliceItem]> sample-slices;
+    in property <[RegionItem]> sample-regions; in-out property <string> sample-path;
+    callback sample-slot-selected(int); callback sample-load(string);
+    callback waveform-selected(float); callback waveform-zoomed(float);
+    callback slice-selected(int); callback slice-action(string);
+    callback region-selected(int); callback region-action(string);
+    callback sample-preview(string); callback sample-analysis(string);
+    callback sample-processing(string);
+    spacing: 6px;
+    HorizontalLayout { height: 42px; spacing: 5px;
+        PageButton { text: "<"; implemented: true; clicked => { root.sample-slot-selected(-1); } }
+        PageButton { text: "Slot " + root.sample-slot + ": " + root.sample-name; implemented: true; clicked => { } }
+        PageButton { text: root.sample-status; implemented: root.sample-ready; clicked => { } }
+        LineEdit { horizontal-stretch: 3; text <=> root.sample-path; placeholder-text: "/path/to/sample.wav"; }
+        PageButton { text: "Load / Replace"; implemented: root.sample-path != ""; clicked => { root.sample-load(root.sample-path); } }
+        PageButton { text: ">"; implemented: true; clicked => { root.sample-slot-selected(1); } }
+    }
+    WaveformOverview { vertical-stretch: 3; left-peaks: root.waveform-left; right-peaks: root.waveform-right; markers: root.slice-markers; stereo: root.sample-stereo; zoom: root.waveform-zoom; region-start: root.region-start; region-end: root.region-end; position-selected(value) => { root.waveform-selected(value); } zoom-requested(value) => { root.waveform-zoomed(value); } }
+    HorizontalLayout { height: 34px; spacing: 5px;
+        ParameterDisplay { name: "Format"; value: root.sample-metadata; horizontal-stretch: 3; }
+        ParameterDisplay { name: "Analysis"; value: root.analysis-status; }
+        ParameterDisplay { name: "Processing"; value: root.processing-status; }
+        PageButton { text: "Zoom -"; implemented: root.waveform-zoom > 1; clicked => { root.waveform-zoomed(root.waveform-zoom / 2); } }
+        PageButton { text: "Zoom +"; implemented: root.sample-ready; clicked => { root.waveform-zoomed(root.waveform-zoom * 2); } }
+        if root.sample-error != "": ParameterDisplay { name: "Error"; value: root.sample-error; }
+    }
+    HorizontalLayout { spacing: 6px; vertical-stretch: 2;
+        Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 2; VerticalLayout { padding: 5px; spacing: 3px; Text { text: "Slices"; color: Theme.accent; } for slice[i] in root.sample-slices: PageButton { height: 30px; text: slice.label + " " + slice.range + (slice.assigned ? " [PAD]" : ""); selected: slice.selected; implemented: true; clicked => { root.slice-selected(i); } } } }
+        Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 2; VerticalLayout { padding: 5px; spacing: 3px; Text { text: "Regions"; color: Theme.accent; } for region[i] in root.sample-regions: PageButton { height: 30px; text: region.label + " " + region.range + " L:" + region.loop; selected: region.selected; implemented: true; clicked => { root.region-selected(i); } } } }
+        VerticalLayout { spacing: 4px; horizontal-stretch: 2;
+            HorizontalLayout { PageButton { text: "Preview Sample"; implemented: root.sample-ready; clicked => { root.sample-preview("sample"); } } PageButton { text: "Preview Slice"; implemented: root.sample-slices.length > 0; clicked => { root.sample-preview("slice"); } } PageButton { text: "Stop"; implemented: true; clicked => { root.sample-preview("stop"); } } }
+            HorizontalLayout { PageButton { text: "Delete Slice"; implemented: root.sample-slices.length > 0; clicked => { root.slice-action("delete"); } } PageButton { text: "Assign Pad"; implemented: root.sample-slices.length > 0; clicked => { root.slice-action("assign"); } } PageButton { text: "Loop"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("loop"); } } }
+            HorizontalLayout { PageButton { text: "Start -"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("start-down"); } } PageButton { text: "Start +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("start-up"); } } PageButton { text: "End -"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("end-down"); } } PageButton { text: "End +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("end-up"); } } }
+            HorizontalLayout { PageButton { text: "Fade In +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-in"); } } PageButton { text: "Fade Out +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-out"); } } }
+            HorizontalLayout { PageButton { text: "Detect"; implemented: root.sample-ready; clicked => { root.sample-analysis("start"); } } PageButton { text: "Accept"; implemented: root.analysis-status == "completed"; clicked => { root.sample-analysis("accept"); } } PageButton { text: "Reject"; implemented: root.analysis-status != "Idle"; clicked => { root.sample-analysis("reject"); } } }
+            HorizontalLayout { PageButton { text: "Normalize"; implemented: root.sample-ready; clicked => { root.sample-processing("normalize-peak"); } } PageButton { text: "Reverse"; implemented: root.sample-ready; clicked => { root.sample-processing("reverse"); } } PageButton { text: "Trim"; implemented: root.sample-regions.length > 0; clicked => { root.sample-processing("trim"); } } }
+        }
+    }
+}

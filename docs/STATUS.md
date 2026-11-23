@@ -548,3 +548,11 @@ without waiting for unrelated application revisions. Path entry replaces a
 decorative file picker. Processing publication, detailed candidate editing and
 preview-playhead feedback remain explicit or deferred where the application API
 does not expose an acknowledgement.
+
+Task 075 extracts Performance, Sequencer and Sample into independent typed
+Slint components and adds a production Sound component. The page switches the
+selected track between the existing sampler and subtractive synth, edits
+descriptor-backed instance parameters and sample-pad envelopes/playback,
+inspects and edits local modulation routes, and drives transactional preset
+validation/application. Preset enumeration/save and detailed graph creation
+remain unavailable until semantic application actions exist.

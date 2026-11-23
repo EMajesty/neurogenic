@@ -123,12 +123,39 @@ struct SlintSamplePageState {
     std::vector<SlintRegionItem> regions;
 };
 
+struct SlintSoundParameterItem {
+    std::string id, name, value, unit, group;
+    double minimum{}, maximum{}, normalized{};
+    bool available{}, automatable{}, modulatable{};
+};
+
+struct SlintSoundModulationItem {
+    std::uint64_t id{}, source_id{};
+    std::string source, destination, amount;
+    bool enabled{};
+};
+
+struct SlintSoundPageState {
+    std::uint64_t track_id{};
+    std::uint32_t instrument_instance{};
+    std::string track{"Unavailable"}, instrument_id, instrument{"None"},
+        subview{"instrument"}, preset_library, preset_id,
+        preset_status{"Idle"}, error;
+    bool synth{}, sample{}, instrument_available{};
+    std::size_t selected_parameter{}, selected_modulation{};
+    std::vector<std::string> groups;
+    std::vector<SlintSoundParameterItem> parameters;
+    std::vector<SlintSoundModulationItem> modulation;
+    SamplePlaybackSettings sample_settings;
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
     SlintPerformancePageState performance;
     SlintSequencerPageState sequencer;
     SlintSamplePageState sample;
+    SlintSoundPageState sound;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -181,6 +208,18 @@ class SlintFrontendAdapter {
                                         std::uint64_t fade_out);
     [[nodiscard]] bool start_processing(std::string operation);
     [[nodiscard]] bool set_waveform_view(float zoom, float offset);
+    [[nodiscard]] bool select_sound_subview(std::string subview);
+    [[nodiscard]] bool set_track_instrument(std::string instrument_id);
+    [[nodiscard]] bool adjust_sound_parameter(std::size_t index, double steps);
+    [[nodiscard]] bool select_sound_parameter(std::size_t index);
+    [[nodiscard]] bool cycle_sample_playback_mode();
+    [[nodiscard]] bool adjust_sample_instrument(std::string property,
+                                                double steps);
+    [[nodiscard]] bool select_sound_modulation(std::size_t index);
+    [[nodiscard]] bool edit_sound_modulation(std::string operation);
+    [[nodiscard]] bool preset_action(std::string operation,
+                                     std::string library,
+                                     std::string preset_id);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }

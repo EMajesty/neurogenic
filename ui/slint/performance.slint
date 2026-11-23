@@ -1,16 +1,12 @@
-import { LineEdit } from "std-widgets.slint";
-import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, TransportControls, TrackSelector, PerformanceSlot, EmptyState, ParameterDisplay, WaveformOverview, Notification, ModalDialog } from "components.slint";
+import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog } from "components.slint";
 import { Theme } from "theme.slint";
+import { PerformancePage, PadItem, SceneItem } from "performance_page.slint";
+import { SequencerPage, StepItem, PatternItem, ArrangementItem } from "sequencer_page.slint";
+import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
+import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
-export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
-export struct SceneItem { label: string, queued: bool }
-export struct StepItem { label: string, status: string, active: bool, selected: bool, playhead: bool, available: bool }
-export struct PatternItem { id: int, name: string, selected: bool, active: bool, queued: bool }
-export struct ArrangementItem { id: int, label: string, range: string, kind: string, selected: bool, enabled: bool }
-export struct SliceItem { id: int, label: string, range: string, selected: bool, assigned: bool }
-export struct RegionItem { id: int, label: string, range: string, fade: string, loop: string, selected: bool }
 
 export component PerformanceWindow inherits Window {
     title: "NEUROGENIC"; preferred-width: 1280px; preferred-height: 800px;
@@ -61,6 +57,24 @@ export component PerformanceWindow inherits Window {
     in property <[SliceItem]> sample-slices;
     in property <[RegionItem]> sample-regions;
     in-out property <string> sample-path: "";
+    in property <string> sound-track: "Unavailable";
+    in property <string> sound-instrument: "None";
+    in property <string> sound-instrument-id: "";
+    in property <bool> sound-instrument-available: false;
+    in property <bool> sound-is-synth: false;
+    in property <bool> sound-is-sample: false;
+    in property <string> sound-subview: "instrument";
+    in property <[SoundParameterItem]> sound-parameters;
+    in property <[SoundModulationItem]> sound-modulation;
+    in property <int> sound-selected-parameter: 0;
+    in property <int> sound-selected-modulation: 0;
+    in property <string> sound-sample-mode: "Unavailable";
+    in property <string> sound-sample-envelope: "--";
+    in property <string> sound-sample-tuning: "--";
+    in property <string> sound-preset-status: "idle";
+    in property <string> sound-error: "";
+    in-out property <string> sound-preset-library: "";
+    in-out property <string> sound-preset-id: "";
     in-out property <bool> modal-visible: false;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
@@ -78,6 +92,10 @@ export component PerformanceWindow inherits Window {
     callback region-selected(int); callback region-action(string);
     callback sample-preview(string); callback sample-analysis(string);
     callback sample-processing(string);
+    callback sound-subview-selected(string); callback sound-instrument-selected(string);
+    callback sound-parameter-selected(int); callback sound-parameter-adjusted(int, int);
+    callback sound-sample-action(string); callback sound-modulation-selected(int);
+    callback sound-modulation-action(string); callback sound-preset-action(string, string, string);
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -91,95 +109,55 @@ export component PerformanceWindow inherits Window {
             spacing: 5px; height: 72px;
             for item[i] in root.encoders: ContextualEncoder { label: item.label; value: item.value; unit: item.unit; active: item.active; turned(delta) => { root.encoder-turned(i, delta); } }
         }
-        if root.page-id == "performance": VerticalLayout {
-            spacing: 6px; vertical-stretch: 1;
-            HorizontalLayout {
-                height: 58px; spacing: 6px;
-                TransportControls { state: root.transport-state; play => { root.transport-invoked("play"); } stop => { root.transport-invoked("stop"); } record => { root.transport-invoked("record"); } }
-                TrackSelector { horizontal-stretch: 2; track: root.selected-track; owner: root.track-owner; previous => { root.track-selected(-1); } next => { root.track-selected(1); } return-arrangement => { root.return-arrangement(); } }
-                Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius; VerticalLayout { padding: 6px; Text { text: root.active-content; color: Theme.foreground; overflow: elide; } Text { text: "Launch: " + root.launch-quantization; color: Theme.muted; overflow: elide; } } TouchArea { clicked => { root.quantization-invoked(); } } }
-            }
-            if root.scenes.length > 0: HorizontalLayout { height: 38px; spacing: 5px; for scene[i] in root.scenes: PageButton { text: scene.label + (scene.queued ? " (Queued)" : ""); implemented: true; clicked => { root.scene-invoked(i); } } }
-            Rectangle {
-                background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 1;
-                GridLayout { padding: 8px; spacing: 6px; for pad[i] in root.pads: PerformanceSlot { row: i / 8; col: mod(i, 8); label: pad.label; state: pad.status; selected: pad.selected; available: pad.available; invoked => { root.pad-invoked(i, true); } } }
-            }
+        if root.page-id == "performance": PerformancePage {
+            vertical-stretch: 1; transport-state: root.transport-state;
+            selected-track: root.selected-track; track-owner: root.track-owner;
+            active-content: root.active-content; launch-quantization: root.launch-quantization;
+            pads: root.pads; scenes: root.scenes;
+            transport-invoked(action) => { root.transport-invoked(action); }
+            track-selected(direction) => { root.track-selected(direction); }
+            return-arrangement => { root.return-arrangement(); }
+            quantization-invoked => { root.quantization-invoked(); }
+            scene-invoked(index) => { root.scene-invoked(index); }
+            pad-invoked(index, pressed) => { root.pad-invoked(index, pressed); }
         }
-        if root.page-id == "sequencer": VerticalLayout {
-            spacing: 6px; vertical-stretch: 1;
-            HorizontalLayout {
-                height: 44px; spacing: 5px;
-                PageButton { text: "Steps"; selected: !root.arrangement-view; implemented: true; clicked => { if (root.arrangement-view) { root.arrangement-toggle(); } } }
-                PageButton { text: "Arrangement"; selected: root.arrangement-view; implemented: true; clicked => { if (!root.arrangement-view) { root.arrangement-toggle(); } } }
-                PageButton { text: root.selected-track; implemented: true; clicked => { root.track-selected(1); } }
-                PageButton { text: root.selected-pattern; implemented: true; clicked => { } }
-                PageButton { text: root.pattern-length; implemented: false; clicked => { } }
-                PageButton { text: root.step-resolution; implemented: true; clicked => { root.resolution-invoked(); } }
-            }
-            if !root.arrangement-view: HorizontalLayout {
-                spacing: 6px; vertical-stretch: 1;
-                Rectangle {
-                    background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 4;
-                    GridLayout { padding: 8px; spacing: 6px; for step[i] in root.steps: PerformanceSlot { row: i / 8; col: mod(i, 8); label: step.label + (step.playhead ? " >" : ""); state: step.status; selected: step.selected; available: step.available; invoked => { root.sequencer-step-invoked(i); } } }
-                }
-                VerticalLayout {
-                    spacing: 5px; horizontal-stretch: 2;
-                    Rectangle { background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 2; VerticalLayout { padding: 5px; spacing: 4px; Text { text: "Patterns"; color: Theme.accent; } for pattern[i] in root.patterns: PageButton { height: 32px; text: pattern.name + (pattern.queued ? " [Q]" : pattern.active ? " [A]" : ""); selected: pattern.selected; implemented: true; clicked => { root.pattern-invoked(i, false); } } } }
-                    HorizontalLayout { height: 36px; spacing: 4px; PageButton { text: "New"; implemented: true; clicked => { root.pattern-create(false); } } PageButton { text: "Duplicate"; implemented: true; clicked => { root.pattern-create(true); } } }
-                    ParameterDisplay { height: 34px; name: "Velocity"; value: root.selected-velocity; }
-                    ParameterDisplay { height: 34px; name: "Length"; value: root.selected-duration; }
-                    HorizontalLayout { height: 34px; spacing: 4px; PageButton { text: "Vel -"; implemented: true; clicked => { root.step-edit("velocity-down"); } } PageButton { text: "Vel +"; implemented: true; clicked => { root.step-edit("velocity-up"); } } PageButton { text: "Length +"; implemented: true; clicked => { root.step-edit("length-up"); } } }
-                }
-            }
-            if root.arrangement-view: VerticalLayout {
-                spacing: 5px;
-                Rectangle { height: 36px; background: Theme.panel; Text { text: "Loop: " + root.arrangement-loop; color: Theme.foreground; vertical-alignment: center; } }
-                if root.arrangement-items.length == 0: EmptyState { title: "Arrangement"; message: "No pattern or audio clips are placed in the arrangement."; }
-                for clip[i] in root.arrangement-items: PageButton { height: 38px; text: clip.kind + "  " + clip.label + "  " + clip.range; selected: clip.selected; implemented: clip.enabled; clicked => { root.arrangement-item-invoked(i); } }
-            }
+        if root.page-id == "sequencer": SequencerPage {
+            vertical-stretch: 1; selected-track: root.selected-track; selected-pattern: root.selected-pattern;
+            pattern-length: root.pattern-length; step-resolution: root.step-resolution; selected-velocity: root.selected-velocity;
+            selected-duration: root.selected-duration; arrangement-loop: root.arrangement-loop; arrangement-view: root.arrangement-view;
+            steps: root.steps; patterns: root.patterns; arrangement-items: root.arrangement-items;
+            track-selected(direction) => { root.track-selected(direction); } arrangement-toggle => { root.arrangement-toggle(); }
+            resolution-invoked => { root.resolution-invoked(); } step-invoked(index) => { root.sequencer-step-invoked(index); }
+            pattern-invoked(index, launch) => { root.pattern-invoked(index, launch); } pattern-create(duplicate) => { root.pattern-create(duplicate); }
+            step-edit(action) => { root.step-edit(action); } arrangement-item-invoked(index) => { root.arrangement-item-invoked(index); }
         }
-        if root.page-id == "sample": VerticalLayout {
-            spacing: 6px; vertical-stretch: 1;
-            HorizontalLayout {
-                height: 42px; spacing: 5px;
-                PageButton { text: "<"; implemented: true; clicked => { root.sample-slot-selected(-1); } }
-                PageButton { text: "Slot " + root.sample-slot + ": " + root.sample-name; implemented: true; clicked => { } }
-                PageButton { text: root.sample-status; implemented: root.sample-ready; clicked => { } }
-                LineEdit { horizontal-stretch: 3; text <=> root.sample-path; placeholder-text: "/path/to/sample.wav"; }
-                PageButton { text: "Load / Replace"; implemented: root.sample-path != ""; clicked => { root.sample-load(root.sample-path); } }
-                PageButton { text: ">"; implemented: true; clicked => { root.sample-slot-selected(1); } }
-            }
-            WaveformOverview {
-                vertical-stretch: 3; left-peaks: root.waveform-left; right-peaks: root.waveform-right;
-                markers: root.slice-markers; stereo: root.sample-stereo; zoom: root.waveform-zoom;
-                region-start: root.region-start; region-end: root.region-end;
-                position-selected(value) => { root.waveform-selected(value); }
-                zoom-requested(value) => { root.waveform-zoomed(value); }
-            }
-            HorizontalLayout {
-                height: 34px; spacing: 5px;
-                ParameterDisplay { name: "Format"; value: root.sample-metadata; horizontal-stretch: 3; }
-                ParameterDisplay { name: "Analysis"; value: root.analysis-status; }
-                ParameterDisplay { name: "Processing"; value: root.processing-status; }
-                PageButton { text: "Zoom -"; implemented: root.waveform-zoom > 1; clicked => { root.waveform-zoomed(root.waveform-zoom / 2); } }
-                PageButton { text: "Zoom +"; implemented: root.sample-ready; clicked => { root.waveform-zoomed(root.waveform-zoom * 2); } }
-                if root.sample-error != "": ParameterDisplay { name: "Error"; value: root.sample-error; }
-            }
-            HorizontalLayout {
-                spacing: 6px; vertical-stretch: 2;
-                Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 2; VerticalLayout { padding: 5px; spacing: 3px; Text { text: "Slices"; color: Theme.accent; } for slice[i] in root.sample-slices: PageButton { height: 30px; text: slice.label + " " + slice.range + (slice.assigned ? " [PAD]" : ""); selected: slice.selected; implemented: true; clicked => { root.slice-selected(i); } } } }
-                Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 2; VerticalLayout { padding: 5px; spacing: 3px; Text { text: "Regions"; color: Theme.accent; } for region[i] in root.sample-regions: PageButton { height: 30px; text: region.label + " " + region.range + " L:" + region.loop; selected: region.selected; implemented: true; clicked => { root.region-selected(i); } } } }
-                VerticalLayout { spacing: 4px; horizontal-stretch: 2;
-                    HorizontalLayout { PageButton { text: "Preview Sample"; implemented: root.sample-ready; clicked => { root.sample-preview("sample"); } } PageButton { text: "Preview Slice"; implemented: root.sample-slices.length > 0; clicked => { root.sample-preview("slice"); } } PageButton { text: "Stop"; implemented: true; clicked => { root.sample-preview("stop"); } } }
-                    HorizontalLayout { PageButton { text: "Delete Slice"; implemented: root.sample-slices.length > 0; clicked => { root.slice-action("delete"); } } PageButton { text: "Assign Pad"; implemented: root.sample-slices.length > 0; clicked => { root.slice-action("assign"); } } PageButton { text: "Loop"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("loop"); } } }
-                    HorizontalLayout { PageButton { text: "Start -"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("start-down"); } } PageButton { text: "Start +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("start-up"); } } PageButton { text: "End -"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("end-down"); } } PageButton { text: "End +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("end-up"); } } }
-                    HorizontalLayout { PageButton { text: "Fade In +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-in"); } } PageButton { text: "Fade Out +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-out"); } } }
-                    HorizontalLayout { PageButton { text: "Detect"; implemented: root.sample-ready; clicked => { root.sample-analysis("start"); } } PageButton { text: "Accept"; implemented: root.analysis-status == "completed"; clicked => { root.sample-analysis("accept"); } } PageButton { text: "Reject"; implemented: root.analysis-status != "Idle"; clicked => { root.sample-analysis("reject"); } } }
-                    HorizontalLayout { PageButton { text: "Normalize"; implemented: root.sample-ready; clicked => { root.sample-processing("normalize-peak"); } } PageButton { text: "Reverse"; implemented: root.sample-ready; clicked => { root.sample-processing("reverse"); } } PageButton { text: "Trim"; implemented: root.sample-regions.length > 0; clicked => { root.sample-processing("trim"); } } }
-                }
-            }
+        if root.page-id == "sample": SamplePage {
+            vertical-stretch: 1; sample-slot: root.sample-slot; sample-name: root.sample-name; sample-status: root.sample-status;
+            sample-metadata: root.sample-metadata; sample-error: root.sample-error; analysis-status: root.analysis-status;
+            processing-status: root.processing-status; sample-ready: root.sample-ready; sample-stereo: root.sample-stereo;
+            waveform-zoom: root.waveform-zoom; waveform-left: root.waveform-left; waveform-right: root.waveform-right;
+            slice-markers: root.slice-markers; region-start: root.region-start; region-end: root.region-end;
+            sample-slices: root.sample-slices; sample-regions: root.sample-regions; sample-path <=> root.sample-path;
+            sample-slot-selected(direction) => { root.sample-slot-selected(direction); } sample-load(path) => { root.sample-load(path); }
+            waveform-selected(value) => { root.waveform-selected(value); } waveform-zoomed(value) => { root.waveform-zoomed(value); }
+            slice-selected(index) => { root.slice-selected(index); } slice-action(action) => { root.slice-action(action); }
+            region-selected(index) => { root.region-selected(index); } region-action(action) => { root.region-action(action); }
+            sample-preview(target) => { root.sample-preview(target); } sample-analysis(action) => { root.sample-analysis(action); }
+            sample-processing(action) => { root.sample-processing(action); }
         }
-        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
+        if root.page-id == "sound": SoundPage {
+            vertical-stretch: 1; track: root.sound-track; instrument: root.sound-instrument; instrument-id: root.sound-instrument-id;
+            instrument-available: root.sound-instrument-available; is-synth: root.sound-is-synth; is-sample: root.sound-is-sample;
+            subview: root.sound-subview; parameters: root.sound-parameters; modulation: root.sound-modulation;
+            selected-parameter: root.sound-selected-parameter; selected-modulation: root.sound-selected-modulation;
+            sample-mode: root.sound-sample-mode; sample-envelope: root.sound-sample-envelope; sample-tuning: root.sound-sample-tuning;
+            preset-status: root.sound-preset-status; error: root.sound-error; preset-library <=> root.sound-preset-library; preset-id <=> root.sound-preset-id;
+            subview-selected(value) => { root.sound-subview-selected(value); } instrument-selected(value) => { root.sound-instrument-selected(value); }
+            parameter-selected(index) => { root.sound-parameter-selected(index); } parameter-adjusted(index, steps) => { root.sound-parameter-adjusted(index, steps); }
+            sample-action(action) => { root.sound-sample-action(action); } modulation-selected(index) => { root.sound-modulation-selected(index); }
+            modulation-action(action) => { root.sound-modulation-action(action); } preset-action(action, library, id) => { root.sound-preset-action(action, library, id); }
+        }
+        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }

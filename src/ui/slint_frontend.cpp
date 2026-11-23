@@ -1,4 +1,5 @@
 #include "neurogenic/ui/slint_adapter.hpp"
+#include "neurogenic/audio/slicing.hpp"
 #include "performance.h"
 #include <slint.h>
 #include <algorithm>
@@ -147,6 +148,47 @@ void publish(const SlintUiState &state,
                            text(region.fade), text(region.loop), region.selected});
     window->set_sample_regions(
         std::make_shared<slint::VectorModel<RegionItem>>(std::move(regions)));
+    window->set_sound_track(text(state.sound.track));
+    window->set_sound_instrument(text(state.sound.instrument));
+    window->set_sound_instrument_id(text(state.sound.instrument_id));
+    window->set_sound_instrument_available(state.sound.instrument_available);
+    window->set_sound_is_synth(state.sound.synth);
+    window->set_sound_is_sample(state.sound.sample);
+    window->set_sound_subview(text(state.sound.subview));
+    window->set_sound_selected_parameter(
+        static_cast<int>(state.sound.selected_parameter));
+    window->set_sound_selected_modulation(
+        static_cast<int>(state.sound.selected_modulation));
+    window->set_sound_sample_mode(text(sample_playback_mode_name(
+        state.sound.sample_settings.mode)));
+    window->set_sound_sample_tuning(text(
+        std::to_string(state.sound.sample_settings.semitones) + " st / " +
+        std::to_string(state.sound.sample_settings.fine_cents) + " ct"));
+    window->set_sound_sample_envelope(text(
+        std::to_string(state.sound.sample_settings.attack_seconds) + " / " +
+        std::to_string(state.sound.sample_settings.decay_seconds) + " / " +
+        std::to_string(state.sound.sample_settings.sustain) + " / " +
+        std::to_string(state.sound.sample_settings.release_seconds)));
+    window->set_sound_preset_status(text(state.sound.preset_status));
+    window->set_sound_error(text(state.sound.error));
+    std::vector<SoundParameterItem> sound_parameters;
+    for (const auto &parameter : state.sound.parameters)
+        sound_parameters.push_back(
+            {text(parameter.id), text(parameter.name), text(parameter.value),
+             text(parameter.unit), text(parameter.group),
+             static_cast<float>(parameter.normalized), parameter.available,
+             parameter.automatable, parameter.modulatable});
+    window->set_sound_parameters(
+        std::make_shared<slint::VectorModel<SoundParameterItem>>(
+            std::move(sound_parameters)));
+    std::vector<SoundModulationItem> sound_modulation;
+    for (const auto &route : state.sound.modulation)
+        sound_modulation.push_back(
+            {static_cast<int>(route.id), text(route.source),
+             text(route.destination), text(route.amount), route.enabled});
+    window->set_sound_modulation(
+        std::make_shared<slint::VectorModel<SoundModulationItem>>(
+            std::move(sound_modulation)));
 }
 } // namespace
 
@@ -325,6 +367,50 @@ int run_slint_frontend(ApplicationService &application,
             (void)adapter.start_processing(operation.data());
             publish(adapter.state(), window);
         });
+        window->on_sound_subview_selected([&](slint::SharedString subview) {
+            (void)adapter.select_sound_subview(subview.data());
+            publish(adapter.state(), window);
+        });
+        window->on_sound_instrument_selected([&](slint::SharedString instrument) {
+            (void)adapter.set_track_instrument(instrument.data());
+            publish(adapter.state(), window);
+        });
+        window->on_sound_parameter_selected([&](int index) {
+            (void)adapter.select_sound_parameter(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_sound_parameter_adjusted([&](int index, int steps) {
+            (void)adapter.adjust_sound_parameter(
+                static_cast<std::size_t>(index), steps);
+            publish(adapter.state(), window);
+        });
+        window->on_sound_sample_action([&](slint::SharedString operation) {
+            if (operation == "mode") (void)adapter.cycle_sample_playback_mode();
+            else if (operation == "pitch-down")
+                (void)adapter.adjust_sample_instrument("pitch", -1);
+            else if (operation == "pitch-up")
+                (void)adapter.adjust_sample_instrument("pitch", 1);
+            else if (operation == "attack")
+                (void)adapter.adjust_sample_instrument("attack", 1);
+            else if (operation == "release")
+                (void)adapter.adjust_sample_instrument("release", 1);
+            publish(adapter.state(), window);
+        });
+        window->on_sound_modulation_selected([&](int index) {
+            (void)adapter.select_sound_modulation(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_sound_modulation_action([&](slint::SharedString operation) {
+            (void)adapter.edit_sound_modulation(operation.data());
+            publish(adapter.state(), window);
+        });
+        window->on_sound_preset_action(
+            [&](slint::SharedString operation, slint::SharedString library,
+                slint::SharedString preset_id) {
+                (void)adapter.preset_action(operation.data(), library.data(),
+                                            preset_id.data());
+                publish(adapter.state(), window);
+            });
         window->on_notification_dismissed([&] {
             adapter.dismiss_notification();
             publish(adapter.state(), window);

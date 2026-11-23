@@ -110,6 +110,11 @@ Cancellation is supported while prepared or queued; once the callback has
 activated the snapshot it cannot be rolled back as a real-time operation.
 Undo/Redo does not yet capture application as one history entry.
 
+The Slint Sound page exposes validate, prepare, apply and cancel using an
+explicit library path and preset ID. Preset enumeration and saving the current
+instrument remain unavailable because they are not semantic ApplicationService
+actions; the frontend does not call `PresetLibrary` directly.
+
 ## Relinking and self-contained export
 
 Missing assets leave status at `awaiting-assets`. Exact-path and

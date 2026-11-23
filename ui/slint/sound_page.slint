@@ -1,0 +1,60 @@
+import { LineEdit, ScrollView } from "std-widgets.slint";
+import { PageButton, ParameterDisplay, EmptyState } from "components.slint";
+import { Theme } from "theme.slint";
+
+export struct SoundParameterItem { id: string, name: string, value: string, unit: string, group: string, normalized: float, available: bool, automatable: bool, modulatable: bool }
+export struct SoundModulationItem { id: int, source: string, destination: string, amount: string, enabled: bool }
+
+export component SoundPage inherits VerticalLayout {
+    in property <string> track; in property <string> instrument;
+    in property <string> instrument-id; in property <bool> instrument-available;
+    in property <bool> is-synth; in property <bool> is-sample;
+    in property <string> subview; in property <[SoundParameterItem]> parameters;
+    in property <[SoundModulationItem]> modulation; in property <int> selected-parameter;
+    in property <int> selected-modulation; in property <string> sample-mode;
+    in property <string> sample-envelope; in property <string> sample-tuning;
+    in property <string> preset-status; in property <string> error;
+    in-out property <string> preset-library; in-out property <string> preset-id;
+    callback subview-selected(string); callback instrument-selected(string);
+    callback parameter-selected(int); callback parameter-adjusted(int, int);
+    callback sample-action(string); callback modulation-selected(int);
+    callback modulation-action(string); callback preset-action(string, string, string);
+    spacing: 6px;
+    HorizontalLayout { height: 42px; spacing: 5px;
+        PageButton { text: root.track; implemented: true; clicked => { } }
+        PageButton { text: "Synth"; selected: root.is-synth; implemented: true; clicked => { root.instrument-selected("synth.subtractive.v1"); } }
+        PageButton { text: "Sampler"; selected: root.is-sample; implemented: true; clicked => { root.instrument-selected("sample.main"); } }
+        PageButton { text: "Instrument"; selected: root.subview == "instrument"; implemented: true; clicked => { root.subview-selected("instrument"); } }
+        PageButton { text: "Modulation"; selected: root.subview == "modulation"; implemented: true; clicked => { root.subview-selected("modulation"); } }
+        PageButton { text: "Presets"; selected: root.subview == "presets"; implemented: true; clicked => { root.subview-selected("presets"); } }
+    }
+    if !root.instrument-available: EmptyState { title: "No supported instrument"; message: "Select the Subtractive Synth or Sample Instrument for this track."; }
+    if root.subview == "instrument" && root.instrument-available: HorizontalLayout { spacing: 6px; vertical-stretch: 1;
+        Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 3; VerticalLayout { padding: 6px; spacing: 4px;
+            Text { text: root.instrument; color: Theme.accent; font-size: 18px; }
+            ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 4px; for parameter[i] in root.parameters: Rectangle { height: 42px; background: i == root.selected-parameter ? Theme.selected : Theme.background; border-radius: Theme.radius; HorizontalLayout { padding: 4px; spacing: 4px; ParameterDisplay { horizontal-stretch: 3; name: parameter.group + " / " + parameter.name; value: parameter.value + " " + parameter.unit; } PageButton { text: "-"; implemented: parameter.available; clicked => { root.parameter-adjusted(i, -1); } } PageButton { text: "+"; implemented: parameter.available; clicked => { root.parameter-adjusted(i, 1); } } } TouchArea { clicked => { root.parameter-selected(i); } } } } }
+        } }
+        if root.is-sample: VerticalLayout { horizontal-stretch: 2; spacing: 5px;
+            ParameterDisplay { name: "Playback"; value: root.sample-mode; }
+            ParameterDisplay { name: "Tuning"; value: root.sample-tuning; }
+            ParameterDisplay { name: "Envelope A/D/S/R"; value: root.sample-envelope; }
+            PageButton { text: "Cycle Mode"; implemented: true; clicked => { root.sample-action("mode"); } }
+            HorizontalLayout { PageButton { text: "Pitch -"; implemented: true; clicked => { root.sample-action("pitch-down"); } } PageButton { text: "Pitch +"; implemented: true; clicked => { root.sample-action("pitch-up"); } } }
+            HorizontalLayout { PageButton { text: "Attack +"; implemented: true; clicked => { root.sample-action("attack"); } } PageButton { text: "Release +"; implemented: true; clicked => { root.sample-action("release"); } } }
+            Text { text: "Detailed regions, loops and slices are edited on the Sample page."; color: Theme.muted; wrap: word-wrap; }
+        }
+    }
+    if root.subview == "modulation": HorizontalLayout { spacing: 6px; vertical-stretch: 1;
+        Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 3; VerticalLayout { padding: 6px; spacing: 4px; Text { text: "Assignments"; color: Theme.accent; } if root.modulation.length == 0: EmptyState { title: "No local assignments"; message: "Create detailed graph connections on the FX/Modulation page."; } for route[i] in root.modulation: PageButton { height: 38px; text: route.source + " -> " + route.destination + "  " + route.amount + (route.enabled ? "" : " [Off]"); selected: i == root.selected-modulation; implemented: true; clicked => { root.modulation-selected(i); } } } }
+        VerticalLayout { horizontal-stretch: 1; spacing: 5px; PageButton { text: "Depth -"; implemented: root.modulation.length > 0; clicked => { root.modulation-action("depth-down"); } } PageButton { text: "Depth +"; implemented: root.modulation.length > 0; clicked => { root.modulation-action("depth-up"); } } PageButton { text: "Enable / Disable"; implemented: root.modulation.length > 0; clicked => { root.modulation-action("toggle"); } } PageButton { text: "Remove"; implemented: root.modulation.length > 0; clicked => { root.modulation-action("delete"); } } }
+    }
+    if root.subview == "presets": VerticalLayout { spacing: 6px; vertical-stretch: 1;
+        Text { text: "Reusable sound preset"; color: Theme.accent; font-size: 18px; }
+        LineEdit { text <=> root.preset-library; placeholder-text: "/path/to/preset/library"; }
+        LineEdit { text <=> root.preset-id; placeholder-text: "preset-id"; }
+        HorizontalLayout { height: 40px; spacing: 5px; PageButton { text: "Validate"; implemented: root.preset-library != "" && root.preset-id != ""; clicked => { root.preset-action("validate", root.preset-library, root.preset-id); } } PageButton { text: "Prepare"; implemented: root.preset-library != "" && root.preset-id != ""; clicked => { root.preset-action("prepare", root.preset-library, root.preset-id); } } PageButton { text: "Apply"; implemented: root.preset-status == "prepared"; clicked => { root.preset-action("apply", root.preset-library, root.preset-id); } } PageButton { text: "Cancel"; implemented: root.preset-status != "idle"; clicked => { root.preset-action("cancel", root.preset-library, root.preset-id); } } PageButton { text: "Save Current"; clicked => { root.preset-action("save", root.preset-library, root.preset-id); } } }
+        ParameterDisplay { name: "Status"; value: root.preset-status; }
+        if root.error != "": ParameterDisplay { name: "Error"; value: root.error; }
+        Text { text: "Preset enumeration and saving current state are unavailable until semantic actions expose them."; color: Theme.muted; wrap: word-wrap; }
+    }
+}

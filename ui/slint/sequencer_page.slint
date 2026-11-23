@@ -1,0 +1,42 @@
+import { PageButton, PerformanceSlot, EmptyState, ParameterDisplay } from "components.slint";
+import { Theme } from "theme.slint";
+
+export struct StepItem { label: string, status: string, active: bool, selected: bool, playhead: bool, available: bool }
+export struct PatternItem { id: int, name: string, selected: bool, active: bool, queued: bool }
+export struct ArrangementItem { id: int, label: string, range: string, kind: string, selected: bool, enabled: bool }
+
+export component SequencerPage inherits VerticalLayout {
+    in property <string> selected-track; in property <string> selected-pattern;
+    in property <string> pattern-length; in property <string> step-resolution;
+    in property <string> selected-velocity; in property <string> selected-duration;
+    in property <string> arrangement-loop; in property <bool> arrangement-view;
+    in property <[StepItem]> steps; in property <[PatternItem]> patterns;
+    in property <[ArrangementItem]> arrangement-items;
+    callback track-selected(int); callback arrangement-toggle(); callback resolution-invoked();
+    callback step-invoked(int); callback pattern-invoked(int, bool); callback pattern-create(bool);
+    callback step-edit(string); callback arrangement-item-invoked(int);
+    spacing: 6px;
+    HorizontalLayout { height: 44px; spacing: 5px;
+        PageButton { text: "Steps"; selected: !root.arrangement-view; implemented: true; clicked => { if (root.arrangement-view) { root.arrangement-toggle(); } } }
+        PageButton { text: "Arrangement"; selected: root.arrangement-view; implemented: true; clicked => { if (!root.arrangement-view) { root.arrangement-toggle(); } } }
+        PageButton { text: root.selected-track; implemented: true; clicked => { root.track-selected(1); } }
+        PageButton { text: root.selected-pattern; implemented: true; clicked => { } }
+        PageButton { text: root.pattern-length; clicked => { } }
+        PageButton { text: root.step-resolution; implemented: true; clicked => { root.resolution-invoked(); } }
+    }
+    if !root.arrangement-view: HorizontalLayout { spacing: 6px; vertical-stretch: 1;
+        Rectangle { background: Theme.panel; border-radius: Theme.radius; horizontal-stretch: 4; GridLayout { padding: 8px; spacing: 6px; for step[i] in root.steps: PerformanceSlot { row: i / 8; col: mod(i, 8); label: step.label + (step.playhead ? " >" : ""); state: step.status; selected: step.selected; available: step.available; invoked => { root.step-invoked(i); } } } }
+        VerticalLayout { spacing: 5px; horizontal-stretch: 2;
+            Rectangle { background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 2; VerticalLayout { padding: 5px; spacing: 4px; Text { text: "Patterns"; color: Theme.accent; } for pattern[i] in root.patterns: PageButton { height: 32px; text: pattern.name + (pattern.queued ? " [Q]" : pattern.active ? " [A]" : ""); selected: pattern.selected; implemented: true; clicked => { root.pattern-invoked(i, false); } } } }
+            HorizontalLayout { height: 36px; spacing: 4px; PageButton { text: "New"; implemented: true; clicked => { root.pattern-create(false); } } PageButton { text: "Duplicate"; implemented: true; clicked => { root.pattern-create(true); } } }
+            ParameterDisplay { height: 34px; name: "Velocity"; value: root.selected-velocity; }
+            ParameterDisplay { height: 34px; name: "Length"; value: root.selected-duration; }
+            HorizontalLayout { height: 34px; spacing: 4px; PageButton { text: "Vel -"; implemented: true; clicked => { root.step-edit("velocity-down"); } } PageButton { text: "Vel +"; implemented: true; clicked => { root.step-edit("velocity-up"); } } PageButton { text: "Length +"; implemented: true; clicked => { root.step-edit("length-up"); } } }
+        }
+    }
+    if root.arrangement-view: VerticalLayout { spacing: 5px;
+        Rectangle { height: 36px; background: Theme.panel; Text { text: "Loop: " + root.arrangement-loop; color: Theme.foreground; vertical-alignment: center; } }
+        if root.arrangement-items.length == 0: EmptyState { title: "Arrangement"; message: "No pattern or audio clips are placed in the arrangement."; }
+        for clip[i] in root.arrangement-items: PageButton { height: 38px; text: clip.kind + "  " + clip.label + "  " + clip.range; selected: clip.selected; implemented: clip.enabled; clicked => { root.arrangement-item-invoked(i); } }
+    }
+}
