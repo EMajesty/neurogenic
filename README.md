@@ -147,10 +147,16 @@ ctest --preset sanitize
 ./build/dev/neurogenic --gui --headless
 ./build/dev/neurogenic --gui --ui-scale 1.5 --headless
 ./build/dev/neurogenic --fullscreen --slot 0=samples/kick.wav
+cmake --preset slint
+cmake --build --preset slint
+./build/slint/neurogenic-slint --width 1920 --height 1200
 ```
 
-The SDL3 graphical frontend is optional; omit `--gui` for the existing CLI or
-headless application. See [docs/GUI.md](docs/GUI.md) for controls and scaling.
+Slint is the preferred new frontend foundation and remains opt-in while it
+reaches workflow parity. Its initial performance page and reusable component
+architecture are documented in [docs/SLINT_UI.md](docs/SLINT_UI.md). The SDL3
+graphical frontend is preserved; omit `--gui` for the existing CLI or headless
+application. See [docs/GUI.md](docs/GUI.md) for SDL3 controls and scaling.
 In the Sequencer view, click/tap a cell or select it with arrows and press
 Enter to toggle a note. Shift+arrows change page or target note; the resolution
 control cycles quarter through 32nd-note straight and triplet grids.

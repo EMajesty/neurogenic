@@ -1,0 +1,81 @@
+import { Button } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component PageNavigation inherits Rectangle {
+    in property <string> title: "Performance";
+    background: Theme.panel;
+    border-radius: Theme.radius;
+    Text { text: root.title; color: Theme.foreground; font-size: 20px; vertical-alignment: center; horizontal-alignment: center; }
+}
+
+export component ContextualEncoder inherits Rectangle {
+    in property <string> label: "Unavailable";
+    in property <string> value: "--";
+    in property <string> unit: "";
+    in property <bool> active: false;
+    callback turned(int);
+    background: active ? Theme.panel : Theme.background;
+    border-width: 1px;
+    border-color: active ? Theme.accent : Theme.muted;
+    border-radius: Theme.radius;
+    VerticalLayout {
+        padding: 6px; spacing: 2px;
+        Text { text: root.label; color: root.active ? Theme.foreground : Theme.muted; overflow: elide; horizontal-alignment: center; }
+        Text { text: root.value + (root.unit == "" ? "" : " " + root.unit); color: root.active ? Theme.accent : Theme.muted; overflow: elide; horizontal-alignment: center; }
+    }
+    TouchArea { enabled: root.active; clicked => { root.turned(1); } }
+}
+
+export component ContextualFunctionButton inherits Button {
+    in property <bool> available: false;
+    enabled: available;
+}
+
+export component TransportStatus inherits Rectangle {
+    in property <string> status: "Stopped";
+    in property <string> tempo: "120 BPM";
+    background: Theme.panel; border-radius: Theme.radius;
+    HorizontalLayout {
+        padding: 8px; spacing: 14px;
+        Text { text: root.status; color: Theme.accent; font-weight: 700; }
+        Text { text: root.tempo; color: Theme.foreground; }
+    }
+}
+
+export component TrackClipStatus inherits Rectangle {
+    in property <string> track: "Unavailable";
+    in property <string> content: "Unavailable";
+    background: Theme.panel; border-radius: Theme.radius;
+    VerticalLayout {
+        padding: 8px; spacing: 2px;
+        Text { text: root.track; color: Theme.foreground; overflow: elide; }
+        Text { text: root.content; color: root.content == "Unavailable" ? Theme.muted : Theme.accent; overflow: elide; }
+    }
+}
+
+export component ParameterDisplay inherits Rectangle {
+    in property <string> name: "Unavailable";
+    in property <string> value: "--";
+    background: Theme.panel;
+    Text { text: root.name + ": " + root.value; color: Theme.foreground; overflow: elide; vertical-alignment: center; }
+}
+
+export component Notification inherits Rectangle {
+    in property <string> message: "";
+    visible: message != "";
+    background: Theme.warning; border-radius: Theme.radius;
+    Text { text: root.message; color: #151515; overflow: elide; horizontal-alignment: center; vertical-alignment: center; }
+}
+
+export component ModalDialog inherits Rectangle {
+    in property <string> title: "";
+    in property <string> message: "";
+    callback accepted(); callback rejected();
+    background: #dd11151a; border-width: 1px; border-color: Theme.accent; border-radius: Theme.radius;
+    VerticalLayout {
+        padding: 16px; spacing: 10px;
+        Text { text: root.title; color: Theme.foreground; font-size: 20px; }
+        Text { text: root.message; color: Theme.foreground; wrap: word-wrap; }
+        HorizontalLayout { Button { text: "Cancel"; clicked => { root.rejected(); } } Button { text: "OK"; clicked => { root.accepted(); } } }
+    }
+}

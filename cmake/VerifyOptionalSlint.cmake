@@ -1,0 +1,7 @@
+if(NEUROGENIC_ENABLE_SLINT AND NOT NEUROGENIC_SLINT_TARGET)
+  message(FATAL_ERROR "Slint was enabled but the frontend target is absent")
+endif()
+if(NOT NEUROGENIC_ENABLE_SLINT AND NEUROGENIC_SLINT_TARGET)
+  message(FATAL_ERROR "headless configuration unexpectedly contains Slint")
+endif()
+message(STATUS "optional Slint configuration is consistent")

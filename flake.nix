@@ -28,11 +28,13 @@
               || (type == "directory" && name == "build"));
         };
         nativeBuildInputs = with pkgs; [ cmake ninja pkg-config ];
-        buildInputs = with pkgs; [ alsa-lib ] ++ pkgs.lib.optional withGuiBackend pkgs.sdl3;
+        buildInputs = with pkgs; [ alsa-lib ]
+          ++ pkgs.lib.optional withGuiBackend pkgs.sdl3;
         cmakeFlags = [
           "-DNEUROGENIC_FETCH_DEPENDENCIES=ON"
           "-DNEUROGENIC_BUILD_TESTS=${if runTests then "ON" else "OFF"}"
           "-DNEUROGENIC_ENABLE_GUI=${if withGuiBackend then "ON" else "OFF"}"
+          "-DNEUROGENIC_ENABLE_SLINT=OFF"
           "-DNEUROGENIC_BUILD_COMMIT=${sourceRevision}"
           "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
           "-DFETCHCONTENT_SOURCE_DIR_MINIAUDIO=${miniaudio}"
@@ -70,7 +72,11 @@
         in {
           default = pkgs.mkShell {
             inputsFrom = [ nativePackages.${system} ];
-            packages = with pkgs; [ gcc gdb cmake ninja pkg-config git cacert direnv ];
+            packages = with pkgs; [
+              gcc gdb cmake ninja pkg-config git cacert direnv cargo rustc
+              fontconfig freetype libxkbcommon wayland libGL libx11 libxcursor
+              libxi
+            ];
             shellHook = ''
               echo "NEUROGENIC (${system}): cmake --preset dev && cmake --build --preset dev && ctest --preset dev"
             '';

@@ -21,14 +21,25 @@
       "cacheVariables": {
         "NEUROGENIC_ENABLE_SANITIZERS": "ON"
       }
+    },
+    {
+      "name": "slint",
+      "inherits": "dev",
+      "displayName": "NEUROGENIC Slint frontend development build",
+      "binaryDir": "${sourceDir}/build/slint",
+      "cacheVariables": {
+        "NEUROGENIC_ENABLE_SLINT": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
-    { "name": "sanitize", "configurePreset": "sanitize" }
+    { "name": "sanitize", "configurePreset": "sanitize" },
+    { "name": "slint", "configurePreset": "slint" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
-    { "name": "sanitize", "configurePreset": "sanitize", "output": { "outputOnFailure": true } }
+    { "name": "sanitize", "configurePreset": "sanitize", "output": { "outputOnFailure": true } },
+    { "name": "slint", "configurePreset": "slint", "output": { "outputOnFailure": true } }
   ]
 }

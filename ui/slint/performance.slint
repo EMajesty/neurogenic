@@ -1,0 +1,66 @@
+import { PageNavigation, ContextualEncoder, ContextualFunctionButton, TransportStatus, TrackClipStatus, Notification } from "components.slint";
+import { Theme } from "theme.slint";
+
+export struct ContextItem { label: string, value: string, unit: string, active: bool }
+export struct PadItem { label: string, active: bool, selected: bool }
+
+export component PerformanceWindow inherits Window {
+    title: "NEUROGENIC — Slint Performance Prototype";
+    preferred-width: 1280px; preferred-height: 800px;
+    min-width: 1024px; min-height: 600px;
+    background: Theme.background;
+    in property <string> transport-state: "Stopped";
+    in property <string> tempo: "120 BPM";
+    in property <string> selected-track: "Unavailable";
+    in property <string> active-content: "Unavailable";
+    in property <string> notification: "";
+    in property <[ContextItem]> encoders;
+    in property <[ContextItem]> functions;
+    in property <[PadItem]> pads;
+    callback encoder-turned(int, int);
+    callback function-invoked(int);
+    callback pad-invoked(int, bool);
+    callback keyboard-input(string, bool);
+
+    FocusScope {
+        key-pressed(event) => { root.keyboard-input(event.text, true); accept }
+        key-released(event) => { root.keyboard-input(event.text, false); accept }
+    }
+
+    VerticalLayout {
+        padding: 12px; spacing: 10px;
+        HorizontalLayout {
+            spacing: 10px; height: 64px;
+            PageNavigation { title: "PERFORMANCE"; horizontal-stretch: 1; }
+            TransportStatus { status: root.transport-state; tempo: root.tempo; horizontal-stretch: 2; }
+            TrackClipStatus { track: root.selected-track; content: root.active-content; horizontal-stretch: 2; }
+        }
+        HorizontalLayout {
+            spacing: 6px; height: 84px;
+            for item[i] in root.encoders: ContextualEncoder {
+                label: item.label; value: item.value; unit: item.unit; active: item.active;
+                turned(delta) => { root.encoder-turned(i, delta); }
+            }
+        }
+        Rectangle {
+            background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 1;
+            GridLayout {
+                padding: 12px; spacing: 8px;
+                for pad[i] in root.pads: Rectangle {
+                    row: i / 8; col: mod(i, 8);
+                    background: pad.selected ? Theme.accent : (pad.active ? Theme.selected : Theme.background);
+                    border-width: 1px; border-color: pad.active ? Theme.accent : Theme.muted; border-radius: Theme.radius;
+                    Text { text: pad.label; color: pad.selected ? Theme.background : Theme.foreground; horizontal-alignment: center; vertical-alignment: center; font-size: 18px; }
+                    TouchArea { clicked => { root.pad-invoked(i, true); } }
+                }
+            }
+        }
+        HorizontalLayout {
+            spacing: 6px; height: 62px;
+            for item[i] in root.functions: ContextualFunctionButton {
+                text: item.label; available: item.active; clicked => { root.function-invoked(i); }
+            }
+        }
+        Notification { message: root.notification; height: 34px; }
+    }
+}

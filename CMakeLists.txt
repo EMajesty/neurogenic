@@ -19,6 +19,7 @@ option(NEUROGENIC_FETCH_DEPENDENCIES "Fetch pinned audio, MIDI, Lua and sol2 dep
 option(NEUROGENIC_BUILD_TESTS "Build tests" ON)
 option(NEUROGENIC_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(NEUROGENIC_ENABLE_GUI "Build the optional SDL3 graphical frontend" ON)
+option(NEUROGENIC_ENABLE_SLINT "Build the optional Slint graphical frontend" OFF)
 
 if(NEUROGENIC_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -59,6 +60,52 @@ if(NEUROGENIC_ENABLE_GUI)
   else()
     message(STATUS "NEUROGENIC: SDL3 not found; building GUI-unavailable stub")
   endif()
+endif()
+
+# The renderer-independent adapter is always available so headless builds test
+# the same state/action bridge. Slint itself is resolved only when explicitly
+# requested, keeping graphical dependencies out of headless configurations.
+add_library(neurogenic_slint_adapter src/ui/slint_adapter.cpp)
+target_include_directories(neurogenic_slint_adapter PUBLIC include)
+target_link_libraries(neurogenic_slint_adapter PUBLIC neurogenic_engine)
+target_compile_options(neurogenic_slint_adapter PRIVATE -Wall -Wextra -Wpedantic)
+if(NEUROGENIC_ENABLE_SLINT)
+  find_package(Slint 1.19.0 QUIET CONFIG)
+  if(NOT Slint_FOUND)
+    include(FetchContent)
+    FetchContent_Declare(Slint
+      GIT_REPOSITORY https://github.com/slint-ui/slint.git
+      GIT_TAG v1.19.0
+      GIT_SHALLOW TRUE
+      PATCH_COMMAND ${CMAKE_COMMAND}
+        -DSLINT_SOURCE_DIR=<SOURCE_DIR>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/DisableSlintCompilerJemalloc.cmake
+      SOURCE_SUBDIR api/cpp)
+    FetchContent_MakeAvailable(Slint)
+  endif()
+  # FetchContent source builds accept an externally prepared host compiler but
+  # do not create the imported compiler target/macro in that configuration.
+  if(SLINT_COMPILER AND NOT TARGET Slint::slint-compiler)
+    add_executable(Slint::slint-compiler IMPORTED GLOBAL)
+    set_target_properties(Slint::slint-compiler PROPERTIES
+      IMPORTED_LOCATION "${SLINT_COMPILER}")
+    include("${slint_SOURCE_DIR}/api/cpp/cmake/SlintMacro.cmake")
+  endif()
+  add_library(neurogenic_slint_frontend src/ui/slint_frontend.cpp)
+  target_include_directories(neurogenic_slint_frontend PUBLIC include)
+  target_link_libraries(neurogenic_slint_frontend PUBLIC
+    neurogenic_slint_adapter Slint::Slint)
+  target_compile_options(neurogenic_slint_frontend PRIVATE
+    -Wall -Wextra -Wpedantic)
+  slint_target_sources(neurogenic_slint_frontend ui/slint/performance.slint
+    EDITION 1.19)
+  add_executable(neurogenic_slint apps/neurogenic_slint.cpp)
+  target_link_libraries(neurogenic_slint PRIVATE neurogenic_slint_frontend)
+  set_target_properties(neurogenic_slint PROPERTIES OUTPUT_NAME neurogenic-slint)
+  install(TARGETS neurogenic_slint RUNTIME DESTINATION bin)
+  message(STATUS "NEUROGENIC: Slint 1.19 frontend enabled")
+else()
+  target_sources(neurogenic_slint_adapter PRIVATE src/ui/slint_stub.cpp)
 endif()
 
 if(NEUROGENIC_FETCH_DEPENDENCIES)
@@ -126,6 +173,19 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_parameter_binding_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.parameter-binding-tests.v1 passed"
     TIMEOUT 10)
+  add_executable(neurogenic_slint_adapter_tests tests/slint_adapter_tests.cpp)
+  target_link_libraries(neurogenic_slint_adapter_tests PRIVATE
+    neurogenic_slint_adapter)
+  add_test(NAME neurogenic_slint_adapter_tests
+    COMMAND neurogenic_slint_adapter_tests)
+  set_tests_properties(neurogenic_slint_adapter_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.slint-adapter-tests.v1 passed"
+    TIMEOUT 10)
+  add_test(NAME neurogenic_optional_frontend_configuration
+    COMMAND ${CMAKE_COMMAND}
+      -DNEUROGENIC_ENABLE_SLINT=${NEUROGENIC_ENABLE_SLINT}
+      -DNEUROGENIC_SLINT_TARGET=$<TARGET_EXISTS:neurogenic_slint>
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyOptionalSlint.cmake)
   add_executable(neurogenic_preset_tests tests/preset_tests.cpp)
   target_link_libraries(neurogenic_preset_tests PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_preset_tests COMMAND neurogenic_preset_tests)

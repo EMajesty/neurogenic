@@ -1,5 +1,10 @@
 # Implementation status
 
+- Task 067: optional pinned Slint 1.19 frontend, renderer-independent
+  state/action adapter, reusable component foundation and responsive initial
+  performance page. SDL3 and headless builds remain available. Full workflow
+  parity, final styling and graphical screenshot validation remain deferred.
+
 - Task 064: bounded integrated live-performance validation and opt-in soak mode;
   fixed replace-capture launch-source identity and loop-range transaction bugs.
 
