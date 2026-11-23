@@ -34,7 +34,7 @@ include(cmake/Dependencies.cmake)
 find_package(Threads REQUIRED)
 
 add_library(neurogenic_engine
-  src/application/control.cpp src/application/controller.cpp src/application/controller_protocol.cpp src/application/discovery.cpp src/application/parameter_binding.cpp src/application/lifecycle.cpp src/application/performance_macros.cpp
+  src/application/control.cpp src/application/controller.cpp src/application/controller_protocol.cpp src/application/controller_session.cpp src/application/discovery.cpp src/application/parameter_binding.cpp src/application/lifecycle.cpp src/application/performance_macros.cpp
   src/audio/engine.cpp src/audio/live_loop.cpp src/audio/mixer.cpp src/audio/recording.cpp src/audio/sample.cpp src/audio/sample_analysis.cpp src/audio/sample_manager.cpp src/audio/sample_processing.cpp src/audio/slicing.cpp src/core/command.cpp src/core/control_dispatcher.cpp
   src/dsp/effect_chain.cpp src/dsp/modulation.cpp src/dsp/voice_modulation.cpp src/dsp/purest_gain.cpp src/dsp/processor.cpp src/dsp/parameter_destination.cpp src/dsp/time_stretch.cpp src/instrument/subtractive_synth.cpp src/midi/mapping.cpp src/midi/routing.cpp src/project/project.cpp src/project/preset.cpp
   src/diagnostics/hardware.cpp

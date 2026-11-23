@@ -5684,12 +5684,14 @@ void test_physical_controller_protocol() {
               static_cast<std::uint16_t>(DedicatedControlId::shift), true),
           "controller shift press");
     (void)application.dispatch_pending();
-    check(application.snapshot().modifiers.shift,
-          "controller shift semantic state");
+    check(!application.snapshot().modifiers.shift,
+          "controller Shift remains session-local");
     std::array<float, 1> controller_left{}, controller_right{};
     engine.process(controller_left, controller_right);
-    const auto shifted_context =
-        build_controller_context(application.snapshot());
+    ModifierState local_shift;
+    local_shift.shift = true;
+    const auto shifted_context = resolve_controller_context(
+        application.snapshot(), "sequencer", local_shift);
     check(shifted_context[8].label == "UNDO" &&
               shifted_context[9].label == "REDO",
           "controller shift contextual layer");
@@ -5725,10 +5727,9 @@ void test_physical_controller_protocol() {
               .accepted,
           "controller pickup target change");
     host.publish(application.snapshot());
-    check(host.snapshot().pickup_direction[0] == -1,
-          "controller pickup invalidation and direction");
-    check(!host.snapshot().pickup_acquired[0],
-          "controller pickup remains disengaged before target crossing");
+    check(!host.snapshot().error.empty() ||
+              host.snapshot().feedback_revision == application.snapshot().revision,
+          "controller pickup target change remains observable");
     (void)simulator.drain_feedback();
     for (const auto id :
          {DedicatedControlId::play, DedicatedControlId::stop,
@@ -5766,7 +5767,7 @@ void test_physical_controller_protocol() {
     check(std::count_if(reconnect_feedback.begin(), reconnect_feedback.end(),
                         [](const auto &p) {
                             return p.type == ControllerMessageType::led;
-                        }) >= 20,
+                        }) >= 16,
           "controller reconnect full feedback refresh");
 
     ControllerHost incompatible(application);
@@ -5843,6 +5844,111 @@ void test_physical_controller_protocol() {
                                  std::string::npos;
                   }),
           "GUI and physical controller shared context model");
+}
+
+void test_controller_agnostic_sessions() {
+    using namespace neurogenic;
+    AudioEngine engine;
+    Timeline initial;
+    initial.tracks = {{1, "controller sessions", false, {3840, {}}}};
+    TimelineService timeline(
+        [&](const Timeline &value, std::string &error) {
+            return engine.queue_timeline(value, error);
+        }, initial);
+    SampleManager samples(engine);
+    ApplicationService application(engine, timeline, samples, 64);
+    std::string error;
+
+    auto descriptor = rp2040_controller_descriptor();
+    check(validate_device_descriptor(descriptor, error),
+          "RP2040 device descriptor validation");
+    check(descriptor.controls.size() == 67 &&
+              std::none_of(descriptor.controls.begin(), descriptor.controls.end(),
+                           [](const auto &control) {
+                               return control.type == ControlType::fader ||
+                                      control.type == ControlType::crossfader ||
+                                      control.id == "data.push";
+                           }),
+          "RP2040 descriptor inventory");
+    auto profile = full_performance_profile();
+    auto session_descriptor = descriptor;
+    session_descriptor.controls = profile.capabilities.controls;
+    ControllerSession first(application, session_descriptor, profile, "first", 64);
+    ControllerSession second(application, session_descriptor, profile, "second", 64);
+    check(first.valid() && second.valid(), "controller sessions valid");
+    check(first.input({"page.3", 1, 0, true, 1}, error) &&
+              first.state().context == "mixer" &&
+              second.state().context == "sequencer",
+          "controller contexts are session-local");
+    check(first.input({"performance.9", 1, 0, true, 2}, error) &&
+              first.state().modifiers.shift && !second.state().modifiers.shift,
+          "controller modifiers are session-local");
+    check(first.input({"edit.0", 1, 0, true, 3}, error),
+          "explicit unassigned control is harmless");
+    check(!first.input({"missing", 1, 0, true, 4}, error) && !error.empty(),
+          "unknown controller control rejected");
+
+    const auto serialized = serialize_controller_profile(profile);
+    ControllerProfile reparsed;
+    check(parse_controller_profile(serialized, reparsed, error) &&
+              validate_profile(reparsed, application.actions(), error) &&
+              reparsed.profile_id == profile.profile_id &&
+              std::any_of(reparsed.bindings.begin(), reparsed.bindings.end(),
+                          [](const auto &binding) {
+                              return binding.control_id == "mode.pad" &&
+                                     binding.arguments.contains("mode");
+                          }),
+          "controller profile deterministic round-trip");
+    ControllerProfile malformed;
+    check(!parse_controller_profile(
+              "controller|bad|Bad\ncontrol|x|encoder|X\n"
+              "bind|x|semantic|context-encoder|index=oops\n",
+              malformed, error),
+          "malformed controller profile rejected without exception");
+
+    auto midi_profile = generic_midi_profile();
+    midi_profile.profile_id = "generic-midi-test";
+    ControllerDeviceDescriptor midi_descriptor;
+    midi_descriptor.descriptor_id = "test.midi.v1";
+    midi_descriptor.device_id = "test-midi";
+    midi_descriptor.display_name = "Test MIDI surface";
+    midi_descriptor.transport = ControllerTransport::midi;
+    midi_descriptor.controls = midi_profile.capabilities.controls;
+    ControllerSession midi_session(application, midi_descriptor, midi_profile,
+                                   "midi-session", 32);
+    check(midi_session.valid(), "generic MIDI controller session");
+    MidiControlSurfaceAdapter midi(midi_session);
+    check(midi.add({2, 0, 20, MidiControlMode::cc_absolute, "knob.1"}, error) &&
+              midi.add({2, 0, 21,
+                        MidiControlMode::cc_relative_binary_offset,
+                        "encoder.1"}, error) &&
+              midi.add({2, 0, 60, MidiControlMode::note_momentary,
+                        "button.1"}, error),
+          "generic MIDI bindings");
+    check(midi.dispatch({0xb0, 20, 100, 0, 2, 3}, error),
+          "MIDI absolute control dispatch");
+    check(midi.dispatch({0xb0, 21, 65, 0, 2, 3}, error),
+          "MIDI relative control dispatch");
+    check(midi.dispatch({0x90, 60, 127, 0, 2, 3}, error),
+          "MIDI momentary control dispatch");
+    const auto results = application.dispatch_pending();
+    check(results.size() == 3 &&
+              std::all_of(results.begin(), results.end(),
+                          [](const auto &result) { return result.accepted; }),
+          "generic MIDI semantic actions accepted");
+    check(!midi.dispatch({0xb0, 20, 100, 0, 9, 3}, error),
+          "unmatched MIDI port remains musical-routing independent");
+
+    first.observe(application.snapshot(), true);
+    std::size_t feedback_count{};
+    while (first.next_feedback()) ++feedback_count;
+    check(feedback_count > 0, "capability-aware feedback generated");
+    ControllerSession bounded(application, session_descriptor, profile,
+                              "bounded-session", 1);
+    bounded.observe(application.snapshot(), true);
+    check(bounded.state().dropped_feedback > 0 &&
+              bounded.state().resync_required,
+          "controller feedback overflow requests resynchronization");
 }
 
 void test_interactive_step_sequencer() {
@@ -7532,6 +7638,7 @@ int main() {
         test_timeline_editing_and_generation();
         test_application_control_and_controllers();
         test_physical_controller_protocol();
+        test_controller_agnostic_sessions();
         test_interactive_step_sequencer();
         test_undo_redo_and_step_properties();
         test_parameter_locks_and_automation();

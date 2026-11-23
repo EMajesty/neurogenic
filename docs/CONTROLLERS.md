@@ -29,13 +29,21 @@ controls. Eight page buttons, eight lower contextual buttons, two ten-position
 clusters and six navigation buttons are distinct logical groups. See the
 [hardware boundary](CONTROLLER_HARDWARE_MAPPING.md).
 
-`build_controller_context()` is the mapping source for serial feedback and GUI
-edge labels. Contexts name explicit stable parameters rather than taking the
+`resolve_controller_context()` is the shared mapping source for controller
+sessions, serial feedback and GUI edge labels; `build_controller_context()` is
+the application-global compatibility wrapper. Contexts name explicit stable parameters rather than taking the
 first eight registry entries. Relative encoders clamp through
 `ParameterRegistry`; Shift gives fine adjustment and larger deltas receive
 bounded acceleration. The dedicated profile has no integrated faders or
 crossfader; generic MIDI controllers may still use binding-service pickup. The
 stable ID table and 1.0–1.2 formats are in the protocol document.
+
+Task 069 adds transport-independent device descriptors and per-device
+`ControllerSession` objects. Device identity is separate from `.ngc` profile
+mapping; pages, modifiers, pickup and feedback caches are session-local while
+musical state stays authoritative in `ApplicationService`. Generic MIDI notes
+and CCs may opt into a profile without consuming ordinary musical MIDI input.
+See [controller integration](CONTROLLER_INTEGRATION.md).
 
 Mixer clients use `mixer.channel-select.v1`, `mixer.gain-set.v1`,
 `mixer.pan-set.v1`, `mixer.mute-toggle.v1`, `mixer.solo-toggle.v1`,
@@ -125,7 +133,8 @@ faders, crossfaders, joysticks, touch X/Y, keyboards and pointers. Feedback
 types include RGB/single LEDs, text, parameter values and a future motorized
 fader capability.
 
-`ControllerProfile` maps control IDs to semantic action or parameter IDs with
+`ControllerProfile` schema 2 maps control IDs to semantic action, parameter or
+contextual-role IDs with
 independent Shift and Select layers, labels, absolute/relative behavior and
 feedback destinations. `ControllerMapper` validates profiles, resolves a
 control event against effective momentary/latched modifiers, and produces a
@@ -133,7 +142,9 @@ semantic command or parameter update. Feedback includes the application
 revision and origin; a destination matching the origin is suppressed to avoid
 echo loops.
 
-The version-1 line format is intentionally small and dependency-free:
+The `.ngc` line format is intentionally small and dependency-free. Existing
+version-1 records remain valid; schema-2 options add contextual roles, explicit
+unassigned controls, indices and pickup:
 
 ```text
 # NEUROGENIC_CONTROLLER 1
@@ -142,6 +153,8 @@ control|play|momentary|Play
 control|tempo|encoder|Tempo
 bind|play|action|transport.play.v1|feedback=led.play
 bind|tempo|parameter|transport.tempo|shift|label=Fine tempo
+bind|page-1|semantic|local-context|context=mixer
+bind|unused|unassigned|-
 ```
 
 Unknown records, control types, modifier options, controls and actions fail

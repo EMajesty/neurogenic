@@ -50,6 +50,13 @@ is a control-side view over `ApplicationService`, `ActionRegistry`, parameter
 descriptors and copied subsystem snapshots. It is not another action system or
 authoritative engine model.
 
+Controller profiles validate action and parameter IDs against this metadata.
+`ControllerSession` resolves selection-relative context without adding physical
+controls to discovery or copying musical state. Slint, SDL3, CDC and MIDI
+clients consequently share the same descriptors and semantic setters; device
+capabilities remain in the separate
+[controller descriptor](CONTROLLER_INTEGRATION.md).
+
 Export capabilities and the current object model without audio or GUI hardware:
 
 ```sh

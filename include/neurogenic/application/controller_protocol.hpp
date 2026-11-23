@@ -1,5 +1,5 @@
 #pragma once
-#include "neurogenic/application/controller.hpp"
+#include "neurogenic/application/controller_session.hpp"
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -62,14 +62,6 @@ enum class ControllerConnection : std::uint8_t {
     incompatible,
     error
 };
-struct ContextControl {
-    std::uint16_t control_id{};
-    std::string label, value, unit, parameter_id, action_id;
-    double minimum{}, maximum{};
-    bool active{}, bipolar{}, pickup{};
-    std::int8_t pickup_direction{};
-    std::uint64_t feedback_revision{};
-};
 enum class DedicatedControlId : std::uint16_t {
     // 24..35 retain their protocol-1.1 meanings for legacy devices.
     play = 24,
@@ -131,8 +123,6 @@ enum ControllerCapability : std::uint32_t {
 struct AnalogCalibration {
     std::uint16_t minimum{}, maximum{65535}, dead_zone{128};
 };
-[[nodiscard]] std::array<ContextControl, 16>
-build_controller_context(const ApplicationState &);
 struct ControllerProtocolState {
     ControllerConnection connection{ControllerConnection::disconnected};
     std::string device_id, firmware, error;
@@ -177,6 +167,7 @@ class ControllerHost {
     std::uint32_t sequence_{1};
     std::string expected_device_id_;
     ControllerProtocolState state_;
+    std::optional<ControllerSession> session_;
     std::array<bool, 5> pickup_{};
     std::array<double, 5> pickup_target_{};
     std::array<double, 5> last_effective_target_{};

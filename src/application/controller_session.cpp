@@ -1,0 +1,344 @@
+#include "neurogenic/application/controller_session.hpp"
+#include <algorithm>
+#include <cmath>
+
+namespace neurogenic {
+namespace {
+std::optional<double> number(const ApplicationValue &value) {
+    if (const auto *real = std::get_if<double>(&value)) return *real;
+    if (const auto *integer = std::get_if<std::int64_t>(&value))
+        return static_cast<double>(*integer);
+    if (const auto *boolean = std::get_if<bool>(&value)) return *boolean ? 1.0 : 0.0;
+    return {};
+}
+std::optional<double> normalized(const ParameterDescriptor &parameter) {
+    const auto value = number(parameter.effective_value),
+               minimum = number(parameter.minimum), maximum = number(parameter.maximum);
+    if (!value || !minimum || !maximum || *maximum <= *minimum) return {};
+    return std::clamp((*value - *minimum) / (*maximum - *minimum), 0.0, 1.0);
+}
+} // namespace
+
+ControllerSession::ControllerSession(ApplicationService &application,
+                                     ControllerDeviceDescriptor descriptor,
+                                     ControllerProfile profile,
+                                     std::string session_id,
+                                     std::size_t feedback_capacity)
+    : application_(&application), descriptor_(std::move(descriptor)),
+      profile_(std::move(profile)), bindings_(application),
+      capacity_(std::max<std::size_t>(1, std::min(
+          feedback_capacity, descriptor_.maximum_feedback_queue))) {
+    std::string error;
+    valid_ = validate_controller_configuration(descriptor_, profile_, application,
+                                               error);
+    state_.session_id = session_id.empty() ? descriptor_.device_id :
+                                             std::move(session_id);
+    state_.device_id = descriptor_.device_id;
+    state_.profile_id = profile_.profile_id;
+    state_.error = std::move(error);
+}
+
+const ControlBinding *ControllerSession::binding(std::string_view control) const {
+    const auto matches = [&](const ControlBinding &candidate) {
+        return candidate.control_id == control &&
+               candidate.shift ==
+                   (state_.modifiers.shift || state_.modifiers.shift_latched) &&
+               candidate.select == (state_.modifiers.select ||
+                                     state_.modifiers.select_latched);
+    };
+    auto found = std::find_if(profile_.bindings.begin(), profile_.bindings.end(),
+                              matches);
+    if (found == profile_.bindings.end() && profile_.fallback_to_base &&
+        (state_.modifiers.shift || state_.modifiers.shift_latched ||
+         state_.modifiers.select || state_.modifiers.select_latched))
+        found = std::find_if(profile_.bindings.begin(), profile_.bindings.end(),
+                             [&](const auto &candidate) {
+                                 return candidate.control_id == control &&
+                                        !candidate.shift && !candidate.select;
+                             });
+    return found == profile_.bindings.end() ? nullptr : &*found;
+}
+
+bool ControllerSession::submit(ApplicationCommand command, std::string &error) {
+    command.source_id = state_.session_id;
+    if (!application_->submit(std::move(command))) {
+        ++state_.rejected;
+        error = "application command queue is full";
+        state_.error = error;
+        return false;
+    }
+    error.clear();
+    return true;
+}
+
+bool ControllerSession::input(const ControllerInput &input, std::string &error) {
+    ++state_.received;
+    if (!valid_) {
+        error = state_.error.empty() ? "invalid controller session" : state_.error;
+        return false;
+    }
+    const auto control = std::find_if(
+        descriptor_.controls.begin(), descriptor_.controls.end(),
+        [&](const auto &candidate) { return candidate.id == input.control_id; });
+    if (control == descriptor_.controls.end() || !control->available) {
+        error = "control is unknown or unavailable for this device";
+        ++state_.rejected;
+        return false;
+    }
+    const auto *mapping = binding(input.control_id);
+    if (!mapping || mapping->explicitly_unassigned) {
+        error.clear();
+        return true;
+    }
+    if (mapping->semantic == "modifier-shift") {
+        state_.modifiers.shift = input.pressed;
+        state_.resync_required = true;
+        error.clear();
+        return true;
+    }
+    if (mapping->semantic == "modifier-select") {
+        state_.modifiers.select = input.pressed;
+        error.clear();
+        return true;
+    }
+    if (!input.pressed && control->type != ControlType::relative_encoder &&
+        control->type != ControlType::absolute_potentiometer &&
+        control->type != ControlType::fader &&
+        control->type != ControlType::crossfader) {
+        error.clear();
+        return true;
+    }
+    if (mapping->semantic == "local-context") {
+        set_context(mapping->context);
+        error.clear();
+        return true;
+    }
+    const auto snapshot = application_->snapshot();
+    if (mapping->semantic == "recording-toggle") {
+        if (snapshot.recording.state == RecordingState::recording)
+            return submit({"recording.stop.v1", {}, state_.session_id,
+                           input.sequence}, error);
+        if (snapshot.recording.state == RecordingState::armed)
+            return submit({"recording.start.v1", {}, state_.session_id,
+                           input.sequence}, error);
+        if (!submit({"recording.arm.v1", {}, state_.session_id, input.sequence},
+                    error))
+            return false;
+        return submit({"recording.start.v1", {}, state_.session_id,
+                       input.sequence}, error);
+    }
+    if (mapping->semantic == "performance-pad") {
+        PerformanceGrid grid;
+        grid.set_mode(snapshot.pad_mode);
+        grid.set_step_page(snapshot.step_page);
+        grid.set_selected_slot(snapshot.selected_sample_slot);
+        grid.set_selected_pad(snapshot.selected_pad);
+        auto command = grid_application_command(
+            grid.press(static_cast<std::size_t>(mapping->index),
+                       state_.modifiers.select),
+            state_.session_id, input.sequence);
+        return !command || submit(std::move(*command), error);
+    }
+    const auto context = resolve_controller_context(
+        snapshot, state_.context, state_.modifiers);
+    if (mapping->semantic == "context-button") {
+        if (mapping->index < 0 || mapping->index >= 8) {
+            error = "context button index is invalid";
+            return false;
+        }
+        const auto &target = context[8 + mapping->index];
+        if (!target.active || target.action_id.empty()) {
+            error.clear();
+            return true;
+        }
+        return submit({target.action_id, {}, state_.session_id, input.sequence},
+                      error);
+    }
+    if (mapping->semantic == "context-encoder") {
+        if (mapping->index < 0 || mapping->index >= 8) {
+            error = "context encoder index is invalid";
+            return false;
+        }
+        const auto &target = context[mapping->index];
+        if (!target.active || target.parameter_id.empty()) {
+            error.clear();
+            return true;
+        }
+        auto steps = input.value;
+        if (state_.modifiers.shift || state_.modifiers.shift_latched)
+            steps *= mapping->fine_scale;
+        else if (std::abs(input.value) >= 4)
+            steps *= mapping->acceleration;
+        return submit({"parameter.adjust.v1",
+                       {{"parameter_id", target.parameter_id}, {"steps", steps}},
+                       state_.session_id, input.sequence},
+                      error);
+    }
+    if (!mapping->action_id.empty()) {
+        ApplicationCommand command{mapping->action_id, mapping->arguments,
+                                   state_.session_id, input.sequence};
+        return submit(std::move(command), error);
+    }
+    if (!mapping->parameter_id.empty()) {
+        const auto relative = control->type == ControlType::relative_encoder;
+        auto value = input.value;
+        if (relative && (state_.modifiers.shift || state_.modifiers.shift_latched))
+            value *= mapping->fine_scale;
+        else if (relative && std::abs(value) >= 4)
+            value *= mapping->acceleration;
+        if (!relative && mapping->pickup) {
+            const auto parameter = std::find_if(
+                snapshot.parameters.begin(), snapshot.parameters.end(),
+                [&](const auto &candidate) {
+                    return candidate.id == mapping->parameter_id;
+                });
+            if (parameter == snapshot.parameters.end()) {
+                error = "pickup target is unavailable";
+                ++state_.rejected;
+                return false;
+            }
+            const auto target = normalized(*parameter);
+            if (!target) {
+                error = "pickup target is not a numeric parameter";
+                ++state_.rejected;
+                return false;
+            }
+            auto &pickup = pickup_.try_emplace(mapping->control_id, 0.01).first->second;
+            auto &target_id = pickup_targets_[mapping->control_id];
+            if (target_id != mapping->parameter_id) {
+                pickup.set_target(*target);
+                target_id = mapping->parameter_id;
+            } else if (std::fabs(pickup.state().target - *target) > 0.01)
+                pickup.set_target(*target);
+            if (!pickup.update(value)) {
+                state_.pickup[mapping->control_id] = pickup.state();
+                state_.resync_required = true;
+                error.clear();
+                return true;
+            }
+            state_.pickup[mapping->control_id] = pickup.state();
+        }
+        return submit({relative ? "parameter.adjust.v1"
+                                : "parameter.set-normalized.v1",
+                       {{"parameter_id", mapping->parameter_id},
+                        {relative ? "steps" : "value", value}},
+                       state_.session_id, input.sequence},
+                      error);
+    }
+    error.clear();
+    return true;
+}
+
+void ControllerSession::feedback(ControllerFeedback value) {
+    if (feedback_.size() >= capacity_) {
+        ++state_.dropped_feedback;
+        state_.resync_required = true;
+        return;
+    }
+    feedback_.push_back(std::move(value));
+}
+
+void ControllerSession::observe(const ApplicationState &snapshot,
+                                bool full_refresh) {
+    if (!full_refresh && !state_.resync_required &&
+        state_.feedback_revision == snapshot.revision)
+        return;
+    full_refresh = full_refresh || state_.resync_required;
+    state_.resync_required = false;
+    state_.feedback_revision = snapshot.revision;
+    const auto track = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
+                                    [&](const auto &item) {
+                                        return item.id == snapshot.selected_track;
+                                    });
+    constexpr std::uint32_t off = 0x080808, active = 0x0060b0,
+                            selected = 0xff7a00, play = 0x00c840;
+    for (std::size_t i = 0; i < 16; ++i) {
+        auto color = off;
+        if (snapshot.pad_mode == PadMode::step && track != snapshot.tracks.end()) {
+            const auto tick = static_cast<MusicalTick>(snapshot.step_page * 16 + i) *
+                              snapshot.step_ticks;
+            if (std::any_of(track->events.begin(), track->events.end(),
+                            [&](const auto &event) {
+                                return event.tick == tick &&
+                                       event.type == MusicalEventType::note;
+                            }))
+                color = active;
+        } else if (snapshot.pad_mode == PadMode::pad &&
+                   snapshot.slice_pad_assignments[i])
+            color = active;
+        if ((snapshot.pad_mode == PadMode::step &&
+             snapshot.selected_step == static_cast<std::int64_t>(
+                                           snapshot.step_page * 16 + i)) ||
+            (snapshot.pad_mode != PadMode::step && snapshot.selected_pad == i))
+            color = selected;
+        if (snapshot.playing &&
+            i == static_cast<std::size_t>((snapshot.transport_tick /
+                                           std::max<MusicalTick>(
+                                               1, snapshot.step_ticks)) %
+                                          16))
+            color = play;
+        if (full_refresh || pad_colors_[i] != color) {
+            pad_colors_[i] = color;
+            feedback({ControllerFeedbackKind::rgb, "grid." + std::to_string(i),
+                      color, descriptor_.brightness_limit, {}});
+        }
+    }
+    for (const auto &mapping : profile_.bindings) {
+        if (mapping.feedback_id.empty()) continue;
+        const auto target = std::find_if(
+            descriptor_.controls.begin(), descriptor_.controls.end(),
+            [&](const auto &value) { return value.id == mapping.feedback_id; });
+        if (target == descriptor_.controls.end()) continue;
+        const auto supported = std::find(target->feedback.begin(),
+                                         target->feedback.end(),
+                                         FeedbackType::rgb_led) != target->feedback.end();
+        const auto indicator = std::find(target->feedback.begin(),
+                                         target->feedback.end(),
+                                         FeedbackType::single_led) != target->feedback.end();
+        if (!supported && !indicator) continue;
+        bool enabled{};
+        if (mapping.action_id == "transport.play.v1") enabled = snapshot.playing;
+        else if (mapping.action_id == "transport.stop.v1") enabled = !snapshot.playing;
+        else if (mapping.semantic == "recording-toggle")
+            enabled = snapshot.recording.state == RecordingState::recording;
+        else if (mapping.semantic == "modifier-shift")
+            enabled = state_.modifiers.shift || state_.modifiers.shift_latched;
+        const auto color = enabled ? active : off;
+        auto [cached, inserted] = feedback_colors_.try_emplace(mapping.feedback_id,
+                                                               color);
+        if (full_refresh || inserted || cached->second != color) {
+            cached->second = color;
+            feedback({supported ? ControllerFeedbackKind::rgb
+                                : ControllerFeedbackKind::indicator,
+                      mapping.feedback_id, color, descriptor_.brightness_limit,
+                      {}});
+        }
+    }
+    auto context = resolve_controller_context(snapshot, state_.context,
+                                              state_.modifiers);
+    for (std::size_t i = 0; i < context.size(); ++i)
+        feedback({ControllerFeedbackKind::context,
+                  (i < 8 ? "parameter." : "function.") +
+                      std::to_string(i < 8 ? i : i - 8),
+                  0, descriptor_.brightness_limit, std::move(context[i])});
+}
+
+std::optional<ControllerFeedback> ControllerSession::next_feedback() {
+    if (feedback_.empty())
+        return {};
+    auto value = std::move(feedback_.front());
+    feedback_.pop_front();
+    return value;
+}
+
+void ControllerSession::reconnect() noexcept {
+    feedback_.clear();
+    state_.resync_required = true;
+}
+
+void ControllerSession::set_context(std::string context) {
+    state_.context = std::move(context);
+    state_.resync_required = true;
+}
+
+} // namespace neurogenic

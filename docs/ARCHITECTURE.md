@@ -115,13 +115,21 @@ Native processing uses a bounded effect-rack snapshot within mixer publication.
 Track, group, aux and master chains own stable instance IDs; preallocated runtime state
 never enters application snapshots. See [FX_CHAINS.md](FX_CHAINS.md).
 
-The dedicated physical controller is an `ApplicationService` client.
+Physical controllers are `ApplicationService` clients through independent
+`ControllerSession` objects. Transport-independent device descriptors declare
+controls and feedback; configurable profiles resolve those controls into
+semantic actions, typed parameters and contextual roles. USB CDC and MIDI
+adapters only normalize transport events. Session-local pages, modifiers,
+pickup and feedback caches cannot become a second musical-state authority.
+The dedicated physical controller is one built-in descriptor/profile pair.
 `ControllerSerialTransport` owns nonblocking Linux TTY I/O,
 `ControllerFrameDecoder` owns bounded wire framing, and `ControllerHost` owns
 negotiation, semantic dispatch and revisioned feedback. None is visible to the
 audio callback. The packet/session boundary permits a future HID transport.
-The revisioned `ApplicationState::controller_context` selects explicit mapping
-groups. `build_controller_context()` combines context, focus, modifiers,
+The revisioned `ApplicationState::controller_context` selects the global UI
+mapping group. `resolve_controller_context()` combines an explicit client
+context, focus and local modifiers; `build_controller_context()` is its global
+compatibility wrapper. It combines context, focus, modifiers,
 performance mode and parameter metadata for SDL3, Slint and CDC clients. The
 protocol exposes logical controls and LEDs, never RP2040 GPIOs, shift-register
 positions or LED-chain offsets. Protocol 1.2's current dedicated profile has no

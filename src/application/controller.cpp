@@ -1,6 +1,7 @@
 #include "neurogenic/application/controller.hpp"
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <set>
 #include <sstream>
 
@@ -28,6 +29,21 @@ std::optional<ControlType> control_type(std::string_view value) {
     if (value == "pointer")
         return ControlType::pointer;
     return std::nullopt;
+}
+std::string_view control_type_name(ControlType value) {
+    switch (value) {
+    case ControlType::momentary_button: return "momentary";
+    case ControlType::toggle_button: return "toggle";
+    case ControlType::relative_encoder: return "encoder";
+    case ControlType::absolute_potentiometer: return "pot";
+    case ControlType::fader: return "fader";
+    case ControlType::crossfader: return "crossfader";
+    case ControlType::joystick: return "joystick";
+    case ControlType::touch_xy: return "touch_xy";
+    case ControlType::keyboard: return "keyboard";
+    case ControlType::pointer: return "pointer";
+    }
+    return "momentary";
 }
 std::vector<std::string> split(std::string_view line) {
     std::vector<std::string> result;
@@ -83,8 +99,13 @@ bool validate_profile(const ControllerProfile &profile,
             error = "binding references unknown control: " + binding.control_id;
             return false;
         }
-        if (binding.action_id.empty() == binding.parameter_id.empty()) {
-            error = "binding must name exactly one action or parameter";
+        const auto target_count = (!binding.action_id.empty() ? 1 : 0) +
+                                  (!binding.parameter_id.empty() ? 1 : 0) +
+                                  (!binding.semantic.empty() ? 1 : 0) +
+                                  (binding.explicitly_unassigned ? 1 : 0);
+        if (target_count != 1) {
+            error = "binding must name exactly one action, parameter, semantic "
+                    "role or explicit unassigned state";
             return false;
         }
         if (!binding.action_id.empty() && !actions.find(binding.action_id)) {
@@ -94,6 +115,74 @@ bool validate_profile(const ControllerProfile &profile,
     }
     error.clear();
     return true;
+}
+
+bool validate_device_descriptor(const ControllerDeviceDescriptor &descriptor,
+                                std::string &error) {
+    if (descriptor.schema_version != 1 || descriptor.descriptor_id.empty() ||
+        descriptor.device_id.empty() || descriptor.display_name.empty()) {
+        error = "descriptor schema, identity and display name are required";
+        return false;
+    }
+    if (!descriptor.maximum_feedback_queue) {
+        error = "descriptor feedback queue must be bounded";
+        return false;
+    }
+    std::set<std::string> controls;
+    for (const auto &control : descriptor.controls) {
+        if (control.id.empty() || !controls.insert(control.id).second ||
+            !std::isfinite(control.minimum) ||
+            !std::isfinite(control.maximum) ||
+            control.maximum < control.minimum) {
+            error = "descriptor controls require unique IDs and valid ranges";
+            return false;
+        }
+    }
+    error.clear();
+    return true;
+}
+
+ControllerDeviceDescriptor rp2040_controller_descriptor() {
+    ControllerDeviceDescriptor descriptor;
+    descriptor.descriptor_id = "neurogenic.rp2040.task068.v1";
+    descriptor.device_id = "neurogenic.rp2040";
+    descriptor.display_name = "NEUROGENIC dedicated controller";
+    descriptor.transport = ControllerTransport::usb_cdc;
+    descriptor.protocol_major = 1;
+    descriptor.protocol_minor = 2;
+    auto add = [&](std::string id, std::string label, ControlType type,
+                   std::vector<FeedbackType> feedback = {}) {
+        descriptor.controls.push_back(
+            control(std::move(id), type, std::move(label), std::move(feedback)));
+    };
+    for (int i = 0; i < 16; ++i)
+        add("grid." + std::to_string(i), "Performance " + std::to_string(i + 1),
+            ControlType::momentary_button, {FeedbackType::rgb_led});
+    for (int i = 0; i < 8; ++i) {
+        add("parameter." + std::to_string(i),
+            "Context Encoder " + std::to_string(i + 1),
+            ControlType::relative_encoder, {FeedbackType::parameter_value});
+        add("function." + std::to_string(i),
+            "Context Function " + std::to_string(i + 1),
+            ControlType::momentary_button, {FeedbackType::single_led});
+        add("page." + std::to_string(i), "Page " + std::to_string(i + 1),
+            ControlType::momentary_button, {FeedbackType::single_led});
+    }
+    add("data", "Main Data Encoder", ControlType::relative_encoder,
+        {FeedbackType::parameter_value});
+    for (int i = 0; i < 10; ++i) {
+        add("edit." + std::to_string(i), "Edit " + std::to_string(i + 1),
+            ControlType::momentary_button, {FeedbackType::single_led});
+        add("performance." + std::to_string(i),
+            "Performance Cluster " + std::to_string(i + 1),
+            ControlType::momentary_button, {FeedbackType::single_led});
+    }
+    static constexpr std::string_view navigation[]{"up", "down", "left",
+                                                    "right", "confirm", "back"};
+    for (const auto name : navigation)
+        add("navigation." + std::string(name), "Navigation " + std::string(name),
+            ControlType::momentary_button, {FeedbackType::single_led});
+    return descriptor;
 }
 
 ControllerMapper::ControllerMapper(ControllerProfile profile,
@@ -221,6 +310,20 @@ bool parse_controller_profile(std::string_view source,
         if (fields[0] == "controller" && fields.size() == 3) {
             parsed.capabilities.controller_id = fields[1];
             parsed.capabilities.name = fields[2];
+        } else if (fields[0] == "profile" && fields.size() == 4) {
+            std::uint32_t schema{};
+            const auto text = std::string_view(fields[1]);
+            const auto result = std::from_chars(text.data(),
+                                                text.data() + text.size(), schema);
+            if (result.ec != std::errc{} || result.ptr != text.data() + text.size() ||
+                schema == 0 || schema > 2) {
+                error = "line " + std::to_string(number) +
+                        ": unsupported profile schema";
+                return false;
+            }
+            parsed.schema_version = schema;
+            parsed.profile_id = fields[2];
+            parsed.device_id = fields[3];
         } else if (fields[0] == "control" && fields.size() >= 4) {
             const auto type = control_type(fields[2]);
             if (!type) {
@@ -237,6 +340,10 @@ bool parse_controller_profile(std::string_view source,
                 binding.action_id = fields[3];
             else if (fields[2] == "parameter")
                 binding.parameter_id = fields[3];
+            else if (fields[2] == "semantic")
+                binding.semantic = fields[3];
+            else if (fields[2] == "unassigned")
+                binding.explicitly_unassigned = true;
             else {
                 error = "line " + std::to_string(number) +
                         ": binding target must be action or parameter";
@@ -251,6 +358,69 @@ bool parse_controller_profile(std::string_view source,
                     binding.feedback_id = fields[i].substr(9);
                 else if (fields[i].rfind("label=", 0) == 0)
                     binding.label = fields[i].substr(6);
+                else if (fields[i].rfind("context=", 0) == 0)
+                    binding.context = fields[i].substr(8);
+                else if (fields[i].rfind("index=", 0) == 0) {
+                    const auto value = std::string_view(fields[i]).substr(6);
+                    const auto result = std::from_chars(
+                        value.data(), value.data() + value.size(), binding.index);
+                    if (result.ec != std::errc{} ||
+                        result.ptr != value.data() + value.size()) {
+                        error = "line " + std::to_string(number) +
+                                ": invalid binding index";
+                        return false;
+                    }
+                }
+                else if (fields[i] == "pickup")
+                    binding.pickup = true;
+                else if (fields[i].rfind("arg:", 0) == 0) {
+                    const auto separator = fields[i].find('=', 4);
+                    if (separator == std::string::npos || separator + 3 > fields[i].size() ||
+                        fields[i][separator + 2] != ':') {
+                        error = "line " + std::to_string(number) +
+                                ": invalid static action argument";
+                        return false;
+                    }
+                    const auto name = fields[i].substr(4, separator - 4);
+                    const auto kind = fields[i][separator + 1];
+                    const auto value = std::string_view(fields[i]).substr(separator + 3);
+                    if (name.empty()) {
+                        error = "line " + std::to_string(number) +
+                                ": empty static argument name";
+                        return false;
+                    }
+                    if (kind == 's') binding.arguments[name] = std::string(value);
+                    else if (kind == 'b' && (value == "0" || value == "1"))
+                        binding.arguments[name] = value == "1";
+                    else if (kind == 'i') {
+                        std::int64_t parsed_value{};
+                        const auto converted = std::from_chars(
+                            value.data(), value.data() + value.size(), parsed_value);
+                        if (converted.ec != std::errc{} ||
+                            converted.ptr != value.data() + value.size()) {
+                            error = "line " + std::to_string(number) +
+                                    ": invalid integer action argument";
+                            return false;
+                        }
+                        binding.arguments[name] = parsed_value;
+                    } else if (kind == 'd') {
+                        double parsed_value{};
+                        const auto converted = std::from_chars(
+                            value.data(), value.data() + value.size(), parsed_value);
+                        if (converted.ec != std::errc{} ||
+                            converted.ptr != value.data() + value.size() ||
+                            !std::isfinite(parsed_value)) {
+                            error = "line " + std::to_string(number) +
+                                    ": invalid real action argument";
+                            return false;
+                        }
+                        binding.arguments[name] = parsed_value;
+                    } else {
+                        error = "line " + std::to_string(number) +
+                                ": unsupported action argument type";
+                        return false;
+                    }
+                }
                 else {
                     error = "line " + std::to_string(number) +
                             ": unknown binding option";
@@ -273,8 +443,92 @@ bool parse_controller_profile(std::string_view source,
     return true;
 }
 
+std::string serialize_controller_profile(const ControllerProfile &profile) {
+    std::ostringstream output;
+    output << "# neurogenic controller profile schema " << profile.schema_version
+           << '\n';
+    output << "profile|" << profile.schema_version << '|' << profile.profile_id
+           << '|' << profile.device_id << '\n';
+    output << "controller|" << profile.capabilities.controller_id << '|'
+           << profile.capabilities.name << '\n';
+    for (const auto &value : profile.capabilities.controls)
+        output << "control|" << value.id << '|'
+               << control_type_name(value.type) << '|' << value.label << '\n';
+    for (const auto &binding : profile.bindings) {
+        output << "bind|" << binding.control_id << '|';
+        if (!binding.action_id.empty())
+            output << "action|" << binding.action_id;
+        else if (!binding.parameter_id.empty())
+            output << "parameter|" << binding.parameter_id;
+        else if (!binding.semantic.empty())
+            output << "semantic|" << binding.semantic;
+        else
+            output << "unassigned|-";
+        if (binding.shift) output << "|shift";
+        if (binding.select) output << "|select";
+        if (!binding.feedback_id.empty())
+            output << "|feedback=" << binding.feedback_id;
+        if (!binding.label.empty()) output << "|label=" << binding.label;
+        if (!binding.context.empty()) output << "|context=" << binding.context;
+        if (binding.index >= 0) output << "|index=" << binding.index;
+        if (binding.pickup) output << "|pickup";
+        for (const auto &[name, value] : binding.arguments) {
+            output << "|arg:" << name << '=';
+            if (const auto *text = std::get_if<std::string>(&value))
+                output << "s:" << *text;
+            else if (const auto *boolean = std::get_if<bool>(&value))
+                output << "b:" << (*boolean ? 1 : 0);
+            else if (const auto *integer = std::get_if<std::int64_t>(&value))
+                output << "i:" << *integer;
+            else if (const auto *real = std::get_if<double>(&value))
+                output << "d:" << *real;
+            else
+                output << "s:";
+        }
+        output << '\n';
+    }
+    return output.str();
+}
+
+bool validate_controller_configuration(
+    const ControllerDeviceDescriptor &descriptor,
+    const ControllerProfile &profile, const ApplicationService &application,
+    std::string &error) {
+    if (!validate_device_descriptor(descriptor, error) ||
+        !validate_profile(profile, application.actions(), error))
+        return false;
+    if (!profile.device_id.empty() && profile.device_id != descriptor.device_id) {
+        error = "profile targets a different device identity";
+        return false;
+    }
+    const auto snapshot = application.snapshot();
+    for (const auto &binding : profile.bindings) {
+        const auto device_control = std::find_if(
+            descriptor.controls.begin(), descriptor.controls.end(),
+            [&](const auto &value) { return value.id == binding.control_id; });
+        if (device_control == descriptor.controls.end()) {
+            error = "profile control is absent from device descriptor: " +
+                    binding.control_id;
+            return false;
+        }
+        if (!binding.parameter_id.empty() &&
+            std::none_of(snapshot.parameters.begin(), snapshot.parameters.end(),
+                         [&](const auto &value) {
+                             return value.id == binding.parameter_id;
+                         })) {
+            error = "profile references unavailable parameter: " +
+                    binding.parameter_id;
+            return false;
+        }
+    }
+    error.clear();
+    return true;
+}
+
 ControllerProfile full_performance_profile() {
     ControllerProfile profile;
+    profile.profile_id = "neurogenic.rp2040.task068.default.v2";
+    profile.device_id = "neurogenic.rp2040";
     profile.capabilities = {
         "neurogenic.full.v1", "Full performance controller", {}, true};
     for (int i = 0; i < 16; ++i)
@@ -314,19 +568,113 @@ ControllerProfile full_performance_profile() {
     profile.capabilities.controls.insert(
         profile.capabilities.controls.end(),
         {control("data", ControlType::relative_encoder, "Data"),
-         control("play", ControlType::momentary_button, "Play",
-                 {FeedbackType::single_led}),
-         control("stop", ControlType::momentary_button, "Stop",
-                 {FeedbackType::single_led}),
-         control("shift", ControlType::momentary_button),
-         control("select", ControlType::momentary_button),
+         control("play", ControlType::momentary_button, "Legacy Play"),
+         control("stop", ControlType::momentary_button, "Legacy Stop"),
+         control("record", ControlType::momentary_button, "Legacy Record"),
+         control("shift", ControlType::momentary_button, "Legacy Shift"),
+         control("select", ControlType::momentary_button, "Legacy Select"),
          control("mode.step", ControlType::momentary_button),
-         control("mode.pad", ControlType::momentary_button)});
+         control("mode.pad", ControlType::momentary_button),
+         control("mode.levels", ControlType::momentary_button),
+         control("mode.notes", ControlType::momentary_button),
+         control("page.previous", ControlType::momentary_button),
+         control("page.next", ControlType::momentary_button)});
     auto data = parameter_binding("data", "transport.tempo");
     data.feedback_id = "parameter.display.0";
-    profile.bindings = {action_binding("play", "transport.play.v1", "led.play"),
-                        action_binding("stop", "transport.stop.v1", "led.stop"),
+    profile.bindings = {action_binding("play", "transport.play.v1"),
+                        action_binding("stop", "transport.stop.v1"),
                         std::move(data)};
+    ControlBinding recording;
+    recording.control_id = "performance.2";
+    recording.semantic = "recording-toggle";
+    profile.bindings.push_back(std::move(recording));
+    ControlBinding shift;
+    shift.control_id = "performance.9";
+    shift.semantic = "modifier-shift";
+    profile.bindings.push_back(std::move(shift));
+    ControlBinding select;
+    select.control_id = "edit.9";
+    select.semantic = "modifier-select";
+    profile.bindings.push_back(std::move(select));
+    ControlBinding legacy_recording;
+    legacy_recording.control_id = "record";
+    legacy_recording.semantic = "recording-toggle";
+    profile.bindings.push_back(std::move(legacy_recording));
+    ControlBinding legacy_shift;
+    legacy_shift.control_id = "shift";
+    legacy_shift.semantic = "modifier-shift";
+    profile.bindings.push_back(std::move(legacy_shift));
+    ControlBinding legacy_select;
+    legacy_select.control_id = "select";
+    legacy_select.semantic = "modifier-select";
+    profile.bindings.push_back(std::move(legacy_select));
+    static constexpr std::string_view mode_names[]{"step", "pad", "levels",
+                                                   "notes"};
+    for (const auto mode_name : mode_names) {
+        ControlBinding mode;
+        mode.control_id = "mode." + std::string(mode_name);
+        mode.action_id = "pad.mode-select.v1";
+        mode.arguments["mode"] = std::string(mode_name);
+        profile.bindings.push_back(std::move(mode));
+    }
+    profile.bindings.push_back(
+        action_binding("page.previous", "step.page-previous.v1"));
+    profile.bindings.push_back(
+        action_binding("page.next", "step.page-next.v1"));
+    profile.bindings.push_back(
+        action_binding("performance.0", "transport.play.v1", "performance.0"));
+    profile.bindings.push_back(
+        action_binding("performance.1", "transport.stop.v1", "performance.1"));
+    for (int i = 0; i < 16; ++i) {
+        ControlBinding binding;
+        binding.control_id = "grid." + std::to_string(i);
+        binding.semantic = "performance-pad";
+        binding.index = i;
+        profile.bindings.push_back(std::move(binding));
+    }
+    for (int i = 0; i < 8; ++i) {
+        ControlBinding encoder;
+        encoder.control_id = "parameter." + std::to_string(i);
+        encoder.semantic = "context-encoder";
+        encoder.index = i;
+        profile.bindings.push_back(std::move(encoder));
+        ControlBinding function;
+        function.control_id = "function." + std::to_string(i);
+        function.semantic = "context-button";
+        function.index = i;
+        profile.bindings.push_back(std::move(function));
+    }
+    static constexpr std::string_view contexts[]{
+        "sequencer", "samples", "parameters", "mixer",
+        "modulation", "routing", "recording", "midi"};
+    for (int i = 0; i < 8; ++i) {
+        ControlBinding page;
+        page.control_id = "page." + std::to_string(i);
+        page.semantic = "local-context";
+        page.context = contexts[i];
+        profile.bindings.push_back(std::move(page));
+    }
+    for (int i = 0; i < 10; ++i) {
+        if (i == 9) continue;
+        ControlBinding edit, performance;
+        edit.control_id = "edit." + std::to_string(i);
+        edit.explicitly_unassigned = true;
+        performance.control_id = "performance." + std::to_string(i);
+        if (i != 0 && i != 1 && i != 2)
+            performance.explicitly_unassigned = true;
+        profile.bindings.push_back(std::move(edit));
+        if (performance.explicitly_unassigned)
+            profile.bindings.push_back(std::move(performance));
+    }
+    const std::pair<std::string_view, std::string_view> navigation_bindings[]{
+        {"up", "navigation.focus-previous.v1"},
+        {"down", "navigation.focus-next.v1"},
+        {"left", "step.page-previous.v1"}, {"right", "step.page-next.v1"},
+        {"confirm", "navigation.confirm.v1"},
+        {"back", "navigation.cancel.v1"}};
+    for (const auto &[control_name, action] : navigation_bindings)
+        profile.bindings.push_back(action_binding(
+            "navigation." + std::string(control_name), std::string(action)));
     return profile;
 }
 ControllerProfile minimal_controller_profile() {

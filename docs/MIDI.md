@@ -6,6 +6,15 @@ engine. `MidiInput` and `MidiOutput` are libremidi adapters. Logical ports
 logical port to a host port. Missing devices remain missing and are never
 silently replaced by another port.
 
+Task 069 keeps musical input and control-surface interpretation independent.
+`MidiControlSurfaceAdapter` only consumes explicitly configured port/channel
+note or CC bindings and forwards normalized controls to a `ControllerSession`.
+Unmatched messages continue through `MidiMapper` note and raw handlers. It
+supports absolute CC, two common relative-encoder encodings and momentary
+notes; soft takeover is profile-driven. Automatic MIDI learn and generic MIDI
+feedback transmission remain deferred. See
+[controller integration](CONTROLLER_INTEGRATION.md).
+
 The input callback copies messages into the bounded controller queue. The
 control dispatcher preserves controller mappings and passes raw messages into a
 second bounded queue owned by `AudioEngine`. At the next audio block the engine

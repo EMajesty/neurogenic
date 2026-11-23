@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <optional>
 #include <span>
+#include <map>
 
 namespace neurogenic {
 enum class ControlType : std::uint8_t {
@@ -28,6 +29,8 @@ struct ControlCapability {
     std::string id, label;
     ControlType type{};
     std::vector<FeedbackType> feedback;
+    double minimum{}, maximum{1.0};
+    bool available{true};
 };
 struct ControllerCapabilities {
     std::string controller_id, name;
@@ -37,12 +40,32 @@ struct ControllerCapabilities {
 struct ControlBinding {
     std::string control_id, action_id, parameter_id, feedback_id, label;
     bool shift{}, select{}, absolute{};
+    std::string semantic, context;
+    std::int32_t index{-1};
+    double fine_scale{0.1}, acceleration{2.0};
+    bool pickup{}, explicitly_unassigned{};
+    std::map<std::string, ApplicationValue> arguments;
 };
 struct ControllerProfile {
+    std::uint32_t schema_version{2};
+    std::string profile_id, device_id;
     ControllerCapabilities capabilities;
     std::vector<ControlBinding> bindings;
     bool fallback_to_base{true};
 };
+enum class ControllerTransport : std::uint8_t { usb_cdc, midi, simulated, future };
+struct ControllerDeviceDescriptor {
+    std::uint32_t schema_version{1};
+    std::string descriptor_id, device_id, display_name;
+    ControllerTransport transport{ControllerTransport::simulated};
+    std::uint8_t protocol_major{}, protocol_minor{};
+    std::vector<ControlCapability> controls;
+    std::size_t maximum_feedback_queue{128};
+    std::uint8_t brightness_limit{224};
+};
+[[nodiscard]] bool validate_device_descriptor(const ControllerDeviceDescriptor &,
+                                              std::string &error);
+[[nodiscard]] ControllerDeviceDescriptor rp2040_controller_descriptor();
 struct ControllerInput {
     std::string control_id;
     double value{}, secondary{};
@@ -82,6 +105,11 @@ bool validate_profile(const ControllerProfile &, const ActionRegistry &,
                       std::string &error);
 bool parse_controller_profile(std::string_view, ControllerProfile &,
                               std::string &error);
+[[nodiscard]] std::string serialize_controller_profile(const ControllerProfile &);
+bool validate_controller_configuration(const ControllerDeviceDescriptor &,
+                                       const ControllerProfile &,
+                                       const ApplicationService &,
+                                       std::string &error);
 [[nodiscard]] ControllerProfile full_performance_profile();
 [[nodiscard]] ControllerProfile minimal_controller_profile();
 [[nodiscard]] ControllerProfile generic_midi_profile();

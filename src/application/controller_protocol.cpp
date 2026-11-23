@@ -1,6 +1,7 @@
 #include "neurogenic/application/controller_protocol.hpp"
 #include <algorithm>
 #include <cerrno>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -65,6 +66,51 @@ std::string mode_name(std::uint16_t index) {
         return {};
     }
 }
+std::string protocol_button_id(std::uint16_t id, std::uint8_t minor) {
+    if (id < 16) return "grid." + std::to_string(id);
+    if (id < 24) return "function." + std::to_string(id - 16);
+    if (minor == 0 && id >= 24 && id <= 27)
+        return "mode." + mode_name(id - 24);
+    static constexpr std::string_view legacy[]{
+        "play", "stop", "record", "shift", "select", "data.push",
+        "mode.step", "mode.pad", "mode.levels", "mode.notes",
+        "page.previous", "page.next"};
+    if (id >= 24 && id <= 35) return std::string(legacy[id - 24]);
+    if (id >= 36 && id <= 43) return "page." + std::to_string(id - 36);
+    if (id >= 44 && id <= 53) return "edit." + std::to_string(id - 44);
+    if (id >= 54 && id <= 63)
+        return "performance." + std::to_string(id - 54);
+    static constexpr std::string_view navigation[]{"up", "down", "left",
+                                                    "right", "confirm", "back"};
+    if (id >= 64 && id <= 69)
+        return "navigation." + std::string(navigation[id - 64]);
+    return {};
+}
+std::string protocol_encoder_id(std::uint16_t id) {
+    if (id < 8) return "parameter." + std::to_string(id);
+    if (id == 8) return "data";
+    return {};
+}
+std::optional<std::uint16_t> protocol_feedback_id(std::string_view id) {
+    const auto suffix = [&](std::string_view prefix)
+        -> std::optional<std::uint16_t> {
+        if (!id.starts_with(prefix)) return {};
+        std::uint16_t value{};
+        const auto text = id.substr(prefix.size());
+        const auto [end, error] = std::from_chars(text.data(),
+                                                  text.data() + text.size(), value);
+        return error == std::errc{} && end == text.data() + text.size()
+                   ? std::optional<std::uint16_t>(value)
+                   : std::nullopt;
+    };
+    if (auto value = suffix("grid.")) return *value;
+    if (auto value = suffix("function.")) return 16 + *value;
+    if (auto value = suffix("page.")) return 36 + *value;
+    if (auto value = suffix("edit.")) return 44 + *value;
+    if (auto value = suffix("performance.")) return 54 + *value;
+    if (auto value = suffix("parameter.")) return *value;
+    return {};
+}
 double numeric(const ApplicationValue &value, double fallback = 0) {
     if (const auto *real = std::get_if<double>(&value))
         return *real;
@@ -126,7 +172,8 @@ std::string_view truncate_view(std::string_view value, std::size_t maximum) {
 } // namespace
 
 std::array<ContextControl, 16>
-build_controller_context(const ApplicationState &state) {
+resolve_controller_context(const ApplicationState &state, std::string_view context,
+                           const ModifierState &modifiers) {
     std::array<ContextControl, 16> result{};
     for (std::size_t i = 0; i < result.size(); ++i) {
         result[i].control_id = i;
@@ -141,23 +188,23 @@ build_controller_context(const ApplicationState &state) {
             ++i;
         }
     };
-    if (state.controller_context == "mixer")
+    if (context == "mixer")
         set_parameters({"mixer.selected.gain", "mixer.selected.pan",
                         "mixer.track.aux-1", "mixer.track.aux-2",
                         "mixer.aux.return", "mixer.master.gain",
                         "external-fx.send-gain", "external-fx.return-gain"});
-    else if (state.controller_context == "samples")
+    else if (context == "samples")
         set_parameters({"sample.pitch", "sample.gain", "sample.pan",
                         "effect.delay.mix", "effect.delay.time",
                         "effect.delay.feedback"});
-    else if (state.controller_context == "modulation")
+    else if (context == "modulation")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.pitch",
                         "synth.gain", "sample.pitch", "sample.gain",
                         "mixer.track.pan", "external-fx.wet"});
-    else if (state.controller_context == "routing")
+    else if (context == "routing")
         set_parameters({"external-fx.wet", "external-fx.send-gain",
                         "external-fx.return-gain", "mixer.master.gain"});
-    else if (state.controller_context == "parameters")
+    else if (context == "parameters")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.attack",
                         "synth.decay", "synth.sustain", "synth.release",
                         "synth.gain", "effect.delay.mix"});
@@ -174,14 +221,14 @@ build_controller_context(const ApplicationState &state) {
          {"ENTER", "navigation.confirm.v1"},
          {"PAGE+", "step.page-next.v1"},
          {"PLAY", "transport.play.v1"}}};
-    if (state.controller_context == "samples") {
+    if (context == "samples") {
         lower[0] = {"PREVIEW", "slice.preview.v1"};
         lower[1] = {"STOP PREV", "slice.preview-stop.v1"};
-    } else if (state.controller_context == "mixer") {
+    } else if (context == "mixer") {
         lower[0] = {"MUTE", "mixer.mute-toggle.v1"};
         lower[1] = {"SOLO", "mixer.solo-toggle.v1"};
     }
-    if (state.modifiers.shift || state.modifiers.shift_latched) {
+    if (modifiers.shift || modifiers.shift_latched) {
         lower[0] = {"UNDO", "edit.undo.v1"};
         lower[1] = {"REDO", "edit.redo.v1"};
         lower[6] = {"PAGE-", "step.page-previous.v1"};
@@ -196,6 +243,11 @@ build_controller_context(const ApplicationState &state) {
         result[8 + i].feedback_revision = state.revision;
     }
     return result;
+}
+std::array<ContextControl, 16>
+build_controller_context(const ApplicationState &state) {
+    return resolve_controller_context(state, state.controller_context,
+                                      state.modifiers);
 }
 std::vector<std::uint8_t>
 encode_controller_packet(const ControllerPacket &packet) {
@@ -371,6 +423,35 @@ bool ControllerHost::receive(const ControllerPacket &p,
         }
         state_.connection = ControllerConnection::connected;
         ++state_.reconnects;
+        auto profile = full_performance_profile();
+        auto descriptor = rp2040_controller_descriptor();
+        descriptor.protocol_minor = state_.protocol_minor;
+        // Protocol 1.x advertises capability groups rather than a complete
+        // inventory. The selected host profile supplies compatibility aliases.
+        descriptor.controls = profile.capabilities.controls;
+        if (state_.protocol_minor <= 1) {
+            for (std::size_t i = 0; i < state_.analog.size(); ++i) {
+                ControlCapability analog{
+                    "analog." + std::to_string(i),
+                    "Legacy analog " + std::to_string(i + 1),
+                    i == 4 ? ControlType::crossfader : ControlType::fader,
+                    {FeedbackType::parameter_value}, 0, 1, true};
+                descriptor.controls.push_back(analog);
+                profile.capabilities.controls.push_back(std::move(analog));
+                ControlBinding binding;
+                binding.control_id = "analog." + std::to_string(i);
+                binding.parameter_id =
+                    std::array<std::string, 5>{
+                        "mixer.selected.gain", "mixer.track.aux-1",
+                        "mixer.track.aux-2", "mixer.master.gain",
+                        "mixer.external.selected.wet"}[i];
+                binding.absolute = true;
+                binding.pickup = true;
+                profile.bindings.push_back(std::move(binding));
+            }
+        }
+        session_.emplace(*application_, std::move(descriptor),
+                         std::move(profile), state_.device_id, capacity_);
         enqueue({ControllerMessageType::capabilities, sequence_++, {}});
         enqueue({ControllerMessageType::state_sync, sequence_++, {}});
     } else if (p.type == ControllerMessageType::capabilities) {
@@ -387,119 +468,18 @@ bool ControllerHost::receive(const ControllerPacket &p,
         const auto id = read16(p.payload.data());
         const bool pressed = p.payload[2] != 0;
         bool queued = true;
-        if (id < 16 && pressed) {
-            const auto s = application_->snapshot();
-            PerformanceGrid grid;
-            grid.set_mode(s.pad_mode);
-            grid.set_step_page(s.step_page);
-            grid.set_selected_slot(s.selected_sample_slot);
-            grid.set_selected_pad(s.selected_pad);
-            if (auto c =
-                    grid_application_command(grid.press(id, s.modifiers.select),
-                                             "physical-controller", p.sequence))
-                queued = application_->submit(std::move(*c));
-        } else if (id >= 16 && id < 24 && pressed) {
-            const auto context =
-                build_controller_context(application_->snapshot());
-            const auto &control = context[id - 8];
-            if (control.active && !control.action_id.empty())
-                queued = application_->submit(
-                    {control.action_id, {}, "physical-controller", p.sequence});
-        } else if (state_.protocol_minor == 0 && id >= 24 && id <= 27 &&
-                   pressed) {
-            if (auto mode = mode_name(id - 24); !mode.empty())
-                queued = application_->submit({"pad.mode-select.v1",
-                                               {{"mode", mode}},
-                                               "physical-controller",
-                                               p.sequence});
-        } else if (id == static_cast<std::uint16_t>(DedicatedControlId::play) &&
-                   pressed)
-            queued = application_->submit(
-                {"transport.play.v1", {}, "physical-controller", p.sequence});
-        else if (id == static_cast<std::uint16_t>(DedicatedControlId::stop) &&
-                 pressed)
-            queued = application_->submit(
-                {"transport.stop.v1", {}, "physical-controller", p.sequence});
-        else if (id == static_cast<std::uint16_t>(DedicatedControlId::record) &&
-                 pressed) {
-            const auto recording = application_->snapshot().recording.state;
-            if (recording == RecordingState::recording)
-                queued = application_->submit({"recording.stop.v1",
-                                               {},
-                                               "physical-controller",
-                                               p.sequence});
-            else if (recording == RecordingState::armed)
-                queued = application_->submit({"recording.start.v1",
-                                               {},
-                                               "physical-controller",
-                                               p.sequence});
-            else {
-                queued = application_->submit({"recording.arm.v1",
-                                               {},
-                                               "physical-controller",
-                                               p.sequence});
-                if (queued)
-                    queued = application_->submit({"recording.start.v1",
-                                                   {},
-                                                   "physical-controller",
-                                                   p.sequence});
+        if (session_) {
+            const auto logical = protocol_button_id(id, state_.protocol_minor);
+            if (!logical.empty()) {
+                std::string session_error;
+                queued = session_->input({logical, pressed ? 1.0 : 0.0, 0,
+                                          pressed, p.sequence},
+                                         session_error);
+                if (!queued) state_.error = std::move(session_error);
             }
-        } else if (id == static_cast<std::uint16_t>(DedicatedControlId::shift))
-            queued = application_->submit({"modifier.shift.v1",
-                                           {{"active", pressed}},
-                                           "physical-controller",
-                                           p.sequence});
-        else if (id == static_cast<std::uint16_t>(DedicatedControlId::select))
-            queued = application_->submit({"modifier.select.v1",
-                                           {{"active", pressed}},
-                                           "physical-controller",
-                                           p.sequence});
-        else if (id == static_cast<std::uint16_t>(
-                           DedicatedControlId::data_push) &&
-                 pressed && state_.protocol_minor <= 1)
-            queued = application_->submit({"navigation.confirm.v1",
-                                           {},
-                                           "physical-controller",
-                                           p.sequence});
-        else if (id >= static_cast<std::uint16_t>(
-                           DedicatedControlId::mode_step) &&
-                 id <= static_cast<std::uint16_t>(
-                           DedicatedControlId::mode_notes) &&
-                 pressed)
-            queued = application_->submit(
-                {"pad.mode-select.v1",
-                 {{"mode", mode_name(id - static_cast<std::uint16_t>(
-                                              DedicatedControlId::mode_step))}},
-                 "physical-controller",
-                 p.sequence});
-        else if (id == static_cast<std::uint16_t>(
-                           DedicatedControlId::page_previous) &&
-                 pressed)
-            queued = application_->submit({"step.page-previous.v1",
-                                           {},
-                                           "physical-controller",
-                                           p.sequence});
-        else if (id == static_cast<std::uint16_t>(
-                           DedicatedControlId::page_next) &&
-                 pressed)
-            queued = application_->submit(
-                {"step.page-next.v1", {}, "physical-controller", p.sequence});
-        else if (id >= 36 && id <= 43 && pressed) {
-            static constexpr std::string_view contexts[]{
-                "sequencer", "samples", "parameters", "mixer",
-                "modulation", "routing", "recording", "midi"};
-            queued = application_->submit(
-                {"controller.context-select.v1",
-                 {{"context", std::string(contexts[id - 36])}},
-                 "physical-controller", p.sequence});
-        } else if (id >= 64 && id <= 69 && pressed) {
-            static constexpr std::string_view actions[]{
-                "navigation.focus-previous.v1", "navigation.focus-next.v1",
-                "step.page-previous.v1", "step.page-next.v1",
-                "navigation.confirm.v1", "navigation.cancel.v1"};
-            queued = application_->submit(
-                {std::string(actions[id - 64]), {}, "physical-controller",
-                 p.sequence});
+        } else {
+            queued = false;
+            state_.error = "controller input received before negotiation";
         }
         if (!queued)
             ++state_.dropped_input;
@@ -513,31 +493,19 @@ bool ControllerHost::receive(const ControllerPacket &p,
             static_cast<std::int16_t>(read16(p.payload.data() + 2));
         if (id < state_.encoders.size())
             state_.encoders[id] += delta;
-        if (id < 8) {
-            const auto snapshot = application_->snapshot();
-            const auto context = build_controller_context(snapshot);
-            const auto &control = context[id];
-            double steps = delta;
-            if (snapshot.modifiers.shift || snapshot.modifiers.shift_latched)
-                steps *= 0.1;
-            else if (std::abs(delta) >= 4)
-                steps *= 2;
-            if (control.active && !control.parameter_id.empty() &&
-                !application_->submit(
-                    {"parameter.adjust.v1",
-                     {{"parameter_id", control.parameter_id}, {"steps", steps}},
-                     "physical-controller",
-                     p.sequence}))
-                ++state_.dropped_input;
-        } else if (id == 8) {
-            const auto snapshot = application_->snapshot();
-            double steps = delta;
-            if (snapshot.modifiers.shift || snapshot.modifiers.shift_latched)
-                steps *= 0.1;
-            else if (std::abs(delta) >= 4)
-                steps *= 2;
-            dispatch_input("data", steps, true, p.sequence);
-        }
+        if (session_) {
+            const auto logical = protocol_encoder_id(id);
+            if (!logical.empty()) {
+                std::string session_error;
+                if (!session_->input({logical, static_cast<double>(delta), 0,
+                                      true, p.sequence},
+                                     session_error)) {
+                    ++state_.dropped_input;
+                    state_.error = std::move(session_error);
+                }
+            }
+        } else
+            ++state_.dropped_input;
     } else if (p.type == ControllerMessageType::analog) {
         if (p.payload.size() != 4) {
             error = "invalid analog payload";
@@ -560,29 +528,18 @@ bool ControllerHost::receive(const ControllerPacket &p,
                                                           calibration.minimum);
         const auto normalized =
             std::clamp((double(value) - calibration.minimum) / range, 0.0, 1.0);
-        const auto difference = normalized - pickup_target_[id];
-        state_.pickup_direction[id] = difference < -0.01  ? 1
-                                      : difference > 0.01 ? -1
-                                                          : 0;
-        if (!pickup_[id] &&
-            std::abs(difference) <=
-                std::max(0.01, double(calibration.dead_zone) / range)) {
-            pickup_[id] = true;
-            state_.pickup_acquired[id] = true;
-            state_.pickup_direction[id] = 0;
-        }
-        if (pickup_[id]) {
-            static constexpr std::string_view targets[]{
-                "mixer.selected.gain", "mixer.track.aux-1", "mixer.track.aux-2",
-                "mixer.master.gain", "mixer.external.selected.wet"};
-            if (!application_->submit(
-                    {"parameter.set-normalized.v1",
-                     {{"parameter_id", std::string(targets[id])},
-                      {"value", normalized}},
-                     "physical-controller",
-                     p.sequence}))
+        if (session_) {
+            std::string session_error;
+            if (!session_->input({"analog." + std::to_string(id), normalized, 0,
+                                  true, p.sequence},
+                                 session_error)) {
                 ++state_.dropped_input;
+                state_.error = std::move(session_error);
+            }
+            error.clear();
+            return true;
         }
+        ++state_.dropped_input;
     } else if (p.type == ControllerMessageType::state_sync)
         state_.feedback_revision = ~std::uint64_t{};
     else if (p.type == ControllerMessageType::heartbeat)
@@ -598,6 +555,63 @@ void ControllerHost::publish(const ApplicationState &s) {
     if (state_.connection != ControllerConnection::connected ||
         state_.feedback_revision == s.revision)
         return;
+    if (session_) {
+        const auto dropped_before = state_.dropped_output;
+        const bool full_refresh = state_.feedback_revision == ~std::uint64_t{};
+        session_->observe(s, full_refresh);
+        while (auto item = session_->next_feedback()) {
+            const auto id = protocol_feedback_id(item->control_id);
+            if (!id) continue;
+            std::vector<std::uint8_t> payload;
+            append16(payload, *id);
+            if (item->kind == ControllerFeedbackKind::rgb ||
+                item->kind == ControllerFeedbackKind::indicator) {
+                append32(payload, item->color);
+                payload.push_back(std::min(item->brightness, brightness_limit_));
+                if (*id < state_.leds.size()) state_.leds[*id] = item->color;
+                enqueue({ControllerMessageType::led, sequence_++,
+                         std::move(payload)});
+            } else if (item->kind == ControllerFeedbackKind::context) {
+                auto context = std::move(item->context);
+                context.control_id = *id < 8 ? *id : 8 + (*id - 16);
+                state_.context[context.control_id] = context;
+                payload.clear();
+                append16(payload, context.control_id);
+                if (state_.protocol_minor == 0) {
+                    const auto label = truncate_view(context.label, 31);
+                    payload.push_back(context.active);
+                    payload.push_back(label.size());
+                    payload.insert(payload.end(), label.begin(), label.end());
+                } else {
+                    const auto flags = std::uint8_t(
+                        (context.active ? 1 : 0) |
+                        (context.bipolar ? 2 : 0) |
+                        (context.pickup ? 4 : 0));
+                    payload.push_back(flags);
+                    payload.push_back(
+                        static_cast<std::uint8_t>(context.pickup_direction));
+                    append64(payload, context.feedback_revision);
+                    const std::string fields[]{
+                        std::string(truncate_view(context.label, 24)),
+                        std::string(truncate_view(context.value, 16)),
+                        std::string(truncate_view(context.unit, 8)),
+                        formatted(context.minimum), formatted(context.maximum)};
+                    for (const auto &field : fields) {
+                        payload.push_back(field.size());
+                        payload.insert(payload.end(), field.begin(), field.end());
+                    }
+                }
+                enqueue({ControllerMessageType::context, sequence_++,
+                         std::move(payload)});
+            }
+        }
+        state_.feedback_revision = s.revision;
+        if (state_.dropped_output != dropped_before) {
+            state_.feedback_revision = ~std::uint64_t{};
+            session_->reconnect();
+        }
+        return;
+    }
     const auto dropped_before = state_.dropped_output;
     const bool full_refresh = state_.feedback_revision == ~std::uint64_t{};
     state_.feedback_revision = s.revision;

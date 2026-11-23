@@ -72,10 +72,14 @@ Stable message IDs are `HELLO=1`, `HELLO_REPLY=2`, `CAPABILITIES=3`,
 
 ## Host behavior
 
-`ControllerHost` converts packets into `PerformanceGrid`, semantic actions or
-parameter operations and submits through `ApplicationService`. It never owns
-audio-engine objects. Input and output queues are bounded and expose drop
-counters. Serial I/O runs on a controller worker, never the audio callback.
+`ControllerHost` negotiates and validates packets, converts wire IDs to logical
+input events, and forwards them to a `ControllerSession`. The session profile,
+not the protocol decoder, selects semantic actions or parameters. Generic
+feedback is translated back to existing 1.x packets. It never owns audio-engine
+objects. Input and output queues are bounded and expose drop counters. Serial
+I/O runs on a controller worker, never the audio callback. The full controller
+architecture and MIDI adapter are in
+[CONTROLLER_INTEGRATION.md](CONTROLLER_INTEGRATION.md).
 
 Performance modes remain host-authoritative. RGB updates show selection and
 playhead state, and state revisions suppress duplicate feedback. Reconnection

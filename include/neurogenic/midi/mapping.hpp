@@ -5,8 +5,10 @@
 #include <functional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace neurogenic {
+class ControllerSession;
 struct MidiMessage {
     std::uint8_t status{}, data1{}, data2{};
     std::uint64_t timestamp_ns{};
@@ -52,5 +54,32 @@ class MidiMapper {
     NoteEventHandler note_event_handler_;
     RawHandler raw_handler_;
     std::atomic<std::uint64_t> dropped_{}, sequence_{};
+};
+
+enum class MidiControlMode : std::uint8_t {
+    note_momentary,
+    cc_absolute,
+    cc_relative_twos_complement,
+    cc_relative_binary_offset
+};
+struct MidiControlBinding {
+    std::uint32_t port{1};
+    std::uint8_t channel{}, number{};
+    MidiControlMode mode{MidiControlMode::cc_absolute};
+    std::string control_id;
+};
+// Control-surface interpretation is opt-in and remains separate from ordinary
+// musical note/raw MIDI delivery in MidiMapper.
+class MidiControlSurfaceAdapter {
+  public:
+    explicit MidiControlSurfaceAdapter(ControllerSession &session)
+        : session_(&session) {}
+    bool add(MidiControlBinding, std::string &error);
+    bool dispatch(const MidiMessage &, std::string &error);
+    void reconnect() noexcept;
+  private:
+    ControllerSession *session_{};
+    std::vector<MidiControlBinding> bindings_;
+    std::uint64_t sequence_{};
 };
 } // namespace neurogenic

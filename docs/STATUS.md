@@ -495,3 +495,13 @@ negotiated 48 kHz period and I/O layout, exposes device lifecycle events,
 separates callback overruns from unavailable backend XRUN counters, and adds
 Linux RT-priority/memlock/governor diagnostics plus an N150 runbook. Physical
 N150 audio, latency, MIDI jitter, thermal and soak results remain unmeasured.
+
+Task 069 introduces transport-independent controller descriptors, validated
+schema-2 `.ngc` profiles, independent controller sessions, shared contextual
+resolution, bounded capability-aware feedback and an opt-in generic MIDI
+control-surface adapter. The Task 068 RP2040 inventory remains a built-in
+descriptor/profile and CDC protocol 1.0–1.2 remains compatible. Multiple
+sessions now keep pages, modifiers and pickup state independent while sharing
+authoritative application parameters. Physical RP2040 validation, automatic
+MIDI learn, appliance-level enumeration of several serial devices and native
+CDC text-display packets remain outstanding.
