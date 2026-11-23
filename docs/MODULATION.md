@@ -111,6 +111,13 @@ can adjust depth, enable state or delete an existing route through the same
 semantic actions. It intentionally does not duplicate graph creation or
 topology validation; detailed multi-owner editing belongs to FX/Modulation.
 
+The Slint FX/Modulation page now supplies that multi-owner inspection surface:
+it lists stable modulator and route IDs, creates routes to the currently
+selected descriptor-approved effect parameter, and edits depth, enabled state
+and deletion through the existing graph actions. Cycle, scope, capacity and
+destination validation remain authoritative in `ApplicationService`; the UI
+does not build or validate a parallel graph.
+
 Projects write optional version-3 `modulation.ngm`. It preserves source settings, seeds,
 route IDs, scopes, track IDs, depths, and destinations. Older projects load an
 empty matrix. Forward versions and unsafe destinations are rejected.

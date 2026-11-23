@@ -156,6 +156,28 @@ and backend availability. The frontend does not infer extra physical outputs:
 unsupported routes remain unavailable or produce the authoritative mixer
 validation error. Complete external-loop remapping is deferred to FX/Setup.
 
+## FX and modulation
+
+`fx_page.slint` is an independent production page with Chain, Parameters,
+Modulation, Macros and External FX subviews. `SlintFxPageState` copies stable
+owner, effect, modulator, route and macro identities from `ApplicationState`;
+the component never receives rack or graph runtime objects.
+
+The Chain view selects track, group, aux or master owners and invokes the
+existing create/insert/remove/delete/reorder/bypass actions. Parameters are
+generated from native processor descriptors, including units, ranges and
+automation/modulation eligibility. The Modulation view selects existing
+sources, creates a route to the selected effect parameter, and edits route
+depth, enable state and lifetime through graph actions. Macro values use the
+performance-macro action, while External FX deliberately reuses the Mixer's
+validated loop state and actions.
+
+The page does not yet provide effect-preset browsing, modulator creation or
+all macro-assignment fields. Those operations remain explicit unavailable
+states rather than UI-side mutations. External loop pair and latency editing
+remain semantic-API/Setup workflows; the page exposes availability and never
+invents absent hardware channels.
+
 ## Current limits
 
 This is a functional shell, not a replacement-complete frontend. Macro services

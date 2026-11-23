@@ -208,13 +208,48 @@ void publish(const SlintUiState &state,
     std::vector<MixerFxItem> mixer_fx;
     for (const auto &fx : state.mixer.external_fx)
         mixer_fx.push_back(
-            {static_cast<int>(fx.index), text(fx.name), text(fx.status),
+            {static_cast<int>(fx.index), static_cast<int>(fx.latency_frames),
+             text(fx.name), text(fx.status),
              text(fx.routing), fx.send_gain, fx.return_gain, fx.wet,
              fx.meter_left, fx.meter_right, fx.enabled, fx.bypass,
              fx.return_mute, fx.send_available, fx.return_available});
     window->set_mixer_external_fx(
         std::make_shared<slint::VectorModel<MixerFxItem>>(
             std::move(mixer_fx)));
+    window->set_fx_subview(text(state.fx.subview));
+    window->set_fx_owner_name(text(state.fx.owner_name));
+    window->set_fx_chain_bypass(state.fx.chain_bypass);
+    window->set_fx_error(text(state.fx.error));
+    std::vector<FxOwnerItem> fx_owners;
+    for (const auto &owner : state.fx.owners)
+        fx_owners.push_back({text(owner.name), text(owner.kind), owner.selected});
+    window->set_fx_owners(std::make_shared<slint::VectorModel<FxOwnerItem>>(std::move(fx_owners)));
+    std::vector<FxInstanceItem> fx_effects;
+    for (const auto &effect : state.fx.effects)
+        fx_effects.push_back({static_cast<int>(effect.id), text(effect.name),
+                              text(effect.type), effect.bypass, effect.selected});
+    window->set_fx_effects(std::make_shared<slint::VectorModel<FxInstanceItem>>(std::move(fx_effects)));
+    std::vector<FxParameterItem> fx_parameters;
+    for (const auto &parameter : state.fx.parameters)
+        fx_parameters.push_back({static_cast<int>(parameter.id), text(parameter.name),
+            text(parameter.value), text(parameter.unit), static_cast<float>(parameter.normalized),
+            parameter.automatable, parameter.modulatable, parameter.selected});
+    window->set_fx_parameters(std::make_shared<slint::VectorModel<FxParameterItem>>(std::move(fx_parameters)));
+    std::vector<FxModulatorItem> fx_modulators;
+    for (const auto &modulator : state.fx.modulators)
+        fx_modulators.push_back({static_cast<int>(modulator.id), text(modulator.name),
+            text(modulator.type), text(modulator.owner), modulator.enabled, modulator.selected});
+    window->set_fx_modulators(std::make_shared<slint::VectorModel<FxModulatorItem>>(std::move(fx_modulators)));
+    std::vector<FxRouteItem> fx_routes;
+    for (const auto &route : state.fx.routes)
+        fx_routes.push_back({static_cast<int>(route.id), text(route.source), text(route.destination),
+            text(route.depth), route.enabled, route.selected, route.valid});
+    window->set_fx_routes(std::make_shared<slint::VectorModel<FxRouteItem>>(std::move(fx_routes)));
+    std::vector<FxMacroItem> fx_macros;
+    for (const auto &macro : state.fx.macros)
+        fx_macros.push_back({static_cast<int>(macro.id), text(macro.name), text(macro.assignments),
+            macro.value, macro.enabled, macro.selected});
+    window->set_fx_macros(std::make_shared<slint::VectorModel<FxMacroItem>>(std::move(fx_macros)));
 }
 } // namespace
 
@@ -474,6 +509,45 @@ int run_slint_frontend(ApplicationService &application,
         window->on_mixer_fx_toggle([&](slint::SharedString operation) {
             (void)adapter.toggle_external_fx(operation.data());
             publish(adapter.state(), window);
+        });
+        window->on_fx_subview_selected([&](slint::SharedString value) {
+            (void)adapter.select_fx_subview(value.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_owner_selected([&](int index) {
+            (void)adapter.select_fx_owner(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_effect_selected([&](int index) {
+            (void)adapter.select_effect(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_effect_add([&](slint::SharedString type) {
+            (void)adapter.add_effect(type.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_effect_action([&](slint::SharedString operation) {
+            (void)adapter.edit_effect(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_parameter_selected([&](int index) {
+            (void)adapter.select_effect_parameter(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_parameter_adjusted([&](int steps) {
+            (void)adapter.adjust_effect_parameter(steps); publish(adapter.state(), window);
+        });
+        window->on_fx_modulator_selected([&](int index) {
+            (void)adapter.select_fx_modulator(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_route_selected([&](int index) {
+            (void)adapter.select_fx_route(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_route_action([&](slint::SharedString operation) {
+            (void)adapter.edit_fx_route(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_route_create([&] {
+            (void)adapter.create_fx_route(); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_selected([&](int index) {
+            (void)adapter.select_fx_macro(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_adjusted([&](int steps) {
+            (void)adapter.adjust_fx_macro(steps); publish(adapter.state(), window);
         });
         window->on_notification_dismissed([&] {
             adapter.dismiss_notification();

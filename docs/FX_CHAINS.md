@@ -1,5 +1,12 @@
 # Native FX chains
 
+The production Slint FX page presents every track, group, aux and master serial
+chain using stable owner and effect-instance identities. Add, remove, reorder,
+bypass and parameter edits are semantic application commands. Parameter rows
+are descriptor-driven rather than processor-name-specific UI code. Dynamic FX
+parameters are validated from the authoritative rack when used as modulation
+destinations; no raw processor pointer is exposed to the frontend.
+
 FX preset IDs are template identities. Import allocates fresh runtime IDs and
 remaps chain/modulation references, so repeated instances have independent DSP
 state. See [PRESETS.md](PRESETS.md).

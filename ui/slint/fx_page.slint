@@ -1,0 +1,89 @@
+import { PageButton, ParameterDisplay, EmptyState } from "components.slint";
+import { Theme } from "theme.slint";
+import { MixerFxItem } from "mixer_page.slint";
+
+export struct FxOwnerItem { name: string, kind: string, selected: bool }
+export struct FxInstanceItem { id: int, name: string, kind: string, bypass: bool, selected: bool }
+export struct FxParameterItem { id: int, name: string, value: string, unit: string, normalized: float, automatable: bool, modulatable: bool, selected: bool }
+export struct FxModulatorItem { id: int, name: string, kind: string, owner: string, enabled: bool, selected: bool }
+export struct FxRouteItem { id: int, source: string, destination: string, depth: string, enabled: bool, selected: bool, valid: bool }
+export struct FxMacroItem { id: int, name: string, assignments: string, value: float, enabled: bool, selected: bool }
+
+export component FxPage inherits Rectangle {
+    background: Theme.background;
+    in property <string> subview: "chain"; in property <string> owner-name: "Unavailable";
+    in property <bool> chain-bypass: false; in property <string> error;
+    in property <[FxOwnerItem]> owners; in property <[FxInstanceItem]> effects;
+    in property <[FxParameterItem]> parameters; in property <[FxModulatorItem]> modulators;
+    in property <[FxRouteItem]> routes; in property <[FxMacroItem]> macros;
+    in property <[MixerFxItem]> external-fx;
+    callback subview-selected(string); callback owner-selected(int); callback effect-selected(int);
+    callback effect-add(string); callback effect-action(string); callback parameter-selected(int); callback parameter-adjusted(int);
+    callback modulator-selected(int); callback route-selected(int); callback route-action(string); callback route-create();
+    callback macro-selected(int); callback macro-adjusted(int); callback external-selected(int); callback external-adjust(string, int); callback external-toggle(string);
+    VerticalLayout { padding: 6px; spacing: 5px;
+        HorizontalLayout { height: 36px; spacing: 4px;
+            PageButton { text: "Chain"; selected: root.subview == "chain"; clicked => { root.subview-selected("chain"); } }
+            PageButton { text: "Parameters"; selected: root.subview == "parameters"; clicked => { root.subview-selected("parameters"); } }
+            PageButton { text: "Modulation"; selected: root.subview == "modulation"; clicked => { root.subview-selected("modulation"); } }
+            PageButton { text: "Macros"; selected: root.subview == "macros"; clicked => { root.subview-selected("macros"); } }
+            PageButton { text: "External FX"; selected: root.subview == "external"; clicked => { root.subview-selected("external"); } }
+        }
+        if root.subview == "chain" || root.subview == "parameters": HorizontalLayout { height: 48px; spacing: 4px;
+            for owner[i] in root.owners: PageButton { text: owner.name; selected: owner.selected; clicked => { root.owner-selected(i); } }
+        }
+        if root.subview == "chain": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            Rectangle { horizontal-stretch: 2; background: Theme.panel; border-radius: Theme.radius;
+                VerticalLayout { padding: 6px; spacing: 4px;
+                    Text { height: 28px; text: root.owner-name + " Effect Chain"; color: Theme.foreground; font-size: 18px; }
+                    for effect[i] in root.effects: PageButton { height: 42px; text: (effect.bypass ? "[Bypassed] " : "") + effect.name; selected: effect.selected; clicked => { root.effect-selected(i); } }
+                    if root.effects.length == 0: EmptyState { title: "Empty chain"; message: "Add a native processor to this owner."; }
+                }
+            }
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius;
+                VerticalLayout { padding: 6px; spacing: 4px;
+                    Text { text: "Native processors"; color: Theme.foreground; }
+                    PageButton { text: "Add Gain"; clicked => { root.effect-add("gain"); } }
+                    PageButton { text: "Add Delay"; clicked => { root.effect-add("delay"); } }
+                    PageButton { text: "Add Filter"; clicked => { root.effect-add("filter"); } }
+                    PageButton { text: "Add Saturation"; clicked => { root.effect-add("saturation"); } }
+                    PageButton { text: root.chain-bypass ? "Enable Chain" : "Bypass Chain"; clicked => { root.effect-action("chain-bypass"); } }
+                    PageButton { text: "Move Up"; implemented: root.effects.length > 0; clicked => { root.effect-action("up"); } }
+                    PageButton { text: "Move Down"; implemented: root.effects.length > 0; clicked => { root.effect-action("down"); } }
+                    PageButton { text: "Toggle Bypass"; implemented: root.effects.length > 0; clicked => { root.effect-action("bypass"); } }
+                    PageButton { text: "Remove"; implemented: root.effects.length > 0; clicked => { root.effect-action("remove"); } }
+                }
+            }
+        }
+        if root.subview == "parameters": HorizontalLayout { vertical-stretch: 1; spacing: 5px;
+            VerticalLayout { horizontal-stretch: 2; spacing: 4px;
+                for parameter[i] in root.parameters: PageButton { height: 44px; text: parameter.name + "  " + parameter.value + " " + parameter.unit; selected: parameter.selected; clicked => { root.parameter-selected(i); } }
+                if root.parameters.length == 0: EmptyState { title: "No effect selected"; message: "Select an effect instance with discoverable parameters."; }
+            }
+            VerticalLayout { horizontal-stretch: 1; spacing: 4px;
+                if root.parameters.length > 0: ParameterDisplay { name: root.parameters[0].name; value: root.parameters[0].value + " " + root.parameters[0].unit; }
+                PageButton { text: "Value -"; implemented: root.parameters.length > 0; clicked => { root.parameter-adjusted(-1); } }
+                PageButton { text: "Value +"; implemented: root.parameters.length > 0; clicked => { root.parameter-adjusted(1); } }
+                Text { text: "Automation and modulation eligibility come from the processor descriptor."; color: Theme.muted; wrap: word-wrap; }
+            }
+        }
+        if root.subview == "modulation": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            VerticalLayout { horizontal-stretch: 1; spacing: 4px; Text { text: "Sources"; color: Theme.foreground; }
+                for source[i] in root.modulators: PageButton { text: source.name + " — " + source.kind; selected: source.selected; implemented: source.enabled; clicked => { root.modulator-selected(i); } }
+                if root.modulators.length == 0: EmptyState { title: "No modulators"; message: "Create modulators from Sound or the semantic API."; }
+            }
+            VerticalLayout { horizontal-stretch: 2; spacing: 4px; Text { text: "Routes"; color: Theme.foreground; }
+                for route[i] in root.routes: PageButton { text: route.source + " → " + route.destination + "  " + route.depth; selected: route.selected; implemented: route.valid; clicked => { root.route-selected(i); } }
+                HorizontalLayout { height: 38px; spacing: 4px; PageButton { text: "Create to Selected Parameter"; implemented: root.modulators.length > 0 && root.parameters.length > 0; clicked => { root.route-create(); } } PageButton { text: "Depth -"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-down"); } } PageButton { text: "Depth +"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-up"); } } PageButton { text: "Enable"; implemented: root.routes.length > 0; clicked => { root.route-action("toggle"); } } PageButton { text: "Remove"; implemented: root.routes.length > 0; clicked => { root.route-action("remove"); } } }
+            }
+        }
+        if root.subview == "macros": VerticalLayout { vertical-stretch: 1; spacing: 4px;
+            for macro[i] in root.macros: Rectangle { height: 54px; background: macro.selected ? Theme.selected : Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 4px; spacing: 4px; ParameterDisplay { horizontal-stretch: 2; name: macro.name; value: round(macro.value * 100) + "% — " + macro.assignments; } PageButton { text: "-"; clicked => { root.macro-selected(i); root.macro-adjusted(-1); } } PageButton { text: "+"; clicked => { root.macro-selected(i); root.macro-adjusted(1); } } } TouchArea { clicked => { root.macro-selected(i); } } }
+            if root.macros.length == 0: EmptyState { title: "No performance macros"; message: "Macro creation and assignment remain available through semantic services."; }
+        }
+        if root.subview == "external": VerticalLayout { vertical-stretch: 1; spacing: 5px;
+            for fx[i] in root.external-fx: Rectangle { height: 66px; background: Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 5px; spacing: 4px; ParameterDisplay { horizontal-stretch: 2; name: fx.name + " — " + fx.status; value: fx.routing + "  Wet " + round(fx.wet * 100) + "%  Lat " + fx.latency-frames + "f"; } PageButton { text: "Send Pair"; clicked => { root.external-selected(i); root.external-toggle("send-pair"); } } PageButton { text: "Return Pair"; clicked => { root.external-selected(i); root.external-toggle("return-pair"); } } PageButton { text: "Send +"; implemented: fx.send-available; clicked => { root.external-selected(i); root.external-adjust("send", 1); } } PageButton { text: "Return +"; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-adjust("return", 1); } } PageButton { text: "Wet +"; implemented: fx.send-available && fx.return-available; clicked => { root.external-selected(i); root.external-adjust("wet", 1); } } PageButton { text: "Latency +"; clicked => { root.external-selected(i); root.external-adjust("latency", 1); } } PageButton { text: "Monitor"; selected: !fx.return-mute; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-toggle("return-mute"); } } PageButton { text: "Enable"; selected: fx.enabled; clicked => { root.external-selected(i); root.external-toggle("enabled"); } } PageButton { text: "Bypass"; implemented: fx.enabled; selected: fx.bypass; clicked => { root.external-selected(i); root.external-toggle("bypass"); } } } }
+        }
+        if root.error != "": Text { height: 24px; text: root.error; color: #ff8080; overflow: elide; }
+    }
+}

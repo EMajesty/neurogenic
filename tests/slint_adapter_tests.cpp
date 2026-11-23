@@ -337,6 +337,96 @@ int main() {
                     adapter.state().mixer.channels.back().meter_left ==
                         application.snapshot().mixer.master.left,
                 "master meter presentation copies bounded mixer telemetry");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.select_page(5) &&
+                    adapter.state().shell.page_id == "fx" &&
+                    adapter.state().shell.pages[5].implemented &&
+                    !adapter.state().fx.owners.empty(),
+                "FX page is registered and discovers stable mixer owners");
+        require(adapter.select_fx_owner(0) && adapter.add_effect("gain"),
+                "FX insertion uses create and insert semantic actions");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().fx.effects.size() == 1 &&
+                    !adapter.state().fx.parameters.empty(),
+                "published effect chain and descriptor parameters are presented");
+        require(adapter.select_effect(0) && adapter.edit_effect("bypass"),
+                "effect bypass uses semantic action");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().fx.effects[0].bypass,
+                "effect bypass acknowledgement updates UI state");
+        const auto fx_value = adapter.state().fx.parameters[0].normalized;
+        require(adapter.select_effect_parameter(0) &&
+                    adapter.adjust_effect_parameter(1),
+                "descriptor-driven effect parameter adjustment is accepted");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().fx.parameters[0].normalized > fx_value,
+                "effect parameter presentation follows published configuration");
+        require(application.execute({"modulator.create.v1",
+                    {{"type", static_cast<std::int64_t>(ModulatorType::lfo)},
+                     {"owner", static_cast<std::int64_t>(ModulatorOwnerKind::master)},
+                     {"owner_id", std::int64_t{0}},
+                     {"name", std::string("FX LFO")}}}).accepted,
+                "global FX modulator fixture");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && !adapter.state().fx.modulators.empty() &&
+                    adapter.select_fx_modulator(adapter.state().fx.modulators.size() - 1),
+                "global FX modulator is selectable");
+        if (!adapter.create_fx_route())
+            throw std::runtime_error("FX route creation: " + adapter.last_error());
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && !adapter.state().fx.routes.empty() &&
+                    adapter.select_fx_route(adapter.state().fx.routes.size() - 1) &&
+                    adapter.edit_fx_route("depth-down") &&
+                    adapter.edit_fx_route("toggle"),
+                "FX modulation routes support selection depth and enable actions");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.edit_fx_route("remove"),
+                "FX modulation routes can be removed through the graph service");
+        require(application.execute({"macro.create.v1",
+                    {{"name", std::string("UI Macro")},
+                     {"owner", std::string("project")}, {"value", 0.25}}}).accepted,
+                "macro fixture uses semantic action");
+        require(adapter.refresh() && !adapter.state().fx.macros.empty(),
+                "FX page discovers performance macros");
+        const auto macro_value = adapter.state().fx.macros[0].value;
+        require(adapter.select_fx_macro(0) && adapter.adjust_fx_macro(1) &&
+                    adapter.state().fx.macros[0].value > macro_value,
+                "macro adjustment uses existing performance macro service");
+        require(adapter.select_fx_subview("external") &&
+                    adapter.state().fx.subview == "external" &&
+                    adapter.state().mixer.external_fx.size() == 2,
+                "external-FX subview reuses validated mixer loop state");
+        require(adapter.select_external_fx(0) &&
+                    adapter.adjust_external_fx("latency", 1),
+                "external-FX manual latency uses semantic routing action");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().mixer.external_fx[0].latency_frames == 16 &&
+                    adapter.toggle_external_fx("return-mute"),
+                "external-FX latency and return monitoring are observable");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.select_fx_subview("chain") &&
+                    adapter.add_effect("delay"),
+                "a second native processor can be inserted");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().fx.effects.size() == 2 &&
+                    adapter.select_effect(1) && adapter.edit_effect("up"),
+                "effect reorder uses stable instance identities");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().fx.effects[0].type.find("delay") != std::string::npos &&
+                    adapter.select_effect(0) && adapter.edit_effect("remove"),
+                "reordered chain is acknowledged before removal");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.select_effect(0) &&
+                    adapter.edit_effect("remove"),
+                "effect removal uses remove then delete semantic actions");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().fx.effects.empty(),
+                "removed effect cannot remain as a stale selection");
         const auto revision = adapter.state().shell.revision;
         require(!adapter.refresh() || adapter.state().shell.revision >= revision,
                 "revisioned refresh");

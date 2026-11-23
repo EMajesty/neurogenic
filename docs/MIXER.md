@@ -130,6 +130,10 @@ peak/clip telemetry. External-loop status and physical-channel availability are
 presented without assuming a particular device channel count. Unsupported
 routes remain unavailable or are rejected by the mixer validator.
 
+The Slint FX page reuses these external-loop snapshots and semantic controls
+for send, return, wet, enable and bypass. Hardware send/return availability is
+shown directly, so unavailable device channels remain disabled.
+
 The fixed capacities are real-time memory budgets rather than workflow
 assumptions: 32 simultaneously mixed timeline tracks, eight groups, six physical inputs and
 outputs, two aux buses and 1024 frames per backend chunk. There is no arbitrary

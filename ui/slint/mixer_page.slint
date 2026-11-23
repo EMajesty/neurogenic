@@ -2,7 +2,7 @@ import { PageButton, ParameterDisplay, EmptyState } from "components.slint";
 import { Theme } from "theme.slint";
 
 export struct MixerChannelItem { id: int, name: string, kind: string, route: string, gain: float, pan: float, left: float, right: float, aux-one: float, aux-two: float, mute: bool, solo: bool, clip: bool, selected: bool, available: bool }
-export struct MixerFxItem { index: int, name: string, status: string, routing: string, send-gain: float, return-gain: float, wet: float, left: float, right: float, enabled: bool, bypass: bool, return-mute: bool, send-available: bool, return-available: bool }
+export struct MixerFxItem { index: int, latency-frames: int, name: string, status: string, routing: string, send-gain: float, return-gain: float, wet: float, left: float, right: float, enabled: bool, bypass: bool, return-mute: bool, send-available: bool, return-available: bool }
 
 component Meter inherits Rectangle {
     in property <float> level; in property <bool> clipped;

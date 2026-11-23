@@ -223,3 +223,7 @@ Troubleshooting:
 - Non-48-kHz negotiation: configure/select a 48-kHz device profile.
 - Deadline misses without audible failure: retain them separately from actual
   backend XRUN measurements.
+On the FX page, verify that external-loop controls are disabled when their
+published send or return channels are unavailable. Test pair selection and
+manual latency only through supported semantic configuration; the UI must not
+infer channel counts from a nominal eight-output design.

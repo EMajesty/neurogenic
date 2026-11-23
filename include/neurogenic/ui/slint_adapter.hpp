@@ -159,6 +159,7 @@ struct SlintMixerChannelItem {
 
 struct SlintMixerFxItem {
     std::size_t index{};
+    std::uint32_t latency_frames{};
     std::string name, status, routing;
     float send_gain{}, return_gain{}, wet{}, meter_left{}, meter_right{};
     bool enabled{}, bypass{}, return_mute{}, send_available{}, return_available{};
@@ -173,6 +174,59 @@ struct SlintMixerPageState {
     std::array<std::string, 3> output_pairs{"1/2", "3/4", "5/6"};
 };
 
+struct SlintFxOwnerItem {
+    std::string kind, name;
+    std::int64_t index{};
+    bool selected{};
+};
+
+struct SlintFxInstanceItem {
+    std::uint32_t id{};
+    std::string name, type;
+    bool bypass{}, selected{};
+};
+
+struct SlintFxParameterItem {
+    std::uint32_t id{};
+    std::string stable_id, name, value, unit;
+    double minimum{}, maximum{}, normalized{};
+    bool automatable{}, modulatable{}, selected{};
+};
+
+struct SlintFxModulatorItem {
+    std::uint32_t id{};
+    std::string name, type, owner;
+    bool enabled{}, selected{};
+};
+
+struct SlintFxRouteItem {
+    std::uint32_t id{}, source_id{};
+    std::string source, destination, depth;
+    bool enabled{}, selected{}, valid{};
+};
+
+struct SlintFxMacroItem {
+    std::uint64_t id{};
+    std::string name, assignments;
+    float value{};
+    bool enabled{}, selected{};
+};
+
+struct SlintFxPageState {
+    std::string subview{"chain"}, owner_kind{"track"}, owner_name{"Unavailable"},
+        error;
+    std::int64_t owner_index{};
+    std::size_t selected_owner{}, selected_effect{}, selected_parameter{},
+        selected_modulator{}, selected_route{}, selected_macro{};
+    bool chain_bypass{};
+    std::vector<SlintFxOwnerItem> owners;
+    std::vector<SlintFxInstanceItem> effects;
+    std::vector<SlintFxParameterItem> parameters;
+    std::vector<SlintFxModulatorItem> modulators;
+    std::vector<SlintFxRouteItem> routes;
+    std::vector<SlintFxMacroItem> macros;
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
@@ -181,6 +235,7 @@ struct SlintUiState {
     SlintSamplePageState sample;
     SlintSoundPageState sound;
     SlintMixerPageState mixer;
+    SlintFxPageState fx;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -255,6 +310,19 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool adjust_external_fx(std::string operation,
                                           double steps = 1.0);
     [[nodiscard]] bool toggle_external_fx(std::string operation);
+    [[nodiscard]] bool select_fx_subview(std::string subview);
+    [[nodiscard]] bool select_fx_owner(std::size_t index);
+    [[nodiscard]] bool select_effect(std::size_t index);
+    [[nodiscard]] bool add_effect(std::string type);
+    [[nodiscard]] bool edit_effect(std::string operation);
+    [[nodiscard]] bool select_effect_parameter(std::size_t index);
+    [[nodiscard]] bool adjust_effect_parameter(double steps);
+    [[nodiscard]] bool select_fx_modulator(std::size_t index);
+    [[nodiscard]] bool select_fx_route(std::size_t index);
+    [[nodiscard]] bool edit_fx_route(std::string operation);
+    [[nodiscard]] bool create_fx_route();
+    [[nodiscard]] bool select_fx_macro(std::size_t index);
+    [[nodiscard]] bool adjust_fx_macro(double steps);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }

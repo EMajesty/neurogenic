@@ -562,3 +562,8 @@ track, group, auxiliary-return and master strips with stable selection,
 eight-channel banking, gain/pan, mute/solo, sends, routing and bounded
 peak/clip telemetry. External-FX status and wet control respect published
 backend availability; physical audio-device behavior remains hardware QA.
+
+Task 077 adds an independent production Slint FX component with owner-aware
+serial-chain editing, descriptor-driven parameters, modulation-route editing,
+performance macro values and validated external-loop controls. It also closes
+a semantic validation gap for dynamic native-FX modulation destinations.

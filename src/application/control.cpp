@@ -4,6 +4,7 @@
 #include "neurogenic/timeline/arrangement.hpp"
 #include <algorithm>
 #include <chrono>
+#include <charconv>
 #include <cmath>
 #include <limits>
 #include <set>
@@ -7176,7 +7177,54 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     *argument<std::string>(command, "destination");
                 const auto destination =
                     resolve_parameter_destination(destination_id);
-                const auto descriptor = parameters_.get(destination_id);
+                auto descriptor = parameters_.get(destination_id);
+                // Effect instances are dynamic discovery objects, so their
+                // descriptors are synthesized from the authoritative rack
+                // instead of being retained in the static parameter registry.
+                if (!descriptor && destination_id.rfind("fx.", 0) == 0) {
+                    const auto separator = destination_id.find('.', 3);
+                    if (separator != std::string::npos) {
+                        EffectInstanceId effect_id{};
+                        const auto text_id = destination_id.substr(3, separator - 3);
+                        const auto [end, ec] = std::from_chars(
+                            text_id.data(), text_id.data() + text_id.size(), effect_id);
+                        const auto effect = std::find_if(
+                            mixer_configuration_.effects.instances.begin(),
+                            mixer_configuration_.effects.instances.begin() +
+                                mixer_configuration_.effects.instance_count,
+                            [&](const auto &value) { return value.id == effect_id; });
+                        if (ec == std::errc{} && end == text_id.data() + text_id.size() &&
+                            effect != mixer_configuration_.effects.instances.begin() +
+                                          mixer_configuration_.effects.instance_count) {
+                            const auto stable = std::string_view(destination_id).substr(separator + 1);
+                            const auto item = std::find_if(
+                                effect_parameter_descriptors(effect->type).begin(),
+                                effect_parameter_descriptors(effect->type).end(),
+                                [&](const auto &value) {
+                                    if (value.stable_id == stable) return true;
+                                    std::uint32_t numeric{};
+                                    const auto parsed = std::from_chars(
+                                        stable.data(), stable.data() + stable.size(), numeric);
+                                    return parsed.ec == std::errc{} &&
+                                        parsed.ptr == stable.end() && numeric == value.id;
+                                });
+                            if (item != effect_parameter_descriptors(effect->type).end()) {
+                                auto current = item->default_value;
+                                for (std::size_t i = 0; i < effect->parameter_count; ++i)
+                                    if (effect->parameters[i].id == item->id)
+                                        current = effect->parameters[i].value;
+                                descriptor = ParameterDescriptor{
+                                    destination_id, std::string(item->name),
+                                    std::string(item->unit), ParameterType::real,
+                                    static_cast<double>(item->minimum),
+                                    static_cast<double>(item->maximum),
+                                    static_cast<double>(item->default_value),
+                                    static_cast<double>(current), 0.01, true,
+                                    item->automatable, item->modulatable, {}};
+                            }
+                        }
+                    }
+                }
                 const auto depth = *argument<double>(command, "depth");
                 if (source == next.modulators.begin() + next.modulator_count)
                     error = "modulator source instance does not exist";

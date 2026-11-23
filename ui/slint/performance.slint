@@ -5,6 +5,7 @@ import { SequencerPage, StepItem, PatternItem, ArrangementItem } from "sequencer
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
 import { MixerPage, MixerChannelItem, MixerFxItem } from "mixer_page.slint";
+import { FxPage, FxOwnerItem, FxInstanceItem, FxParameterItem, FxModulatorItem, FxRouteItem, FxMacroItem } from "fx_page.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
@@ -82,6 +83,11 @@ export component PerformanceWindow inherits Window {
     in property <string> mixer-bank-label: "Channels 1-8";
     in property <int> mixer-selected-channel: 0;
     in property <string> mixer-error: "";
+    in property <string> fx-subview: "chain"; in property <string> fx-owner-name: "Unavailable";
+    in property <bool> fx-chain-bypass: false; in property <string> fx-error: "";
+    in property <[FxOwnerItem]> fx-owners; in property <[FxInstanceItem]> fx-effects;
+    in property <[FxParameterItem]> fx-parameters; in property <[FxModulatorItem]> fx-modulators;
+    in property <[FxRouteItem]> fx-routes; in property <[FxMacroItem]> fx-macros;
     in-out property <bool> modal-visible: false;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
@@ -106,6 +112,10 @@ export component PerformanceWindow inherits Window {
     callback mixer-channel-selected(int); callback mixer-bank-changed(int);
     callback mixer-adjust(string, int); callback mixer-toggle(string); callback mixer-route-cycle(); callback mixer-group-cycle();
     callback mixer-fx-selected(int); callback mixer-fx-adjust(string, int); callback mixer-fx-toggle(string);
+    callback fx-subview-selected(string); callback fx-owner-selected(int); callback fx-effect-selected(int);
+    callback fx-effect-add(string); callback fx-effect-action(string); callback fx-parameter-selected(int); callback fx-parameter-adjusted(int);
+    callback fx-modulator-selected(int); callback fx-route-selected(int); callback fx-route-action(string); callback fx-route-create();
+    callback fx-macro-selected(int); callback fx-macro-adjusted(int);
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -175,7 +185,18 @@ export component PerformanceWindow inherits Window {
             route-cycle => { root.mixer-route-cycle(); } group-cycle => { root.mixer-group-cycle(); } fx-selected(index) => { root.mixer-fx-selected(index); }
             fx-adjust(operation, steps) => { root.mixer-fx-adjust(operation, steps); } fx-toggle(operation) => { root.mixer-fx-toggle(operation); }
         }
-        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
+        if root.page-id == "fx": FxPage {
+            vertical-stretch: 1; subview: root.fx-subview; owner-name: root.fx-owner-name; chain-bypass: root.fx-chain-bypass; error: root.fx-error;
+            owners: root.fx-owners; effects: root.fx-effects; parameters: root.fx-parameters; modulators: root.fx-modulators; routes: root.fx-routes; macros: root.fx-macros; external-fx: root.mixer-external-fx;
+            subview-selected(value) => { root.fx-subview-selected(value); } owner-selected(index) => { root.fx-owner-selected(index); }
+            effect-selected(index) => { root.fx-effect-selected(index); } effect-add(kind) => { root.fx-effect-add(kind); }
+            effect-action(action) => { root.fx-effect-action(action); } parameter-selected(index) => { root.fx-parameter-selected(index); }
+            parameter-adjusted(steps) => { root.fx-parameter-adjusted(steps); } modulator-selected(index) => { root.fx-modulator-selected(index); }
+            route-selected(index) => { root.fx-route-selected(index); } route-action(action) => { root.fx-route-action(action); } route-create => { root.fx-route-create(); }
+            macro-selected(index) => { root.fx-macro-selected(index); } macro-adjusted(steps) => { root.fx-macro-adjusted(steps); }
+            external-selected(index) => { root.mixer-fx-selected(index); } external-adjust(operation, steps) => { root.mixer-fx-adjust(operation, steps); } external-toggle(operation) => { root.mixer-fx-toggle(operation); }
+        }
+        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }
