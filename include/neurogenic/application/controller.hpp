@@ -66,6 +66,9 @@ struct ControllerDeviceDescriptor {
 [[nodiscard]] bool validate_device_descriptor(const ControllerDeviceDescriptor &,
                                               std::string &error);
 [[nodiscard]] ControllerDeviceDescriptor rp2040_controller_descriptor();
+[[nodiscard]] ControllerDeviceDescriptor
+legacy_controller_descriptor(std::uint8_t protocol_minor,
+                             std::uint32_t capabilities);
 struct ControllerInput {
     std::string control_id;
     double value{}, secondary{};
@@ -111,6 +114,9 @@ bool validate_controller_configuration(const ControllerDeviceDescriptor &,
                                        const ApplicationService &,
                                        std::string &error);
 [[nodiscard]] ControllerProfile full_performance_profile();
+[[nodiscard]] ControllerProfile
+legacy_performance_profile(std::uint8_t protocol_minor,
+                           std::uint32_t capabilities);
 [[nodiscard]] ControllerProfile minimal_controller_profile();
 [[nodiscard]] ControllerProfile generic_midi_profile();
 

@@ -505,3 +505,13 @@ sessions now keep pages, modifiers and pickup state independent while sharing
 authoritative application parameters. Physical RP2040 validation, automatic
 MIDI learn, appliance-level enumeration of several serial devices and native
 CDC text-display packets remain outstanding.
+
+Task 070 hardens delivery and makes this architecture operational in the
+appliance. Local context/modifier/pickup revisions invalidate feedback; bounded
+session and transport queues retain unsent state and converge after overflow.
+Descriptors remain authoritative and profiles cannot invent controls. Repeated
+exact-path CDC endpoints coexist with opt-in MIDI profiles supporting absolute,
+relative and note mappings, soft takeover, optional feedback, explicit
+learn/cancel/timeout and atomic save. Musical MIDI remains independent.
+Physical multi-controller/MIDI feedback interoperability and RP2040 validation
+remain unmeasured; MIDI learn has no graphical page.

@@ -11,8 +11,11 @@ Task 069 keeps musical input and control-surface interpretation independent.
 note or CC bindings and forwards normalized controls to a `ControllerSession`.
 Unmatched messages continue through `MidiMapper` note and raw handlers. It
 supports absolute CC, two common relative-encoder encodings and momentary
-notes; soft takeover is profile-driven. Automatic MIDI learn and generic MIDI
-feedback transmission remain deferred. See
+notes; soft takeover is profile-driven. Task 070 adds explicit learn with
+cancel/timeout, atomic MIDI-profile persistence, exact selector startup through
+`--midi-controller-profile`, and optional outgoing note/CC feedback. Learn only
+captures an eligible event while armed; unmatched events remain ordinary
+musical MIDI. See
 [controller integration](CONTROLLER_INTEGRATION.md).
 
 The input callback copies messages into the bounded controller queue. The
@@ -78,6 +81,14 @@ source/output/forwarding settings, and latency-offset metadata. A non-real-time
 monitor checks once per second. A disconnected port reconnects only when the
 exact configured display name reappears; it never selects a different device.
 Output reconnect requests panic cleanup.
+
+Third-party control-surface setup remains separate from projects. Create a
+schema-2 `.ngc` profile, add `midi-device|EXACT PORT NAME`, then add
+`midi|PORT|CHANNEL|NUMBER|MODE|CONTROL|feedback` records. Supported mode names
+are `note`, `absolute`, `relative-twos`, and `relative-offset`. Launch with
+`--midi-controller-profile profile.ngc`; configure a matching `--midi-out` when
+feedback is enabled. Profile authoring exposes begin-learn, cancel, status and
+atomic save through the control-side C++ API; no graphical setup page exists.
 
 ## Hardware limits
 

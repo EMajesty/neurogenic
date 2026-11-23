@@ -1,5 +1,6 @@
 #include "neurogenic/application/control.hpp"
 #include "neurogenic/application/controller.hpp"
+#include "neurogenic/application/controller_coordinator.hpp"
 #include "neurogenic/application/controller_protocol.hpp"
 #include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/audio/engine.hpp"
@@ -5624,37 +5625,31 @@ void test_physical_controller_protocol() {
     check(!simulator.analog(0, 32768),
           "unavailable dedicated-controller analog input rejected");
     std::string protocol_error;
-    check(
-        host.receive({ControllerMessageType::capabilities, 2, {0x3f, 0, 0, 0}},
-                     protocol_error) &&
-            host.snapshot().capabilities == 0x3f,
-        "controller capability discovery");
+    check(!host.receive(
+              {ControllerMessageType::capabilities, 2, {0x3f, 0, 0, 0}},
+              protocol_error),
+          "controller capability inventory cannot be expanded by a profile");
+    check(simulator.negotiate("test-controller"),
+          "controller renegotiation after incompatible capabilities");
     check(simulator.button(0, true), "controller grid event");
     const auto grid_results = application.dispatch_pending();
     check(!grid_results.empty() && grid_results.front().accepted,
           "controller grid command acceptance");
     check(!timeline.snapshot().timeline.tracks[0].pattern.events.empty(),
           "controller semantic step dispatch");
-    check(simulator.button(
-              static_cast<std::uint16_t>(DedicatedControlId::mode_pad), true),
-          "controller mode event");
-    const auto mode_results = application.dispatch_pending();
-    check(!mode_results.empty() && mode_results.front().accepted,
-          "controller mode command acceptance");
+    check(application.execute({"pad.mode-select.v1", {{"mode", std::string("pad")}}})
+              .accepted,
+          "controller-independent mode action");
     check(application.snapshot().pad_mode == PadMode::pad,
           "controller mode switching");
     host.publish(application.snapshot());
     const auto initial_feedback = simulator.drain_feedback();
-    check(simulator.analog(0, 32768) &&
-              host.snapshot().pickup_direction[0] == 0 &&
-              simulator.analog(0, 65535),
-          "controller fader pickup input");
     check(host.set_analog_calibration(1, {1000, 64000, 256}, protocol_error) &&
               !host.set_analog_calibration(7, {0, 0, 0}, protocol_error),
           "controller analog calibration validation");
     check(simulator.encoder(0, 3) && host.snapshot().encoders[0] == 3 &&
-              host.snapshot().analog[0] == 65535,
-          "controller raw encoder and analog diagnostics");
+              host.snapshot().analog[0] == 0,
+          "controller raw encoder diagnostics without analog controls");
     host.publish(application.snapshot());
     const auto feedback = initial_feedback;
     check(std::any_of(feedback.begin(), feedback.end(),
@@ -5680,8 +5675,7 @@ void test_physical_controller_protocol() {
               sequencer_context[0].active &&
               sequencer_context[0].maximum > sequencer_context[0].minimum,
           "controller explicit contextual parameter mapping");
-    check(simulator.button(
-              static_cast<std::uint16_t>(DedicatedControlId::shift), true),
+    check(simulator.button(63, true),
           "controller shift press");
     (void)application.dispatch_pending();
     check(!application.snapshot().modifiers.shift,
@@ -5707,8 +5701,7 @@ void test_physical_controller_protocol() {
         application.parameters().get("transport.tempo")->current_value);
     check(tempo_fine > tempo_before && tempo_fine - tempo_before < 1.0,
           "controller Shift fine adjustment");
-    check(simulator.button(
-              static_cast<std::uint16_t>(DedicatedControlId::shift), false),
+    check(simulator.button(63, false),
           "controller shift release");
     (void)application.dispatch_pending();
     check(simulator.encoder(0, 4), "controller accelerated encoder input");
@@ -5716,30 +5709,6 @@ void test_physical_controller_protocol() {
     const auto tempo_coarse = std::get<double>(
         application.parameters().get("transport.tempo")->current_value);
     check(tempo_coarse - tempo_fine > 0.4, "controller coarse acceleration");
-    check(simulator.analog(4, 32768) && simulator.analog(4, 65535),
-          "controller crossfader pickup");
-    (void)application.dispatch_pending();
-    engine.process(controller_left, controller_right);
-    check(application
-              .execute({"parameter.set-normalized.v1",
-                        {{"parameter_id", std::string("mixer.selected.gain")},
-                         {"value", 0.2}}})
-              .accepted,
-          "controller pickup target change");
-    host.publish(application.snapshot());
-    check(!host.snapshot().error.empty() ||
-              host.snapshot().feedback_revision == application.snapshot().revision,
-          "controller pickup target change remains observable");
-    (void)simulator.drain_feedback();
-    for (const auto id :
-         {DedicatedControlId::play, DedicatedControlId::stop,
-          DedicatedControlId::record, DedicatedControlId::select,
-          DedicatedControlId::mode_step,
-          DedicatedControlId::mode_levels, DedicatedControlId::mode_notes,
-          DedicatedControlId::page_previous, DedicatedControlId::page_next})
-        check(simulator.button(static_cast<std::uint16_t>(id), true) &&
-                  simulator.button(static_cast<std::uint16_t>(id), false),
-              "controller dedicated button protocol");
     for (std::uint16_t id = 36; id <= 69; ++id)
         check(simulator.button(id, true) && simulator.button(id, false),
               "controller Task 068 inventory event");
@@ -5813,6 +5782,16 @@ void test_physical_controller_protocol() {
     bounded.publish(application.snapshot());
     check(bounded.snapshot().dropped_output > 0,
           "controller bounded feedback queue overflow");
+    for (std::size_t pass = 0; pass < 256 &&
+         bounded.snapshot().feedback_revision != application.snapshot().revision;
+         ++pass) {
+        (void)bounded_simulator.drain_feedback();
+        bounded.publish(application.snapshot());
+    }
+    (void)bounded_simulator.drain_feedback();
+    bounded.publish(application.snapshot());
+    check(bounded.snapshot().feedback_revision == application.snapshot().revision,
+          "controller transport backpressure eventually fully resynchronizes");
     check(controller_protocol_json(host.snapshot())
                       .find("neurogenic.controller-protocol.v1") !=
                   std::string::npos &&
@@ -5872,7 +5851,6 @@ void test_controller_agnostic_sessions() {
           "RP2040 descriptor inventory");
     auto profile = full_performance_profile();
     auto session_descriptor = descriptor;
-    session_descriptor.controls = profile.capabilities.controls;
     ControllerSession first(application, session_descriptor, profile, "first", 64);
     ControllerSession second(application, session_descriptor, profile, "second", 64);
     check(first.valid() && second.valid(), "controller sessions valid");
@@ -5895,8 +5873,8 @@ void test_controller_agnostic_sessions() {
               reparsed.profile_id == profile.profile_id &&
               std::any_of(reparsed.bindings.begin(), reparsed.bindings.end(),
                           [](const auto &binding) {
-                              return binding.control_id == "mode.pad" &&
-                                     binding.arguments.contains("mode");
+                              return binding.control_id == "performance.0" &&
+                                     binding.action_id == "transport.play.v1";
                           }),
           "controller profile deterministic round-trip");
     ControllerProfile malformed;
@@ -5938,17 +5916,90 @@ void test_controller_agnostic_sessions() {
           "generic MIDI semantic actions accepted");
     check(!midi.dispatch({0xb0, 20, 100, 0, 9, 3}, error),
           "unmatched MIDI port remains musical-routing independent");
+    check(midi.begin_learn("encoder.1",
+                           MidiControlMode::cc_relative_twos_complement,
+                           std::chrono::seconds(1), error) &&
+              midi.dispatch({0xb1, 74, 1, 0, 3, 3}, error) &&
+              midi.learn_status().state == MidiLearnState::learned &&
+              midi.learn_status().learned->port == 3 &&
+              midi.learn_status().learned->channel == 1,
+          "MIDI learn captures explicit port/channel/message identity");
+    check(midi.begin_learn("button.1", MidiControlMode::note_momentary,
+                           std::chrono::seconds(1), error),
+          "MIDI learn restart");
+    midi.cancel_learn();
+    check(midi.learn_status().state == MidiLearnState::cancelled &&
+              !midi.dispatch({0x90, 61, 127, 0, 3, 3}, error),
+          "cancelled MIDI learn preserves musical input");
+    check(midi.begin_learn("button.1", MidiControlMode::note_momentary,
+                           std::chrono::milliseconds(1), error),
+          "MIDI learn timeout arm");
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    midi.update_learn_timeout();
+    check(midi.learn_status().state == MidiLearnState::timed_out,
+          "MIDI learn timeout leaves profile unchanged");
+
+    MidiControllerProfile stored{midi_profile, "Exact MIDI Port",
+                                 midi.bindings()};
+    const auto profile_path = std::filesystem::temp_directory_path() /
+                              "neurogenic-controller-task070.ngc";
+    MidiControllerProfile restored;
+    check(save_midi_controller_profile(profile_path, stored, error) &&
+              load_midi_controller_profile(profile_path, restored, error) &&
+              restored.port_selector == stored.port_selector &&
+              restored.midi.size() == stored.midi.size(),
+          "MIDI controller profile persistence");
+    std::filesystem::remove(profile_path);
 
     first.observe(application.snapshot(), true);
     std::size_t feedback_count{};
     while (first.next_feedback()) ++feedback_count;
     check(feedback_count > 0, "capability-aware feedback generated");
+    const auto unchanged_revision = application.snapshot().revision;
+    first.set_context("samples");
+    first.observe(application.snapshot());
+    bool saw_local_context{};
+    while (auto value = first.next_feedback())
+        saw_local_context |= value->kind == ControllerFeedbackKind::context;
+    check(saw_local_context && application.snapshot().revision == unchanged_revision,
+          "controller-local context invalidates feedback independently");
     ControllerSession bounded(application, session_descriptor, profile,
                               "bounded-session", 1);
     bounded.observe(application.snapshot(), true);
     check(bounded.state().dropped_feedback > 0 &&
               bounded.state().resync_required,
           "controller feedback overflow requests resynchronization");
+    for (std::size_t pass = 0; pass < 128 && bounded.needs_feedback(); ++pass) {
+        (void)bounded.next_feedback();
+        bounded.observe(application.snapshot());
+    }
+    while (bounded.next_feedback()) {}
+    bounded.observe(application.snapshot());
+    check(!bounded.needs_feedback(),
+          "controller feedback overflow eventually fully resynchronizes");
+
+    auto invalid_profile = profile;
+    invalid_profile.capabilities.controls.push_back(
+        {"invented.fader", "Invented", ControlType::fader, {}, 0, 1, true});
+    ControllerSession invalid(application, descriptor, invalid_profile,
+                              "invalid-profile", 16);
+    check(!invalid.valid(),
+          "mapping profile cannot add controls absent from device inventory");
+
+    ControllerCoordinator coordinator(application);
+    MidiControllerProfile coordinated{midi_profile, "Exact MIDI Port", {}};
+    coordinated.midi.push_back(
+        {4, 0, 22, MidiControlMode::cc_relative_binary_offset, "encoder.1"});
+    MidiMapper coordinated_mapper;
+    check(coordinator.add_midi("midi-one", coordinated, coordinated_mapper,
+                               error) &&
+              coordinator.states().size() == 1,
+          "running coordinator owns an independent MIDI controller session");
+    coordinator.poll(application.snapshot());
+    coordinator.reconnect_midi();
+    check(coordinator.states().front().session.resync_required,
+          "MIDI controller reconnect requests a full feedback refresh");
+    coordinator.shutdown();
 }
 
 void test_interactive_step_sequencer() {

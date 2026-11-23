@@ -81,6 +81,12 @@ I/O runs on a controller worker, never the audio callback. The full controller
 architecture and MIDI adapter are in
 [CONTROLLER_INTEGRATION.md](CONTROLLER_INTEGRATION.md).
 
+The negotiated protocol selects a descriptor before the mapping profile is
+validated. Protocol 1.2 requires the inventory capability and uses the Task 068
+descriptor; 1.0/1.1 select explicit legacy descriptors. Profile controls never
+replace or extend that inventory. Unknown physical IDs are rejected; known but
+unassigned controls remain harmless.
+
 Performance modes remain host-authoritative. RGB updates show selection and
 playhead state, and state revisions suppress duplicate feedback. Reconnection
 negotiates before a full refresh. Raw analog values stay separate from
@@ -117,7 +123,10 @@ Grid LEDs show programmed steps, playhead, selection, pad assignment and
 velocity/note modes. Dedicated LEDs show mode, Play, Record, Shift and Select.
 Only changes are sent, brightness has a configurable host cap (224 default),
 and queue overflow forces a later full refresh rather than accepting a partial
-state. LED IDs are logical control IDs; firmware maps them to chain offsets.
+state. Cache revisions advance only after queue acceptance; transport
+backpressure retains pending session feedback. Local context and modifier
+revisions trigger updates even without an application revision. LED IDs are
+logical control IDs; firmware maps them to chain offsets.
 
 ## Simulator and diagnostics
 
@@ -131,6 +140,9 @@ saturate feedback queues.
 ./build/dev/neurogenic --gui \
   --controller /dev/serial/by-id/usb-NEUROGENIC_Controller
 ```
+
+`--controller` is repeatable. Repeated `--controller-id` values correspond by
+index and require exact identity; no unknown serial device is auto-selected.
 
 ## Firmware requirements
 

@@ -1,8 +1,14 @@
 #pragma once
+#include "neurogenic/application/controller.hpp"
 #include "neurogenic/core/spsc_queue.hpp"
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <chrono>
+#include <deque>
+#include <filesystem>
+#include <mutex>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -35,6 +41,9 @@ class MidiMapper {
     void set_raw_handler(RawHandler handler) {
         raw_handler_ = std::move(handler);
     }
+    void add_control_surface(class MidiControlSurfaceAdapter &surface) {
+        control_surfaces_.push_back(&surface);
+    }
     bool receive(const MidiMessage &) noexcept;
     bool dispatch_one();
     std::size_t dispatch_pending();
@@ -53,6 +62,7 @@ class MidiMapper {
     NoteHandler note_handler_;
     NoteEventHandler note_event_handler_;
     RawHandler raw_handler_;
+    std::vector<class MidiControlSurfaceAdapter *> control_surfaces_;
     std::atomic<std::uint64_t> dropped_{}, sequence_{};
 };
 
@@ -67,7 +77,28 @@ struct MidiControlBinding {
     std::uint8_t channel{}, number{};
     MidiControlMode mode{MidiControlMode::cc_absolute};
     std::string control_id;
+    bool feedback{};
 };
+struct MidiControllerProfile {
+    ControllerProfile controller;
+    std::string port_selector;
+    std::vector<MidiControlBinding> midi;
+};
+enum class MidiLearnState : std::uint8_t { idle, waiting, learned, cancelled, timed_out };
+struct MidiLearnStatus {
+    MidiLearnState state{MidiLearnState::idle};
+    std::string control_id, error;
+    std::optional<MidiControlBinding> learned;
+};
+bool parse_midi_controller_profile(std::string_view, MidiControllerProfile &,
+                                   std::string &error);
+[[nodiscard]] std::string
+serialize_midi_controller_profile(const MidiControllerProfile &);
+bool load_midi_controller_profile(const std::filesystem::path &,
+                                  MidiControllerProfile &, std::string &error);
+bool save_midi_controller_profile(const std::filesystem::path &,
+                                  const MidiControllerProfile &,
+                                  std::string &error);
 // Control-surface interpretation is opt-in and remains separate from ordinary
 // musical note/raw MIDI delivery in MidiMapper.
 class MidiControlSurfaceAdapter {
@@ -76,10 +107,24 @@ class MidiControlSurfaceAdapter {
         : session_(&session) {}
     bool add(MidiControlBinding, std::string &error);
     bool dispatch(const MidiMessage &, std::string &error);
+    bool begin_learn(std::string control_id, MidiControlMode,
+                     std::chrono::milliseconds timeout, std::string &error);
+    void cancel_learn() noexcept;
+    void update_learn_timeout() noexcept;
+    [[nodiscard]] MidiLearnStatus learn_status() const;
+    [[nodiscard]] std::vector<MidiControlBinding> bindings() const;
+    void observe(const ApplicationState &);
+    [[nodiscard]] std::optional<MidiMessage> next_feedback();
+    void requeue_feedback(MidiMessage);
     void reconnect() noexcept;
   private:
     ControllerSession *session_{};
     std::vector<MidiControlBinding> bindings_;
+    std::deque<MidiMessage> feedback_;
+    MidiLearnStatus learn_;
+    MidiControlMode learn_mode_{MidiControlMode::cc_absolute};
+    std::chrono::steady_clock::time_point learn_deadline_{};
+    mutable std::mutex mutex_;
     std::uint64_t sequence_{};
 };
 } // namespace neurogenic

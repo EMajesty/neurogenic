@@ -1,4 +1,4 @@
-#include "neurogenic/application/controller_protocol.hpp"
+#include "neurogenic/application/controller_coordinator.hpp"
 #include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/audio/device.hpp"
 #include "neurogenic/audio/engine.hpp"
@@ -49,6 +49,7 @@ void usage() {
            "(repeatable)\n"
            "  --controller PATH dedicated controller CDC serial device path\n"
            "  --controller-id ID require the negotiated controller identity\n"
+           "  --midi-controller-profile FILE load a MIDI control-surface .ngc profile\n"
            "  --script FILE     Lua action for MIDI note 36\n"
            "  --timeline FILE   load a NEUROGENIC_TIMELINE version 1 file\n"
            "  --project PATH    restore a versioned NEUROGENIC project\n"
@@ -119,9 +120,10 @@ int main(int argc, char **argv) {
     try {
         std::string wav, audio_name, input_name,
             script = "examples/generate.lua", timeline_file, project_file,
-            preferences_file, controller_path, controller_id,
+            preferences_file,
             shutdown_dirty{"cancel"};
-        std::vector<std::string> midi_inputs, midi_outputs;
+        std::vector<std::string> midi_inputs, midi_outputs, controller_paths,
+            controller_ids, midi_controller_profiles;
         std::vector<std::pair<std::uint32_t, std::filesystem::path>> slot_files;
         std::vector<std::pair<std::uint8_t, std::uint32_t>> note_maps;
         bool list = false, headless = false, interactive = false, gui = false,
@@ -156,9 +158,11 @@ int main(int argc, char **argv) {
                 midi_outputs.emplace_back(argv[++i]);
                 midi_output_explicit = true;
             } else if (arg == "--controller" && i + 1 < argc)
-                controller_path = argv[++i];
+                controller_paths.emplace_back(argv[++i]);
             else if (arg == "--controller-id" && i + 1 < argc)
-                controller_id = argv[++i];
+                controller_ids.emplace_back(argv[++i]);
+            else if (arg == "--midi-controller-profile" && i + 1 < argc)
+                midi_controller_profiles.emplace_back(argv[++i]);
             else if (arg == "--script" && i + 1 < argc)
                 script = argv[++i];
             else if (arg == "--timeline" && i + 1 < argc)
@@ -426,6 +430,34 @@ int main(int argc, char **argv) {
             std::move(editable_timeline));
         neurogenic::ApplicationService application(engine, timeline_service,
                                                    samples);
+        neurogenic::ControllerCoordinator controllers(application);
+        std::vector<std::pair<neurogenic::MidiPortId, std::string>>
+            controller_midi_inputs;
+        for (const auto &profile_path : midi_controller_profiles) {
+            neurogenic::MidiControllerProfile profile;
+            std::string profile_error;
+            if (!neurogenic::load_midi_controller_profile(
+                    profile_path, profile, profile_error))
+                throw std::runtime_error("MIDI controller profile: " +
+                                         profile_error);
+            const auto endpoint_id =
+                profile.controller.profile_id.empty()
+                    ? std::filesystem::path(profile_path).stem().string()
+                    : profile.controller.profile_id;
+            for (const auto &binding : profile.midi)
+                if (!profile.port_selector.empty() &&
+                    std::find(controller_midi_inputs.begin(),
+                              controller_midi_inputs.end(),
+                              std::pair{binding.port,
+                                        profile.port_selector}) ==
+                        controller_midi_inputs.end())
+                    controller_midi_inputs.emplace_back(binding.port,
+                                                        profile.port_selector);
+            if (!controllers.add_midi(endpoint_id, std::move(profile), mapper,
+                                      profile_error))
+                throw std::runtime_error("MIDI controller profile: " +
+                                         profile_error);
+        }
         mapper.set_raw_handler([&](const neurogenic::MidiMessage &message) {
             (void)application.receive_midi(
                 {message.port,
@@ -506,6 +538,15 @@ int main(int argc, char **argv) {
             } else
                 std::cout << "MIDI input " << i + 1 << " active\n";
         }
+        for (const auto &[port, selector] : controller_midi_inputs) {
+            if (!midi.connect(port, selector, error)) {
+                lifecycle.issue(neurogenic::StartupStage::midi, error, true);
+                std::cerr << "MIDI controller input unavailable: " << error
+                          << '\n';
+            } else
+                std::cout << "MIDI controller input "
+                          << static_cast<unsigned>(port) << " active\n";
+        }
         for (std::size_t i = 0;
              i < midi_outputs.size() && i < neurogenic::maximum_midi_ports;
              ++i) {
@@ -524,14 +565,27 @@ int main(int argc, char **argv) {
                         std::string send_error;
                         return midi_output.send(packet, send_error);
                     });
-                if (sent == 0)
+                const auto controller_sent = controllers.dispatch_midi_feedback(
+                    [&](const neurogenic::MidiMessage &message) {
+                        neurogenic::MidiPacket packet;
+                        packet.port = message.port;
+                        packet.size = message.size;
+                        packet.bytes = {message.status, message.data1,
+                                        message.data2};
+                        std::string send_error;
+                        return midi_output.send(packet, send_error);
+                    });
+                if (sent == 0 && controller_sent == 0)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 const auto now = std::chrono::steady_clock::now();
                 if (now >= next_refresh) {
                     std::string reconnect_error;
-                    if (midi_output.reconnect_missing(reconnect_error))
+                    if (midi_output.reconnect_missing(reconnect_error)) {
                         engine.midi_panic();
-                    (void)midi.reconnect_missing(reconnect_error);
+                        controllers.reconnect_midi();
+                    }
+                    if (midi.reconnect_missing(reconnect_error))
+                        controllers.reconnect_midi();
                     application.set_midi_output_connections(
                         midi_output.connection_state());
                     application.set_midi_input_connections(
@@ -543,49 +597,28 @@ int main(int argc, char **argv) {
         std::signal(SIGINT, stop);
         std::signal(SIGTERM, stop);
         announce(neurogenic::StartupStage::controllers, 0.78F);
-        neurogenic::ControllerHost controller_host(application, 128,
-                                                    controller_id);
-        neurogenic::ControllerSerialTransport controller_transport;
-        std::jthread controller_dispatcher;
-        if (!controller_path.empty()) {
-            std::string initial_controller_error;
-            if (controller_transport.open(controller_path,
-                                          initial_controller_error))
-                controller_host.connected();
-            else {
+        for (std::size_t i = 0; i < controller_paths.size(); ++i) {
+            std::string controller_error;
+            const auto expected =
+                i < controller_ids.size() ? controller_ids[i] : std::string{};
+            if (!controllers.add_serial("usb-cdc-" + std::to_string(i + 1),
+                                        controller_paths[i], expected,
+                                        controller_error))
+                throw std::runtime_error(controller_error);
+            if (!controller_error.empty()) {
                 lifecycle.issue(neurogenic::StartupStage::controllers,
-                                initial_controller_error, true);
+                                controller_error, true);
                 std::cerr << "controller unavailable (will retry exact path): "
-                          << initial_controller_error << '\n';
+                          << controller_error << '\n';
             }
-            controller_dispatcher = std::jthread([&](std::stop_token token) {
-                auto retry = std::chrono::steady_clock::now();
-                while (!token.stop_requested()) {
-                    std::string controller_error;
-                    if (!controller_transport.connected() &&
-                        std::chrono::steady_clock::now() >= retry) {
-                        if (controller_transport.open(controller_path,
-                                                      controller_error)) {
-                            controller_host.connected();
-                        } else {
-                            controller_host.disconnected(controller_error);
-                            retry = std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(1);
-                        }
-                    }
-                    if (controller_transport.connected()) {
-                        controller_host.publish(application.snapshot());
-                        if (!controller_transport.poll(controller_host,
-                                                       controller_error))
-                            retry = std::chrono::steady_clock::now() +
-                                    std::chrono::seconds(1);
-                    }
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-                }
-                controller_host.disconnected("application shutdown");
-                controller_transport.close();
-            });
         }
+        std::jthread controller_dispatcher([&](std::stop_token token) {
+            while (!token.stop_requested()) {
+                controllers.poll(application.snapshot());
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            controllers.shutdown();
+        });
         // Controller absence is a supported state; an explicit path is matched
         // exactly and never replaced with another serial device.
         if (gui)
@@ -750,8 +783,7 @@ int main(int argc, char **argv) {
         midi_output_dispatcher.request_stop();
         midi_output_dispatcher.join();
         controller_dispatcher.request_stop();
-        if (controller_dispatcher.joinable())
-            controller_dispatcher.join();
+        controller_dispatcher.join();
         midi.close();
         dispatcher.stop();
         samples.shutdown();

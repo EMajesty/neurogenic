@@ -329,8 +329,11 @@ bool ControllerHost::enqueue(ControllerPacket p) noexcept {
     return true;
 }
 void ControllerHost::connected() {
+    output_.clear();
+    session_.reset();
     state_.connection = ControllerConnection::negotiating;
     state_.feedback_revision = ~std::uint64_t{};
+    force_full_refresh_ = true;
     enqueue({ControllerMessageType::hello,
              sequence_++,
              {controller_protocol_major, controller_protocol_minor}});
@@ -350,38 +353,55 @@ bool ControllerHost::set_analog_calibration(std::size_t id,
         return false;
     }
     state_.calibration[id] = calibration;
-    pickup_[id] = false;
     state_.pickup_acquired[id] = false;
     state_.pickup_direction[id] = 0;
     error.clear();
     return true;
 }
-void ControllerHost::dispatch_input(std::string id, double value, bool pressed,
-                                    std::uint64_t seq) {
-    ControllerInput input{std::move(id), value, 0, pressed, seq};
-    const auto profile = full_performance_profile();
-    std::string error;
-    ControllerMapper mapper(profile, application_->actions(), error);
-    const auto resolved =
-        mapper.resolve(input, application_->snapshot().modifiers, error);
-    if (resolved.action) {
-        if (!application_->submit(*resolved.action))
-            ++state_.dropped_input;
-    } else if (!resolved.parameter_id.empty()) {
-        ApplicationCommand c;
-        c.action_id = resolved.relative_steps ? "parameter.adjust.v1"
-                                              : "parameter.set-normalized.v1";
-        c.arguments["parameter_id"] = resolved.parameter_id;
-        c.arguments[resolved.relative_steps ? "steps" : "value"] =
-            resolved.relative_steps
-                ? resolved.relative_steps
-                : std::get<double>(*resolved.parameter_value);
-        c.source_id = "physical-controller";
-        c.source_sequence = seq;
-        if (!application_->submit(std::move(c)))
-            ++state_.dropped_input;
-    } else
-        state_.error = error;
+void ControllerHost::set_brightness_limit(std::uint8_t value) noexcept {
+    brightness_limit_ = value;
+    force_full_refresh_ = true;
+    state_.feedback_revision = ~std::uint64_t{};
+    if (session_) session_->invalidate_feedback();
+}
+bool ControllerHost::configure_session(std::uint32_t capabilities,
+                                       std::string &error) {
+    ControllerProfile profile;
+    ControllerDeviceDescriptor descriptor;
+    if (state_.protocol_minor >= 2) {
+        if (!(capabilities & controller_inventory_068)) {
+            error = "protocol 1.2 device lacks the dedicated inventory capability";
+            return false;
+        }
+        profile = full_performance_profile();
+        descriptor = rp2040_controller_descriptor();
+        for (auto &control : descriptor.controls) {
+            const auto button = control.type == ControlType::momentary_button ||
+                                control.type == ControlType::toggle_button;
+            if (button && !(capabilities & controller_buttons))
+                control.available = false;
+            if (control.type == ControlType::relative_encoder &&
+                !(capabilities & controller_relative_encoders))
+                control.available = false;
+            if (!(capabilities & controller_rgb))
+                std::erase(control.feedback, FeedbackType::rgb_led);
+            if (!(capabilities & controller_context_feedback))
+                std::erase(control.feedback, FeedbackType::parameter_value);
+        }
+    } else {
+        profile = legacy_performance_profile(state_.protocol_minor, capabilities);
+        descriptor = legacy_controller_descriptor(state_.protocol_minor,
+                                                  capabilities);
+    }
+    session_.emplace(*application_, std::move(descriptor), std::move(profile),
+                     state_.device_id, capacity_);
+    if (!session_->valid()) {
+        error = session_->state().error;
+        session_.reset();
+        return false;
+    }
+    error.clear();
+    return true;
 }
 bool ControllerHost::receive(const ControllerPacket &p,
                              std::string &error) noexcept {
@@ -423,35 +443,18 @@ bool ControllerHost::receive(const ControllerPacket &p,
         }
         state_.connection = ControllerConnection::connected;
         ++state_.reconnects;
-        auto profile = full_performance_profile();
-        auto descriptor = rp2040_controller_descriptor();
-        descriptor.protocol_minor = state_.protocol_minor;
-        // Protocol 1.x advertises capability groups rather than a complete
-        // inventory. The selected host profile supplies compatibility aliases.
-        descriptor.controls = profile.capabilities.controls;
-        if (state_.protocol_minor <= 1) {
-            for (std::size_t i = 0; i < state_.analog.size(); ++i) {
-                ControlCapability analog{
-                    "analog." + std::to_string(i),
-                    "Legacy analog " + std::to_string(i + 1),
-                    i == 4 ? ControlType::crossfader : ControlType::fader,
-                    {FeedbackType::parameter_value}, 0, 1, true};
-                descriptor.controls.push_back(analog);
-                profile.capabilities.controls.push_back(std::move(analog));
-                ControlBinding binding;
-                binding.control_id = "analog." + std::to_string(i);
-                binding.parameter_id =
-                    std::array<std::string, 5>{
-                        "mixer.selected.gain", "mixer.track.aux-1",
-                        "mixer.track.aux-2", "mixer.master.gain",
-                        "mixer.external.selected.wet"}[i];
-                binding.absolute = true;
-                binding.pickup = true;
-                profile.bindings.push_back(std::move(binding));
-            }
+        if (state_.protocol_minor <= 1 &&
+            !configure_session(controller_buttons | controller_relative_encoders |
+                                   controller_rgb | controller_context_feedback |
+                                   controller_heartbeat |
+                                   (state_.protocol_minor == 1
+                                        ? controller_analog
+                                        : std::uint32_t{}),
+                               error)) {
+            state_.connection = ControllerConnection::incompatible;
+            state_.error = error;
+            return false;
         }
-        session_.emplace(*application_, std::move(descriptor),
-                         std::move(profile), state_.device_id, capacity_);
         enqueue({ControllerMessageType::capabilities, sequence_++, {}});
         enqueue({ControllerMessageType::state_sync, sequence_++, {}});
     } else if (p.type == ControllerMessageType::capabilities) {
@@ -460,6 +463,12 @@ bool ControllerHost::receive(const ControllerPacket &p,
             return false;
         }
         state_.capabilities = read32(p.payload.data());
+        if (state_.protocol_minor >= 2 &&
+            !configure_session(state_.capabilities, error)) {
+            state_.connection = ControllerConnection::incompatible;
+            state_.error = error;
+            return false;
+        }
     } else if (p.type == ControllerMessageType::button) {
         if (p.payload.size() != 3) {
             error = "invalid button payload";
@@ -540,8 +549,11 @@ bool ControllerHost::receive(const ControllerPacket &p,
             return true;
         }
         ++state_.dropped_input;
-    } else if (p.type == ControllerMessageType::state_sync)
+    } else if (p.type == ControllerMessageType::state_sync) {
         state_.feedback_revision = ~std::uint64_t{};
+        force_full_refresh_ = true;
+        if (session_) session_->reconnect();
+    }
     else if (p.type == ControllerMessageType::heartbeat)
         enqueue({ControllerMessageType::heartbeat, sequence_++, p.payload});
     else if (p.type == ControllerMessageType::reset) {
@@ -552,14 +564,16 @@ bool ControllerHost::receive(const ControllerPacket &p,
     return true;
 }
 void ControllerHost::publish(const ApplicationState &s) {
-    if (state_.connection != ControllerConnection::connected ||
-        state_.feedback_revision == s.revision)
+    if (state_.connection != ControllerConnection::connected)
         return;
     if (session_) {
-        const auto dropped_before = state_.dropped_output;
-        const bool full_refresh = state_.feedback_revision == ~std::uint64_t{};
+        if (output_.size() >= capacity_) return;
+        const bool full_refresh = force_full_refresh_;
+        force_full_refresh_ = false;
         session_->observe(s, full_refresh);
-        while (auto item = session_->next_feedback()) {
+        while (output_.size() < capacity_ && session_->has_pending_feedback()) {
+            auto item = session_->next_feedback();
+            if (!item) break;
             const auto id = protocol_feedback_id(item->control_id);
             if (!id) continue;
             std::vector<std::uint8_t> payload;
@@ -568,13 +582,15 @@ void ControllerHost::publish(const ApplicationState &s) {
                 item->kind == ControllerFeedbackKind::indicator) {
                 append32(payload, item->color);
                 payload.push_back(std::min(item->brightness, brightness_limit_));
+                if (!enqueue({ControllerMessageType::led, sequence_++,
+                              std::move(payload)})) {
+                    state_.feedback_revision = ~std::uint64_t{};
+                    break;
+                }
                 if (*id < state_.leds.size()) state_.leds[*id] = item->color;
-                enqueue({ControllerMessageType::led, sequence_++,
-                         std::move(payload)});
             } else if (item->kind == ControllerFeedbackKind::context) {
                 auto context = std::move(item->context);
                 context.control_id = *id < 8 ? *id : 8 + (*id - 16);
-                state_.context[context.control_id] = context;
                 payload.clear();
                 append16(payload, context.control_id);
                 if (state_.protocol_minor == 0) {
@@ -601,149 +617,20 @@ void ControllerHost::publish(const ApplicationState &s) {
                         payload.insert(payload.end(), field.begin(), field.end());
                     }
                 }
-                enqueue({ControllerMessageType::context, sequence_++,
-                         std::move(payload)});
+                if (!enqueue({ControllerMessageType::context, sequence_++,
+                              std::move(payload)})) {
+                    state_.feedback_revision = ~std::uint64_t{};
+                    break;
+                }
+                state_.context[context.control_id] = context;
             }
         }
-        state_.feedback_revision = s.revision;
-        if (state_.dropped_output != dropped_before) {
+        if (session_->needs_feedback())
             state_.feedback_revision = ~std::uint64_t{};
-            session_->reconnect();
-        }
+        else
+            state_.feedback_revision = s.revision;
         return;
     }
-    const auto dropped_before = state_.dropped_output;
-    const bool full_refresh = state_.feedback_revision == ~std::uint64_t{};
-    state_.feedback_revision = s.revision;
-    const std::uint32_t off = 0x080808, active = 0x0060b0, selected = 0xff7a00,
-                        play = 0x00c840, record = 0xd00020, modifier = 0x8040ff;
-    const auto send_led = [&](std::size_t id, std::uint32_t color,
-                              std::uint8_t brightness = 192) {
-        if (!full_refresh && state_.leds[id] == color)
-            return;
-        state_.leds[id] = color;
-        std::vector<std::uint8_t> b;
-        append16(b, id);
-        append32(b, color);
-        b.push_back(std::min(brightness, brightness_limit_));
-        enqueue({ControllerMessageType::led, sequence_++, std::move(b)});
-    };
-    const auto track =
-        std::find_if(s.tracks.begin(), s.tracks.end(),
-                     [&](const auto &t) { return t.id == s.selected_track; });
-    for (std::size_t i = 0; i < 16; ++i) {
-        auto color = off;
-        if (s.pad_mode == PadMode::step && track != s.tracks.end()) {
-            const auto tick =
-                static_cast<MusicalTick>(s.step_page * 16 + i) * s.step_ticks;
-            if (std::any_of(track->events.begin(), track->events.end(),
-                            [&](const auto &e) {
-                                return e.tick == tick &&
-                                       e.type == MusicalEventType::note;
-                            }))
-                color = active;
-        } else if (s.pad_mode == PadMode::pad && s.slice_pad_assignments[i])
-            color = active;
-        else if (s.pad_mode == PadMode::levels)
-            color = 0x002040 + static_cast<std::uint32_t>(i) * 0x000804;
-        else if (s.pad_mode == PadMode::notes)
-            color = 0x202060;
-        if ((s.pad_mode == PadMode::step &&
-             s.selected_step ==
-                 static_cast<std::int64_t>(s.step_page * 16 + i)) ||
-            (s.pad_mode != PadMode::step && s.selected_pad == i))
-            color = selected;
-        if (s.playing && i == static_cast<std::size_t>(
-                                  (s.transport_tick /
-                                   std::max<MusicalTick>(1, s.step_ticks)) %
-                                  16))
-            color = play;
-        send_led(i, color);
-    }
-    const auto mode_base =
-        static_cast<std::size_t>(DedicatedControlId::mode_step);
-    for (std::size_t i = 0; i < 4; ++i)
-        send_led(mode_base + i,
-                 static_cast<std::size_t>(s.pad_mode) == i ? selected : off);
-    send_led(static_cast<std::size_t>(DedicatedControlId::play),
-             s.playing ? play : off);
-    send_led(static_cast<std::size_t>(DedicatedControlId::record),
-             s.recording.state == RecordingState::recording ? record : off);
-    send_led(static_cast<std::size_t>(DedicatedControlId::shift),
-             (s.modifiers.shift || s.modifiers.shift_latched) ? modifier : off);
-    send_led(static_cast<std::size_t>(DedicatedControlId::select),
-             (s.modifiers.select || s.modifiers.select_latched) ? modifier
-                                                                : off);
-
-    auto context = build_controller_context(s);
-    static constexpr std::string_view analog_targets[]{
-        "mixer.selected.gain", "mixer.track.aux-1", "mixer.track.aux-2",
-        "mixer.master.gain", "mixer.external.selected.wet"};
-    for (std::size_t i = 0; i < std::size(analog_targets); ++i) {
-        const auto c = parameter_control(s, i, analog_targets[i]);
-        const auto found = std::find_if(
-            s.parameters.begin(), s.parameters.end(),
-            [&](const auto &p) { return p.id == analog_targets[i]; });
-        const auto current = found == s.parameters.end()
-                                 ? c.minimum
-                                 : numeric(found->effective_value,
-                                           numeric(found->current_value));
-        const auto range = std::max(0.000001, c.maximum - c.minimum);
-        const auto target = std::clamp((current - c.minimum) / range, 0.0, 1.0);
-        const auto &calibration = state_.calibration[i];
-        const auto raw_range = std::max<std::uint16_t>(
-            1, calibration.maximum - calibration.minimum);
-        const auto physical = std::clamp(
-            (double(state_.analog[i]) - calibration.minimum) / raw_range, 0.0,
-            1.0);
-        if (std::abs(target - last_effective_target_[i]) > 0.002 &&
-            pickup_[i]) {
-            if (std::abs(physical - target) > 0.02)
-                pickup_[i] = false;
-        }
-        pickup_target_[i] = target;
-        last_effective_target_[i] = target;
-        state_.pickup_direction[i] =
-            pickup_[i] ? 0 : (physical < target ? 1 : -1);
-        state_.pickup_acquired[i] = pickup_[i];
-    }
-    for (auto &c : context) {
-        const auto target = std::find(analog_targets, std::end(analog_targets),
-                                      std::string_view(c.parameter_id));
-        if (target != std::end(analog_targets)) {
-            const auto index =
-                static_cast<std::size_t>(target - analog_targets);
-            c.pickup = pickup_[index];
-            c.pickup_direction = state_.pickup_direction[index];
-        }
-        state_.context[c.control_id] = c;
-        std::vector<std::uint8_t> b;
-        append16(b, c.control_id);
-        if (state_.protocol_minor == 0) {
-            const auto label = truncate_view(c.label, 31);
-            b.push_back(c.active);
-            b.push_back(label.size());
-            b.insert(b.end(), label.begin(), label.end());
-        } else {
-            std::uint8_t flags =
-                (c.active ? 1 : 0) | (c.bipolar ? 2 : 0) | (c.pickup ? 4 : 0);
-            b.push_back(flags);
-            b.push_back(static_cast<std::uint8_t>(c.pickup_direction));
-            append64(b, c.feedback_revision);
-            const std::string fields[]{std::string(truncate_view(c.label, 24)),
-                                       std::string(truncate_view(c.value, 16)),
-                                       std::string(truncate_view(c.unit, 8)),
-                                       formatted(c.minimum),
-                                       formatted(c.maximum)};
-            for (const auto &field : fields) {
-                b.push_back(field.size());
-                b.insert(b.end(), field.begin(), field.end());
-            }
-        }
-        enqueue({ControllerMessageType::context, sequence_++, std::move(b)});
-    }
-    if (state_.dropped_output != dropped_before)
-        state_.feedback_revision = ~std::uint64_t{};
 }
 std::optional<ControllerPacket> ControllerHost::next_output() noexcept {
     if (output_.empty())

@@ -150,17 +150,16 @@ class ControllerHost {
     void disconnected(std::string reason = {});
     bool set_analog_calibration(std::size_t, AnalogCalibration,
                                 std::string &error) noexcept;
-    void set_brightness_limit(std::uint8_t value) noexcept {
-        brightness_limit_ = value;
-        state_.feedback_revision = ~std::uint64_t{};
-    }
+    void set_brightness_limit(std::uint8_t value) noexcept;
     [[nodiscard]] std::optional<ControllerPacket> next_output() noexcept;
     [[nodiscard]] ControllerProtocolState snapshot() const { return state_; }
+    [[nodiscard]] ControllerSessionState session_snapshot() const {
+        return session_ ? session_->state() : ControllerSessionState{};
+    }
 
   private:
     bool enqueue(ControllerPacket) noexcept;
-    void dispatch_input(std::string id, double value, bool pressed,
-                        std::uint64_t sequence);
+    bool configure_session(std::uint32_t capabilities, std::string &error);
     ApplicationService *application_{};
     std::deque<ControllerPacket> output_;
     std::size_t capacity_{};
@@ -168,10 +167,8 @@ class ControllerHost {
     std::string expected_device_id_;
     ControllerProtocolState state_;
     std::optional<ControllerSession> session_;
-    std::array<bool, 5> pickup_{};
-    std::array<double, 5> pickup_target_{};
-    std::array<double, 5> last_effective_target_{};
     std::uint8_t brightness_limit_{224};
+    bool force_full_refresh_{true};
 };
 
 class ControllerSerialTransport {

@@ -121,7 +121,10 @@ controls and feedback; configurable profiles resolve those controls into
 semantic actions, typed parameters and contextual roles. USB CDC and MIDI
 adapters only normalize transport events. Session-local pages, modifiers,
 pickup and feedback caches cannot become a second musical-state authority.
-The dedicated physical controller is one built-in descriptor/profile pair.
+The dedicated physical controller is one built-in descriptor/profile pair;
+protocol 1.0/1.1 use explicit legacy descriptors rather than mutating the
+current descriptor from profile controls. `ControllerCoordinator` owns any
+number of explicitly configured CDC and MIDI sessions in the appliance.
 `ControllerSerialTransport` owns nonblocking Linux TTY I/O,
 `ControllerFrameDecoder` owns bounded wire framing, and `ControllerHost` owns
 negotiation, semantic dispatch and revisioned feedback. None is visible to the

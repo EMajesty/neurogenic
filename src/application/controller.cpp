@@ -185,6 +185,21 @@ ControllerDeviceDescriptor rp2040_controller_descriptor() {
     return descriptor;
 }
 
+ControllerDeviceDescriptor legacy_controller_descriptor(
+    std::uint8_t protocol_minor, std::uint32_t capabilities) {
+    auto profile = legacy_performance_profile(protocol_minor, capabilities);
+    ControllerDeviceDescriptor descriptor;
+    descriptor.descriptor_id = "neurogenic.controller.protocol-1." +
+                               std::to_string(protocol_minor);
+    descriptor.device_id = "neurogenic.protocol-1x";
+    descriptor.display_name = "NEUROGENIC legacy controller";
+    descriptor.transport = ControllerTransport::usb_cdc;
+    descriptor.protocol_major = 1;
+    descriptor.protocol_minor = protocol_minor;
+    descriptor.controls = profile.capabilities.controls;
+    return descriptor;
+}
+
 ControllerMapper::ControllerMapper(ControllerProfile profile,
                                    const ActionRegistry &actions,
                                    std::string &error)
@@ -501,6 +516,29 @@ bool validate_controller_configuration(
         error = "profile targets a different device identity";
         return false;
     }
+    for (const auto &declared : profile.capabilities.controls) {
+        const auto physical = std::find_if(
+            descriptor.controls.begin(), descriptor.controls.end(),
+            [&](const auto &value) { return value.id == declared.id; });
+        if (physical == descriptor.controls.end()) {
+            error = "profile control is absent from device descriptor: " +
+                    declared.id;
+            return false;
+        }
+        if (physical->type != declared.type ||
+            declared.minimum < physical->minimum ||
+            declared.maximum > physical->maximum ||
+            std::any_of(declared.feedback.begin(), declared.feedback.end(),
+                        [&](const auto value) {
+                            return std::find(physical->feedback.begin(),
+                                             physical->feedback.end(), value) ==
+                                   physical->feedback.end();
+                        })) {
+            error = "profile control exceeds device capabilities: " +
+                    declared.id;
+            return false;
+        }
+    }
     const auto snapshot = application.snapshot();
     for (const auto &binding : profile.bindings) {
         const auto device_control = std::find_if(
@@ -508,6 +546,11 @@ bool validate_controller_configuration(
             [&](const auto &value) { return value.id == binding.control_id; });
         if (device_control == descriptor.controls.end()) {
             error = "profile control is absent from device descriptor: " +
+                    binding.control_id;
+            return false;
+        }
+        if (!device_control->available && !binding.explicitly_unassigned) {
+            error = "profile binds an unavailable device control: " +
                     binding.control_id;
             return false;
         }
@@ -565,25 +608,11 @@ ControllerProfile full_performance_profile() {
         profile.capabilities.controls.push_back(control(
             "navigation." + std::string(name), ControlType::momentary_button,
             "Navigation " + std::string(name), {FeedbackType::single_led}));
-    profile.capabilities.controls.insert(
-        profile.capabilities.controls.end(),
-        {control("data", ControlType::relative_encoder, "Data"),
-         control("play", ControlType::momentary_button, "Legacy Play"),
-         control("stop", ControlType::momentary_button, "Legacy Stop"),
-         control("record", ControlType::momentary_button, "Legacy Record"),
-         control("shift", ControlType::momentary_button, "Legacy Shift"),
-         control("select", ControlType::momentary_button, "Legacy Select"),
-         control("mode.step", ControlType::momentary_button),
-         control("mode.pad", ControlType::momentary_button),
-         control("mode.levels", ControlType::momentary_button),
-         control("mode.notes", ControlType::momentary_button),
-         control("page.previous", ControlType::momentary_button),
-         control("page.next", ControlType::momentary_button)});
+    profile.capabilities.controls.push_back(
+        control("data", ControlType::relative_encoder, "Data"));
     auto data = parameter_binding("data", "transport.tempo");
     data.feedback_id = "parameter.display.0";
-    profile.bindings = {action_binding("play", "transport.play.v1"),
-                        action_binding("stop", "transport.stop.v1"),
-                        std::move(data)};
+    profile.bindings = {std::move(data)};
     ControlBinding recording;
     recording.control_id = "performance.2";
     recording.semantic = "recording-toggle";
@@ -596,31 +625,6 @@ ControllerProfile full_performance_profile() {
     select.control_id = "edit.9";
     select.semantic = "modifier-select";
     profile.bindings.push_back(std::move(select));
-    ControlBinding legacy_recording;
-    legacy_recording.control_id = "record";
-    legacy_recording.semantic = "recording-toggle";
-    profile.bindings.push_back(std::move(legacy_recording));
-    ControlBinding legacy_shift;
-    legacy_shift.control_id = "shift";
-    legacy_shift.semantic = "modifier-shift";
-    profile.bindings.push_back(std::move(legacy_shift));
-    ControlBinding legacy_select;
-    legacy_select.control_id = "select";
-    legacy_select.semantic = "modifier-select";
-    profile.bindings.push_back(std::move(legacy_select));
-    static constexpr std::string_view mode_names[]{"step", "pad", "levels",
-                                                   "notes"};
-    for (const auto mode_name : mode_names) {
-        ControlBinding mode;
-        mode.control_id = "mode." + std::string(mode_name);
-        mode.action_id = "pad.mode-select.v1";
-        mode.arguments["mode"] = std::string(mode_name);
-        profile.bindings.push_back(std::move(mode));
-    }
-    profile.bindings.push_back(
-        action_binding("page.previous", "step.page-previous.v1"));
-    profile.bindings.push_back(
-        action_binding("page.next", "step.page-next.v1"));
     profile.bindings.push_back(
         action_binding("performance.0", "transport.play.v1", "performance.0"));
     profile.bindings.push_back(
@@ -675,6 +679,71 @@ ControllerProfile full_performance_profile() {
     for (const auto &[control_name, action] : navigation_bindings)
         profile.bindings.push_back(action_binding(
             "navigation." + std::string(control_name), std::string(action)));
+    return profile;
+}
+
+ControllerProfile legacy_performance_profile(std::uint8_t protocol_minor,
+                                             std::uint32_t capabilities) {
+    auto profile = full_performance_profile();
+    profile.profile_id = "neurogenic.protocol-1." +
+                         std::to_string(protocol_minor) + ".default";
+    profile.device_id = "neurogenic.protocol-1x";
+    const auto retained = [](std::string_view id) {
+        return id == "data" || id.starts_with("grid.") ||
+               id.starts_with("parameter.") || id.starts_with("function.");
+    };
+    std::erase_if(profile.capabilities.controls,
+                  [&](const auto &value) { return !retained(value.id); });
+    std::erase_if(profile.bindings,
+                  [&](const auto &value) { return !retained(value.control_id); });
+    const auto add_control = [&](std::string id,
+                                 ControlType type = ControlType::momentary_button) {
+        profile.capabilities.controls.push_back(
+            control(std::move(id), type, "Legacy protocol control",
+                    {FeedbackType::single_led}));
+    };
+    for (const auto id : {"play", "stop", "record", "shift", "select",
+                          "data.push", "mode.step", "mode.pad", "mode.levels",
+                          "mode.notes", "page.previous", "page.next"})
+        add_control(id);
+    profile.bindings.push_back(action_binding("play", "transport.play.v1"));
+    profile.bindings.push_back(action_binding("stop", "transport.stop.v1"));
+    profile.bindings.push_back(
+        action_binding("data.push", "navigation.confirm.v1"));
+    profile.bindings.push_back(
+        action_binding("page.previous", "step.page-previous.v1"));
+    profile.bindings.push_back(action_binding("page.next", "step.page-next.v1"));
+    for (const auto &[id, semantic] :
+         std::array<std::pair<std::string_view, std::string_view>, 3>{
+             {{"record", "recording-toggle"}, {"shift", "modifier-shift"},
+              {"select", "modifier-select"}}}) {
+        ControlBinding binding;
+        binding.control_id = id;
+        binding.semantic = semantic;
+        profile.bindings.push_back(std::move(binding));
+    }
+    for (const auto &[id, mode] :
+         std::array<std::pair<std::string_view, std::string_view>, 4>{
+             {{"mode.step", "step"}, {"mode.pad", "pad"},
+              {"mode.levels", "levels"}, {"mode.notes", "notes"}}}) {
+        ControlBinding binding;
+        binding.control_id = id;
+        binding.action_id = "pad.mode-select.v1";
+        binding.arguments["mode"] = std::string(mode);
+        profile.bindings.push_back(std::move(binding));
+    }
+    if (capabilities & (1u << 2))
+        for (std::size_t i = 0; i < 5; ++i) {
+            add_control("analog." + std::to_string(i),
+                        i == 4 ? ControlType::crossfader : ControlType::fader);
+            ControlBinding binding;
+            binding.control_id = "analog." + std::to_string(i);
+            binding.parameter_id = std::array<std::string, 5>{
+                "mixer.selected.gain", "mixer.track.aux-1", "mixer.track.aux-2",
+                "mixer.master.gain", "mixer.external.selected.wet"}[i];
+            binding.pickup = true;
+            profile.bindings.push_back(std::move(binding));
+        }
     return profile;
 }
 ControllerProfile minimal_controller_profile() {

@@ -1,6 +1,7 @@
 #include "neurogenic/application/controller_session.hpp"
 #include <algorithm>
 #include <cmath>
+#include <sstream>
 
 namespace neurogenic {
 namespace {
@@ -16,6 +17,15 @@ std::optional<double> normalized(const ParameterDescriptor &parameter) {
                minimum = number(parameter.minimum), maximum = number(parameter.maximum);
     if (!value || !minimum || !maximum || *maximum <= *minimum) return {};
     return std::clamp((*value - *minimum) / (*maximum - *minimum), 0.0, 1.0);
+}
+std::string context_key(const ContextControl &value) {
+    std::ostringstream output;
+    output << value.label << '\x1f' << value.value << '\x1f' << value.unit
+           << '\x1f' << value.parameter_id << '\x1f' << value.action_id
+           << '\x1f' << value.minimum << '\x1f' << value.maximum << '\x1f'
+           << value.active << value.bipolar << value.pickup << ':'
+           << static_cast<int>(value.pickup_direction);
+    return output.str();
 }
 } // namespace
 
@@ -92,12 +102,15 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
     }
     if (mapping->semantic == "modifier-shift") {
         state_.modifiers.shift = input.pressed;
+        ++state_.local_revision;
         state_.resync_required = true;
         error.clear();
         return true;
     }
     if (mapping->semantic == "modifier-select") {
         state_.modifiers.select = input.pressed;
+        ++state_.local_revision;
+        state_.resync_required = true;
         error.clear();
         return true;
     }
@@ -212,11 +225,14 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
                 pickup.set_target(*target);
             if (!pickup.update(value)) {
                 state_.pickup[mapping->control_id] = pickup.state();
+                ++state_.local_revision;
                 state_.resync_required = true;
                 error.clear();
                 return true;
             }
             state_.pickup[mapping->control_id] = pickup.state();
+            ++state_.local_revision;
+            state_.resync_required = true;
         }
         return submit({relative ? "parameter.adjust.v1"
                                 : "parameter.set-normalized.v1",
@@ -229,23 +245,24 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
     return true;
 }
 
-void ControllerSession::feedback(ControllerFeedback value) {
+bool ControllerSession::feedback(ControllerFeedback value) {
     if (feedback_.size() >= capacity_) {
         ++state_.dropped_feedback;
         state_.resync_required = true;
-        return;
+        return false;
     }
     feedback_.push_back(std::move(value));
+    return true;
 }
 
 void ControllerSession::observe(const ApplicationState &snapshot,
                                 bool full_refresh) {
     if (!full_refresh && !state_.resync_required &&
-        state_.feedback_revision == snapshot.revision)
+        state_.feedback_revision == snapshot.revision &&
+        state_.delivered_local_revision == state_.local_revision)
         return;
-    full_refresh = full_refresh || state_.resync_required;
+    if (full_refresh) invalidate_feedback();
     state_.resync_required = false;
-    state_.feedback_revision = snapshot.revision;
     const auto track = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
                                     [&](const auto &item) {
                                         return item.id == snapshot.selected_track;
@@ -277,10 +294,11 @@ void ControllerSession::observe(const ApplicationState &snapshot,
                                                1, snapshot.step_ticks)) %
                                           16))
             color = play;
-        if (full_refresh || pad_colors_[i] != color) {
-            pad_colors_[i] = color;
-            feedback({ControllerFeedbackKind::rgb, "grid." + std::to_string(i),
-                      color, descriptor_.brightness_limit, {}});
+        if (pad_colors_[i] != color) {
+            if (feedback({ControllerFeedbackKind::rgb,
+                          "grid." + std::to_string(i), color,
+                          descriptor_.brightness_limit, {}}))
+                pad_colors_[i] = color;
         }
     }
     for (const auto &mapping : profile_.bindings) {
@@ -306,21 +324,33 @@ void ControllerSession::observe(const ApplicationState &snapshot,
         const auto color = enabled ? active : off;
         auto [cached, inserted] = feedback_colors_.try_emplace(mapping.feedback_id,
                                                                color);
-        if (full_refresh || inserted || cached->second != color) {
-            cached->second = color;
-            feedback({supported ? ControllerFeedbackKind::rgb
-                                : ControllerFeedbackKind::indicator,
-                      mapping.feedback_id, color, descriptor_.brightness_limit,
-                      {}});
+        if (inserted || cached->second != color) {
+            if (feedback({supported ? ControllerFeedbackKind::rgb
+                                    : ControllerFeedbackKind::indicator,
+                          mapping.feedback_id, color,
+                          descriptor_.brightness_limit, {}}))
+                cached->second = color;
+            else if (inserted)
+                feedback_colors_.erase(cached);
         }
     }
     auto context = resolve_controller_context(snapshot, state_.context,
                                               state_.modifiers);
-    for (std::size_t i = 0; i < context.size(); ++i)
-        feedback({ControllerFeedbackKind::context,
-                  (i < 8 ? "parameter." : "function.") +
-                      std::to_string(i < 8 ? i : i - 8),
-                  0, descriptor_.brightness_limit, std::move(context[i])});
+    for (std::size_t i = 0; i < context.size(); ++i) {
+        const auto id = (i < 8 ? "parameter." : "function.") +
+                        std::to_string(i < 8 ? i : i - 8);
+        const auto key = context_key(context[i]);
+        const auto cached = context_cache_.find(id);
+        if (cached == context_cache_.end() || cached->second != key) {
+            if (feedback({ControllerFeedbackKind::context, id, 0,
+                          descriptor_.brightness_limit, std::move(context[i])}))
+                context_cache_[id] = key;
+        }
+    }
+    if (!state_.resync_required) {
+        state_.feedback_revision = snapshot.revision;
+        state_.delivered_local_revision = state_.local_revision;
+    }
 }
 
 std::optional<ControllerFeedback> ControllerSession::next_feedback() {
@@ -333,11 +363,26 @@ std::optional<ControllerFeedback> ControllerSession::next_feedback() {
 
 void ControllerSession::reconnect() noexcept {
     feedback_.clear();
-    state_.resync_required = true;
+    ++state_.local_revision;
+    invalidate_feedback();
 }
 
 void ControllerSession::set_context(std::string context) {
+    if (state_.context == context) return;
     state_.context = std::move(context);
+    ++state_.local_revision;
+    state_.resync_required = true;
+}
+
+void ControllerSession::feedback_delivery_failed() noexcept {
+    feedback_.clear();
+    invalidate_feedback();
+}
+
+void ControllerSession::invalidate_feedback() noexcept {
+    pad_colors_.fill(~std::uint32_t{});
+    feedback_colors_.clear();
+    context_cache_.clear();
     state_.resync_required = true;
 }
 

@@ -127,6 +127,14 @@ normalized values, button transitions, and semantic action. This supports
 bring-up of the planned encoders, contextual/performance buttons, faders,
 crossfader, and data wheel without encoding that layout in the core.
 
+The appliance accepts repeated exact CDC endpoints. Repeated `--controller`
+and corresponding `--controller-id` options create independent sessions; no
+unknown serial device is auto-selected. Third-party MIDI surfaces use
+`--midi-controller-profile FILE`, whose `midi-device` selector is exact. Verify
+reconnect, independent page/Shift state, full feedback refresh, and that
+unmapped musical MIDI still reaches the instrument. CI coverage is simulated;
+physical multi-device and feedback interoperability remain required.
+
 ## Startup, recovery, and shutdown checklist
 
 1. Start with `--headless`; project inspection must work without audio hardware.

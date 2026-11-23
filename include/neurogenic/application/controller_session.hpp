@@ -28,6 +28,7 @@ struct ControllerSessionState {
     ModifierState modifiers;
     std::unordered_map<std::string, PickupState> pickup;
     std::uint64_t received{}, rejected{}, dropped_feedback{}, feedback_revision{};
+    std::uint64_t local_revision{1}, delivered_local_revision{};
     bool resync_required{true};
 };
 
@@ -52,13 +53,22 @@ class ControllerSession {
     bool input(const ControllerInput &, std::string &error);
     void observe(const ApplicationState &, bool full_refresh = false);
     [[nodiscard]] std::optional<ControllerFeedback> next_feedback();
+    [[nodiscard]] bool has_pending_feedback() const noexcept {
+        return !feedback_.empty();
+    }
+    void feedback_delivery_failed() noexcept;
+    void invalidate_feedback() noexcept;
+    [[nodiscard]] bool needs_feedback() const noexcept {
+        return state_.resync_required || !feedback_.empty() ||
+               state_.delivered_local_revision != state_.local_revision;
+    }
     void reconnect() noexcept;
     void set_context(std::string context);
 
   private:
     const ControlBinding *binding(std::string_view control) const;
     bool submit(ApplicationCommand, std::string &error);
-    void feedback(ControllerFeedback);
+    bool feedback(ControllerFeedback);
     ApplicationService *application_{};
     ControllerDeviceDescriptor descriptor_;
     ControllerProfile profile_;
@@ -69,6 +79,7 @@ class ControllerSession {
     bool valid_{};
     std::array<std::uint32_t, 16> pad_colors_{};
     std::unordered_map<std::string, std::uint32_t> feedback_colors_;
+    std::unordered_map<std::string, std::string> context_cache_;
     std::unordered_map<std::string, FaderPickup> pickup_;
     std::unordered_map<std::string, std::string> pickup_targets_;
 };

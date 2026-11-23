@@ -40,8 +40,9 @@ change another surface. Application selection remains global today; local
 pages are per device. Stable and selection-relative parameter resolution uses
 the same application descriptors and semantic setters as GUI clients.
 
-The built-in dedicated profile retains protocol compatibility aliases while
-mapping current controls through profile data. Cluster positions not assigned
+The current built-in dedicated profile contains only the Task 068 inventory.
+Explicit legacy descriptors/profiles retain protocol 1.0/1.1 aliases without
+adding those aliases to a 1.2 device. Cluster positions not assigned
 by that profile are explicitly inert. These assignments are defaults, not
 firmware semantics, and may be replaced by a user profile.
 
@@ -53,28 +54,44 @@ are note momentary, CC absolute, two's-complement relative and binary-offset
 relative. Unmatched MIDI continues through the existing musical note/raw MIDI
 path, so a keyboard is not implicitly treated as a control surface. Existing
 MIDI device selectors provide exact device matching and reconnect behavior.
-MIDI learn remains a control-side profile authoring operation to be completed;
-there is no automatic learning or broad forwarding.
+MIDI learn is explicit and control-side: the caller selects a descriptor
+control and input mode, then the next eligible note/CC records its exact
+logical port, channel and number. Cancellation and timeout leave the profile
+unchanged. Only an active learn consumes its eligible event; unrelated musical
+input remains on the normal MIDI path. Optional note/CC feedback uses the
+configured logical output port.
+
+MIDI-aware `.ngc` files add `midi-device|EXACT SELECTOR` and
+`midi|PORT|CHANNEL|NUMBER|MODE|CONTROL|feedback` records around ordinary
+schema-2 controller records. `--midi-controller-profile FILE` loads one in the
+appliance. Profiles are saved atomically through the control-side API; MIDI
+learn does not yet have a Slint page.
 
 ## Feedback and overflow
 
 Sessions produce generic RGB, indicator, context and text records only when the
 descriptor supports them. Adapters decide the wire encoding. Queues are
-bounded; overflow sets `resync_required`, and reconnect/reset requests a full
-refresh. Logical LED IDs never imply physical chain positions. Contextual data
+bounded. Cache entries advance only after queue acceptance, CDC feedback is not
+removed until its transport has capacity, and overflow guarantees a later full
+resynchronization. Local page/modifier/pickup changes have their own revision;
+reconnect/reset requests a full refresh. Logical LED IDs never imply physical chain positions. Contextual data
 comes from `resolve_controller_context()`, which is also used by the SDL3 and
 Slint adapters without requiring a connected controller.
 
 ## Compatibility and limitations
 
 CDC protocol 1.0, 1.1 and 1.2 framing, CRC, sequence and reconnect behavior is
-preserved. The host-side 1.x profile supplies historical aliases because those
-firmwares do not advertise a full inventory. No project format changed;
+preserved. Explicit 1.0/1.1 descriptors supply historical aliases because
+those firmwares do not advertise a full inventory. A profile is validated as a
+subset of its descriptor and cannot create hardware capability. No project format changed;
 controller profiles remain user/device configuration.
 
-Multiple in-process sessions and simulated/MIDI surfaces are covered by tests.
-The serial appliance currently owns one `ControllerHost` per configured path;
-multi-device enumeration/ownership policy belongs in the appliance coordinator.
+`ControllerCoordinator` is operational in the appliance. Repeated
+`--controller PATH` options create independent exact-path CDC endpoints;
+corresponding repeated `--controller-id ID` values require exact negotiated
+identities. MIDI profiles create independent sessions. Each endpoint owns its
+reconnect, page, modifiers, pickup, feedback and diagnostics while sharing
+`ApplicationService`; unknown devices are never auto-attached.
 Text-display feedback has a generic representation but CDC 1.2 has only its
 existing contextual-label encoding. RP2040 firmware and physical electrical,
 timing, LED, reconnect and multi-device tests remain unimplemented.

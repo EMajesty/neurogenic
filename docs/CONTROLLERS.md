@@ -45,6 +45,13 @@ musical state stays authoritative in `ApplicationService`. Generic MIDI notes
 and CCs may opt into a profile without consuming ordinary musical MIDI input.
 See [controller integration](CONTROLLER_INTEGRATION.md).
 
+Task 070 connects these sessions to the appliance through
+`ControllerCoordinator`. `--controller` and `--controller-id` are repeatable;
+each exact CDC path retains independent reconnect/context/feedback state.
+`--midi-controller-profile` loads an opt-in MIDI surface without changing
+ordinary musical MIDI routing. Local feedback revisions and queue acceptance
+drive bounded overflow recovery.
+
 Mixer clients use `mixer.channel-select.v1`, `mixer.gain-set.v1`,
 `mixer.pan-set.v1`, `mixer.mute-toggle.v1`, `mixer.solo-toggle.v1`,
 `mixer.aux-send-set.v1` and `mixer.output-pair-set.v1`. Eight encoders naturally
@@ -168,9 +175,14 @@ or static action arguments. Complete examples are under
   it deliberately declares no integrated analog controls.
 - `minimal.ngc`: data encoder, Enter, Back and optional joystick/display.
 - `generic-midi.ngc`: generic buttons, knob and fader mappings.
+- `generic-midi-surface.ngc`: runnable MIDI wrapper records with an exact
+  selector placeholder, absolute pickup, relative encoding and optional
+  feedback.
 
 These profiles describe capabilities; they do not claim physical hardware has
-been tested or implement MIDI learn.
+been tested. MIDI learn is available through the control-side adapter API with
+explicit arm, cancel, timeout and atomic profile persistence; a GUI editor is
+not implemented.
 
 ## Performance grid
 
