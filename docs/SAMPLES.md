@@ -152,6 +152,11 @@ and preview all dispatch the actions documented above. Loading and offline
 processing remain asynchronous and the UI changes its active metadata only
 after the normal sample-publication acknowledgement.
 
+The Slint Browser filters selected directories to WAV files and dispatches a
+selection to the currently selected slot through `sample.load.v1`. Missing,
+invalid or disappearing files are reported; failure cannot replace the prior
+callback-acknowledged immutable sample version.
+
 `NEUROGENIC_SLICES 2` is a backward-compatible sidecar format for metadata,
 pad assignments, playback settings and external sample paths; PCM is never
 embedded. Version-one files load with compatibility defaults. Missing

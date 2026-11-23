@@ -48,8 +48,8 @@ real application state and semantic callbacks require `neurogenic-slint`.
   components.
 - `ui/slint/performance.slint` contains the shared application shell and page
   registry. `performance_page.slint`, `sequencer_page.slint`,
-  `sample_page.slint` and `sound_page.slint` are independent typed page
-  components.
+  `sample_page.slint`, `sound_page.slint`, `mixer_page.slint`,
+  `fx_page.slint` and `browser_page.slint` are independent typed page components.
 - `SlintFrontendAdapter` is renderer-independent. Its `SlintUiState` separates
   shell, contextual, Performance, Sequencer and Sample presentation models
   while all values remain copied from production application services.
@@ -62,8 +62,7 @@ visibly unavailable, and touch/mouse hit handling is provided by Slint.
 ## Input and state
 
 The shell exposes Performance, Sequencer, Sample, Sound, Mixer, FX, Browser and
-Setup. Performance, Sequencer, Sample and Sound are implemented; selecting another
-destination keeps navigation operational and labels it as a placeholder.
+Setup. All except Setup have production pages; Setup remains an honest placeholder.
 Sequencer has Step and Arrangement subviews. Modulation remains under Sound/FX, and
 MIDI/controller/system work under Setup.
 
@@ -178,6 +177,26 @@ states rather than UI-side mutations. External loop pair and latency editing
 remain semantic-API/Setup workflows; the page exposes availability and never
 invents absent hardware channels.
 
+## Browser and content management
+
+`browser_page.slint` consumes `SlintBrowserPageState`; it never owns project,
+sample or preset data. Projects, WAV samples, instrument presets and FX presets
+are capability-backed categories. Listings are non-recursive, permission
+errors are reported, unsupported files are filtered, and each listing is
+capped at 512 entries. Filtering, sorting, parent navigation and recent
+locations are page state and update without unrelated application revisions.
+
+Project open/save uses the project lifecycle service and dirty replacement
+requires explicit confirmation. Loading a WAV targets the selected sample slot
+and opens Sample only after dispatch through the immutable publication path.
+Preset rows come from `PresetLibrary`; validation and prepared activation use
+the existing semantic actions and show their destination before activation.
+
+Directory enumeration is bounded and control-side, never audio-callback work.
+It is currently synchronous within that bound. Background pagination,
+removable-media watching, native file picking, recursive indexing and preset
+rename/delete/save actions remain deferred.
+
 ## Current limits
 
 This is a functional shell, not a replacement-complete frontend. Macro services
@@ -186,11 +205,11 @@ Pattern-length editing is not exposed because the semantic API has no matching
 action; arrangement clip movement and resizing are also deferred. The Sample
 page uses path entry because no portable native picker is available, and
 processing-job results require the existing explicit save/publish workflow.
-The Sound preset view cannot enumerate, rename, delete or save presets until
-those operations have semantic application actions. Modulation creation and
+Preset rename, delete and save remain unavailable until those operations have
+semantic application actions. Modulation creation and
 detailed graph editing remain deferred to the FX page.
-Confirmation infrastructure exists, while project save/open dialogs and the
-six non-Performance/Sequencer pages remain deferred. Some arrangement activity
+Browser confirmation covers dirty project replacement, while a portable native
+file picker and Setup page remain deferred. Some arrangement activity
 lacks a single authoritative active-object field and is shown as `Unavailable`
 rather than inferred. Physical touch quality, accessibility and screenshot
 validation still require display hardware; model tests remain headless.

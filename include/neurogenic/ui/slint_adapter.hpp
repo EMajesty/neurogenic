@@ -227,6 +227,28 @@ struct SlintFxPageState {
     std::vector<SlintFxMacroItem> macros;
 };
 
+enum class SlintBrowserEntryKind : std::uint8_t {
+    directory, project, sample, instrument_preset, fx_preset, other
+};
+
+struct SlintBrowserEntry {
+    std::string id, name, path, type, metadata;
+    SlintBrowserEntryKind kind{SlintBrowserEntryKind::other};
+    std::uintmax_t size{};
+    std::int64_t modified{};
+    bool directory{}, compatible{}, selected{};
+};
+
+struct SlintBrowserPageState {
+    std::string category{"projects"}, location, filter, sort{"name"},
+        destination{"Current project"}, preview{"No selection"}, error,
+        confirmation_action, confirmation_message;
+    std::size_t selected{};
+    bool loading{}, confirmation_pending{}, truncated{};
+    std::vector<std::string> categories, recent_locations;
+    std::vector<SlintBrowserEntry> entries;
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
@@ -236,6 +258,7 @@ struct SlintUiState {
     SlintSoundPageState sound;
     SlintMixerPageState mixer;
     SlintFxPageState fx;
+    SlintBrowserPageState browser;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -323,6 +346,17 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool create_fx_route();
     [[nodiscard]] bool select_fx_macro(std::size_t index);
     [[nodiscard]] bool adjust_fx_macro(double steps);
+    [[nodiscard]] bool select_browser_category(std::string category);
+    [[nodiscard]] bool navigate_browser(std::string path);
+    [[nodiscard]] bool browser_parent();
+    [[nodiscard]] bool select_browser_entry(std::size_t index);
+    [[nodiscard]] bool set_browser_filter(std::string filter);
+    [[nodiscard]] bool cycle_browser_sort();
+    [[nodiscard]] bool activate_browser_entry();
+    [[nodiscard]] bool browser_project_action(std::string action,
+                                              std::string path = {});
+    [[nodiscard]] bool browser_preset_action(std::string action);
+    [[nodiscard]] bool confirm_browser_action(bool accept);
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }
@@ -339,6 +373,7 @@ class SlintFrontendAdapter {
     std::string last_error_;
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};
+    std::vector<std::string> browser_recent_locations_;
 };
 
 struct SlintOptions {

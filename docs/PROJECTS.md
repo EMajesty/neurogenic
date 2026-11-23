@@ -199,3 +199,7 @@ opens an empty session.
 project unless the client saves first or explicitly passes `discard=true`.
 Shutdown applies the same Save/Discard/Cancel choice. Save uses the existing
 generation-based writer; no stronger power-loss guarantee is implied.
+
+The Slint Browser invokes these same lifecycle actions. It presents explicit
+dirty-session confirmation before passing `discard=true`; failed opens retain
+the prior usable project and directory selection alone never mutates state.

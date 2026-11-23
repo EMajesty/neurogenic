@@ -2,9 +2,12 @@
 #include "neurogenic/audio/sample_manager.hpp"
 #include "neurogenic/timeline/edit.hpp"
 #include "neurogenic/ui/slint_adapter.hpp"
+#include "neurogenic/project/preset.hpp"
 #include <algorithm>
 #include <array>
 #include <iostream>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 
 namespace {
@@ -427,6 +430,78 @@ int main() {
         engine.process(ack_left, ack_right);
         require(adapter.refresh() && adapter.state().fx.effects.empty(),
                 "removed effect cannot remain as a stale selection");
+        const auto browser_root = std::filesystem::temp_directory_path() /
+            ("neurogenic-browser-" + std::to_string(
+                std::chrono::steady_clock::now().time_since_epoch().count()));
+        std::filesystem::create_directories(browser_root / "folder");
+        std::filesystem::create_directories(browser_root / "project");
+        { std::ofstream(browser_root / "project" / "manifest.ngp")
+              << "NEUROGENIC_PROJECT 1\n"; }
+        { std::ofstream(browser_root / "kick.wav", std::ios::binary) << "RIFF"; }
+        { std::ofstream(browser_root / "ignore.txt") << "not content"; }
+        PresetLibrary preset_library(browser_root / "presets");
+        SoundPreset synth_preset;
+        synth_preset.metadata.id = "browser-synth";
+        synth_preset.metadata.name = "Browser Synth";
+        synth_preset.metadata.type = PresetType::synth_patch;
+        preset_library.save(synth_preset);
+        require(adapter.select_page(6) &&
+                    adapter.state().shell.page_id == "browser" &&
+                    adapter.state().shell.pages[6].implemented,
+                "Browser page is an implemented independent destination");
+        require(adapter.select_browser_category("projects") &&
+                    adapter.navigate_browser(browser_root.string()),
+                "project browser accepts a temporary location");
+        const auto project_entry = std::find_if(
+            adapter.state().browser.entries.begin(),
+            adapter.state().browser.entries.end(), [](const auto &entry) {
+                return entry.kind == SlintBrowserEntryKind::project;
+            });
+        require(project_entry != adapter.state().browser.entries.end(),
+                "project manifests are distinguished from ordinary folders");
+        const auto project_index = static_cast<std::size_t>(std::distance(
+            adapter.state().browser.entries.begin(), project_entry));
+        require(adapter.select_browser_entry(project_index) &&
+                    adapter.activate_browser_entry() &&
+                    adapter.state().browser.confirmation_pending &&
+                    adapter.confirm_browser_action(false),
+                "activating a project enters dirty-session confirmation instead of folder navigation");
+        require(adapter.select_browser_category("samples") &&
+                    adapter.navigate_browser(browser_root.string()) &&
+                    adapter.state().browser.entries.size() == 4 &&
+                    std::none_of(adapter.state().browser.entries.begin(),
+                        adapter.state().browser.entries.end(), [](const auto &entry) {
+                            return entry.name == "ignore.txt";
+                        }),
+                "sample browser includes directories and filters unsupported files");
+        const auto sample_entry = std::find_if(
+            adapter.state().browser.entries.begin(),
+            adapter.state().browser.entries.end(), [](const auto &entry) {
+                return entry.kind == SlintBrowserEntryKind::sample;
+            });
+        require(sample_entry != adapter.state().browser.entries.end() &&
+                    sample_entry->name == "kick.wav",
+                "sample content exposes compatible typed metadata");
+        require(adapter.set_browser_filter("kick") &&
+                    adapter.state().browser.entries.size() == 1 &&
+                    adapter.cycle_browser_sort() &&
+                    adapter.state().browser.sort == "type",
+                "Browser filtering and sorting are page-local and revisioned");
+        require(!adapter.navigate_browser((browser_root / "missing").string()) &&
+                    !adapter.state().browser.error.empty(),
+                "missing browser locations return an actionable error");
+        require(adapter.select_browser_category("instrument-presets") &&
+                    adapter.navigate_browser((browser_root / "presets").string()) &&
+                    adapter.state().browser.entries.size() == 1 &&
+                    adapter.state().browser.entries[0].id == "browser-synth" &&
+                    adapter.browser_preset_action("validate"),
+                "preset library enumeration and validation use production services");
+        require(adapter.browser_project_action("new") &&
+                    adapter.state().browser.confirmation_pending &&
+                    adapter.confirm_browser_action(false) &&
+                    !adapter.state().browser.confirmation_pending,
+                "dirty-project replacement requires explicit confirmation and can cancel");
+        std::filesystem::remove_all(browser_root);
         const auto revision = adapter.state().shell.revision;
         require(!adapter.refresh() || adapter.state().shell.revision >= revision,
                 "revisioned refresh");

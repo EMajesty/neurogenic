@@ -250,6 +250,23 @@ void publish(const SlintUiState &state,
         fx_macros.push_back({static_cast<int>(macro.id), text(macro.name), text(macro.assignments),
             macro.value, macro.enabled, macro.selected});
     window->set_fx_macros(std::make_shared<slint::VectorModel<FxMacroItem>>(std::move(fx_macros)));
+    window->set_browser_category(text(state.browser.category));
+    window->set_browser_location(text(state.browser.location));
+    window->set_browser_destination(text(state.browser.destination));
+    window->set_browser_preview(text(state.browser.preview));
+    window->set_browser_sort(text(state.browser.sort));
+    window->set_browser_filter(text(state.browser.filter));
+    window->set_browser_error(text(state.browser.error));
+    window->set_browser_truncated(state.browser.truncated);
+    window->set_browser_confirmation_pending(state.browser.confirmation_pending);
+    window->set_browser_confirmation_message(text(state.browser.confirmation_message));
+    std::vector<BrowserEntryItem> browser_entries;
+    browser_entries.reserve(state.browser.entries.size());
+    for (const auto &entry : state.browser.entries)
+        browser_entries.push_back({text(entry.name), text(entry.type),
+            text(entry.metadata), entry.directory, entry.compatible, entry.selected});
+    window->set_browser_entries(
+        std::make_shared<slint::VectorModel<BrowserEntryItem>>(std::move(browser_entries)));
 }
 } // namespace
 
@@ -548,6 +565,35 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_fx_macro_adjusted([&](int steps) {
             (void)adapter.adjust_fx_macro(steps); publish(adapter.state(), window);
+        });
+        window->on_browser_category_selected([&](slint::SharedString category) {
+            (void)adapter.select_browser_category(category.data()); publish(adapter.state(), window);
+        });
+        window->on_browser_parent([&] {
+            (void)adapter.browser_parent(); publish(adapter.state(), window);
+        });
+        window->on_browser_entry_selected([&](int index) {
+            (void)adapter.select_browser_entry(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_browser_activate([&] {
+            (void)adapter.activate_browser_entry(); publish(adapter.state(), window);
+        });
+        window->on_browser_filter_requested([&](slint::SharedString filter) {
+            (void)adapter.set_browser_filter(filter.data()); publish(adapter.state(), window);
+        });
+        window->on_browser_sort_requested([&] {
+            (void)adapter.cycle_browser_sort(); publish(adapter.state(), window);
+        });
+        window->on_browser_project_action(
+            [&](slint::SharedString action, slint::SharedString path) {
+                (void)adapter.browser_project_action(action.data(), path.data());
+                publish(adapter.state(), window);
+            });
+        window->on_browser_preset_action([&](slint::SharedString action) {
+            (void)adapter.browser_preset_action(action.data()); publish(adapter.state(), window);
+        });
+        window->on_browser_confirm([&](bool accept) {
+            (void)adapter.confirm_browser_action(accept); publish(adapter.state(), window);
         });
         window->on_notification_dismissed([&] {
             adapter.dismiss_notification();

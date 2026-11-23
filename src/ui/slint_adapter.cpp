@@ -1,12 +1,17 @@
 #include "neurogenic/ui/slint_adapter.hpp"
 #include "neurogenic/audio/slicing.hpp"
+#include "neurogenic/project/preset.hpp"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 
 namespace neurogenic {
 namespace {
+constexpr std::size_t browser_entry_limit = 512;
 constexpr std::array<std::pair<std::string_view, std::string_view>, 8> pages{{
     {"performance", "Performance"}, {"sequencer", "Sequencer"},
     {"sample", "Sample"},           {"sound", "Sound"},
@@ -41,6 +46,27 @@ std::string format_value(double value) {
            << value;
     return stream.str();
 }
+
+std::string lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool browser_file_matches(std::string_view category,
+                          const std::filesystem::directory_entry &entry) {
+    if (entry.is_directory()) return true;
+    const auto extension = lower(entry.path().extension().string());
+    if (category == "samples") return extension == ".wav";
+    return category == "other";
+}
+
+bool project_directory(const std::filesystem::path &path) {
+    std::ifstream manifest(path / "manifest.ngp");
+    std::string magic;
+    unsigned version{};
+    return (manifest >> magic >> version) && magic == "NEUROGENIC_PROJECT";
+}
 } // namespace
 
 std::string format_slint_musical_position(MusicalTick tick,
@@ -67,6 +93,7 @@ std::string slint_recording_label(RecordingState state, bool playing) {
 SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application)
     : application_(application), bindings_(application) {
     (void)refresh();
+    (void)navigate_browser(std::filesystem::current_path().string());
 }
 
 bool SlintFrontendAdapter::refresh() {
@@ -102,7 +129,8 @@ bool SlintFrontendAdapter::refresh() {
         next.shell.pages.push_back({std::string(id), std::string(title),
                                     id == "performance" || id == "sequencer" ||
                                     id == "sample" || id == "sound" ||
-                                        id == "mixer" || id == "fx"});
+                                        id == "mixer" || id == "fx" ||
+                                        id == "browser"});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -664,6 +692,21 @@ bool SlintFrontendAdapter::refresh() {
     if (next.fx.selected_macro >= next.fx.macros.size()) next.fx.selected_macro = 0;
     if (!next.fx.macros.empty()) next.fx.macros[next.fx.selected_macro].selected = true;
     next.fx.error = last_error_;
+    next.browser = state_.browser;
+    if (next.browser.categories.empty())
+        next.browser.categories = {"projects", "samples", "instrument-presets",
+                                   "fx-presets", "other"};
+    next.browser.recent_locations = browser_recent_locations_;
+    if (next.browser.category == "samples")
+        next.browser.destination = "Sample slot " +
+            std::to_string(snapshot.selected_sample_slot.value);
+    else if (next.browser.category == "instrument-presets")
+        next.browser.destination = "Track " + std::to_string(snapshot.selected_track);
+    else if (next.browser.category == "fx-presets")
+        next.browser.destination = "Track " +
+            std::to_string(snapshot.selected_track) + " effect chain";
+    else if (next.browser.category == "projects")
+        next.browser.destination = "Current application session";
     next.mixer.error = last_error_;
     next.shell.notification = last_error_;
     state_ = std::move(next);
@@ -768,12 +811,257 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
-    state_.shell.notification = index < 5
+    state_.shell.notification = index < 7
         ? std::string{}
         : state_.shell.page_title + " is not implemented yet";
     last_error_ = state_.shell.notification;
     ++local_revision_;
     return true;
+}
+
+bool SlintFrontendAdapter::select_browser_category(std::string category) {
+    static constexpr std::array<std::string_view, 5> valid{
+        "projects", "samples", "instrument-presets", "fx-presets", "other"};
+    if (std::find(valid.begin(), valid.end(), category) == valid.end()) {
+        last_error_ = "Unknown browser category";
+        state_.browser.error = last_error_;
+        return false;
+    }
+    state_.browser.category = std::move(category);
+    state_.browser.filter.clear();
+    return navigate_browser(state_.browser.location.empty()
+                                ? std::filesystem::current_path().string()
+                                : state_.browser.location);
+}
+
+bool SlintFrontendAdapter::navigate_browser(std::string path) {
+    namespace fs = std::filesystem;
+    std::error_code error;
+    auto location = fs::absolute(fs::path(std::move(path)), error).lexically_normal();
+    if (error || !fs::is_directory(location, error)) {
+        last_error_ = error ? error.message() : "Browser location is not a directory";
+        state_.browser.error = last_error_;
+        return false;
+    }
+    auto category = state_.browser.category.empty() ? std::string("projects")
+                                                     : state_.browser.category;
+    auto filter = lower(state_.browser.filter);
+    auto sort = state_.browser.sort.empty() ? std::string("name") : state_.browser.sort;
+    SlintBrowserPageState next;
+    next.category = category;
+    next.location = location.string();
+    next.filter = state_.browser.filter;
+    next.sort = sort;
+    next.loading = true;
+    next.categories = {"projects", "samples", "instrument-presets",
+                       "fx-presets", "other"};
+    try {
+        if (category == "instrument-presets" || category == "fx-presets") {
+            PresetLibrary library(location);
+            const auto type = category == "fx-presets"
+                ? std::optional<PresetType>(PresetType::fx_chain) : std::nullopt;
+            for (const auto &metadata : library.enumerate(type)) {
+                if (category == "instrument-presets" &&
+                    metadata.type == PresetType::fx_chain) continue;
+                if (!filter.empty() && lower(metadata.name).find(filter) == std::string::npos &&
+                    lower(metadata.id).find(filter) == std::string::npos)
+                    continue;
+                next.entries.push_back({metadata.id, metadata.name,
+                    (location / metadata.id).string(),
+                    category == "fx-presets" ? "FX preset" : "Instrument preset",
+                    metadata.author, category == "fx-presets"
+                        ? SlintBrowserEntryKind::fx_preset
+                        : SlintBrowserEntryKind::instrument_preset,
+                    0, 0, false, true, false});
+                if (next.entries.size() == browser_entry_limit) {
+                    next.truncated = true;
+                    break;
+                }
+            }
+        } else {
+            fs::directory_iterator iterator(location, fs::directory_options::skip_permission_denied,
+                                            error), end;
+            for (; !error && iterator != end; iterator.increment(error)) {
+                const auto &entry = *iterator;
+                if (!browser_file_matches(category, entry)) continue;
+                const auto name = entry.path().filename().string();
+                if (!filter.empty() && lower(name).find(filter) == std::string::npos)
+                    continue;
+                SlintBrowserEntry item;
+                item.id = entry.path().lexically_normal().string();
+                item.name = name;
+                item.path = item.id;
+                std::error_code entry_error;
+                item.directory = entry.is_directory(entry_error);
+                if (entry_error) continue;
+                if (item.directory) {
+                    item.kind = SlintBrowserEntryKind::directory;
+                    item.type = "Folder";
+                    if (category == "projects" && project_directory(entry.path())) {
+                        item.kind = SlintBrowserEntryKind::project;
+                        item.type = "Project";
+                    }
+                } else if (category == "samples") {
+                    item.kind = SlintBrowserEntryKind::sample;
+                    item.type = "WAV sample";
+                    item.size = entry.file_size(entry_error);
+                } else {
+                    item.kind = SlintBrowserEntryKind::other;
+                    item.type = entry.path().extension().string();
+                    item.size = entry.file_size(entry_error);
+                }
+                entry_error.clear();
+                const auto modified = entry.last_write_time(entry_error);
+                if (!entry_error)
+                    item.modified = static_cast<std::int64_t>(
+                        modified.time_since_epoch().count());
+                item.compatible = item.directory || item.kind == SlintBrowserEntryKind::sample ||
+                                  item.kind == SlintBrowserEntryKind::project;
+                next.entries.push_back(std::move(item));
+                if (next.entries.size() == browser_entry_limit) {
+                    next.truncated = true;
+                    break;
+                }
+            }
+            if (error) throw fs::filesystem_error("directory listing", location, error);
+        }
+        const auto compare = [&](const auto &a, const auto &b) {
+            if (a.directory != b.directory) return a.directory > b.directory;
+            if (sort == "type" && a.type != b.type) return a.type < b.type;
+            if (sort == "date" && a.modified != b.modified) return a.modified > b.modified;
+            return lower(a.name) < lower(b.name);
+        };
+        std::stable_sort(next.entries.begin(), next.entries.end(), compare);
+        next.loading = false;
+        if (!next.entries.empty()) {
+            next.entries.front().selected = true;
+            next.preview = next.entries.front().name + " — " + next.entries.front().type;
+        }
+        browser_recent_locations_.erase(
+            std::remove(browser_recent_locations_.begin(), browser_recent_locations_.end(),
+                        next.location), browser_recent_locations_.end());
+        browser_recent_locations_.insert(browser_recent_locations_.begin(), next.location);
+        if (browser_recent_locations_.size() > 8) browser_recent_locations_.resize(8);
+        next.recent_locations = browser_recent_locations_;
+        state_.browser = std::move(next);
+        ++local_revision_;
+        return refresh();
+    } catch (const std::exception &exception) {
+        last_error_ = exception.what();
+        state_.browser.error = last_error_;
+        state_.browser.loading = false;
+        ++local_revision_;
+        return false;
+    }
+}
+
+bool SlintFrontendAdapter::browser_parent() {
+    if (state_.browser.location.empty()) return false;
+    return navigate_browser(std::filesystem::path(state_.browser.location).parent_path().string());
+}
+
+bool SlintFrontendAdapter::select_browser_entry(std::size_t index) {
+    if (index >= state_.browser.entries.size()) return false;
+    state_.browser.selected = index;
+    for (std::size_t i = 0; i < state_.browser.entries.size(); ++i)
+        state_.browser.entries[i].selected = i == index;
+    const auto &entry = state_.browser.entries[index];
+    state_.browser.preview = entry.name + " — " + entry.type;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_browser_filter(std::string filter) {
+    state_.browser.filter = std::move(filter);
+    return navigate_browser(state_.browser.location);
+}
+
+bool SlintFrontendAdapter::cycle_browser_sort() {
+    state_.browser.sort = state_.browser.sort == "name" ? "type" :
+                          state_.browser.sort == "type" ? "date" : "name";
+    return navigate_browser(state_.browser.location);
+}
+
+bool SlintFrontendAdapter::activate_browser_entry() {
+    if (state_.browser.selected >= state_.browser.entries.size()) return false;
+    const auto entry = state_.browser.entries[state_.browser.selected];
+    if (entry.kind == SlintBrowserEntryKind::project)
+        return browser_project_action("open", entry.path);
+    if (entry.kind == SlintBrowserEntryKind::directory)
+        return navigate_browser(entry.path);
+    if (entry.kind == SlintBrowserEntryKind::sample) {
+        if (!load_sample(entry.path)) return false;
+        return select_page(2);
+    }
+    if (entry.kind == SlintBrowserEntryKind::instrument_preset ||
+        entry.kind == SlintBrowserEntryKind::fx_preset)
+        return browser_preset_action("apply");
+    last_error_ = "Selected content cannot be opened";
+    state_.browser.error = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::browser_project_action(std::string action,
+                                                   std::string path) {
+    const auto dirty = application_.snapshot().project_dirty;
+    if ((action == "open" || action == "new") && dirty) {
+        state_.browser.confirmation_pending = true;
+        state_.browser.confirmation_action = action + "\n" + path;
+        state_.browser.confirmation_message =
+            "The current project has unsaved changes. Discard them?";
+        ++local_revision_;
+        return refresh();
+    }
+    if (action == "open")
+        return execute({"project.open.v1", {{"path", path}, {"discard", false}}, {}, 0});
+    if (action == "new")
+        return execute({"project.new.v1", {{"name", std::string("Untitled")},
+                                            {"discard", false}}, {}, 0});
+    if (action == "save") return execute({"project.save.v1", {}, {}, 0});
+    if (action == "save-as")
+        return execute({"project.save-as.v1", {{"path", path}}, {}, 0});
+    last_error_ = "Unsupported project browser action";
+    return false;
+}
+
+bool SlintFrontendAdapter::browser_preset_action(std::string action) {
+    if (state_.browser.selected >= state_.browser.entries.size()) return false;
+    const auto &entry = state_.browser.entries[state_.browser.selected];
+    if (entry.kind != SlintBrowserEntryKind::instrument_preset &&
+        entry.kind != SlintBrowserEntryKind::fx_preset) return false;
+    const auto mode = entry.kind == SlintBrowserEntryKind::fx_preset
+        ? std::string("insert-fx") : std::string("replace");
+    const auto library = state_.browser.location;
+    if (action == "validate")
+        return execute({"preset.validate.v1", {{"library", library},
+            {"preset_id", entry.id}, {"mode", mode}}, {}, 0});
+    if (action == "apply") {
+        if (!execute({"preset.prepare.v1", {{"library", library},
+            {"preset_id", entry.id}, {"mode", mode}}, {}, 0})) return false;
+        return execute({"preset.apply.v1", {}, {}, 0});
+    }
+    last_error_ = "Preset operation is unavailable";
+    state_.browser.error = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::confirm_browser_action(bool accept) {
+    if (!state_.browser.confirmation_pending) return false;
+    const auto encoded = state_.browser.confirmation_action;
+    state_.browser.confirmation_pending = false;
+    state_.browser.confirmation_action.clear();
+    state_.browser.confirmation_message.clear();
+    ++local_revision_;
+    if (!accept) return refresh();
+    const auto split = encoded.find('\n');
+    const auto action = encoded.substr(0, split);
+    const auto path = split == std::string::npos ? std::string{} : encoded.substr(split + 1);
+    if (action == "open")
+        return execute({"project.open.v1", {{"path", path}, {"discard", true}}, {}, 0});
+    if (action == "new")
+        return execute({"project.new.v1", {{"name", std::string("Untitled")},
+                                            {"discard", true}}, {}, 0});
+    return false;
 }
 
 bool SlintFrontendAdapter::select_track(int direction) {

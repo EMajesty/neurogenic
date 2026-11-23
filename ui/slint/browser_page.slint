@@ -1,0 +1,56 @@
+import { PageButton, EmptyState, ParameterDisplay } from "components.slint";
+import { Theme } from "theme.slint";
+import { LineEdit, ScrollView } from "std-widgets.slint";
+
+export struct BrowserEntryItem { name: string, kind: string, metadata: string, directory: bool, compatible: bool, selected: bool }
+
+export component BrowserPage inherits Rectangle {
+    background: Theme.background;
+    in property <string> category: "projects"; in property <string> location;
+    in property <string> destination; in property <string> preview;
+    in property <string> sort-mode: "name"; in property <string> error;
+    in property <bool> truncated: false; in property <[BrowserEntryItem]> entries;
+    in-out property <string> filter-text;
+    in-out property <string> project-path;
+    callback category-selected(string); callback parent-requested(); callback entry-selected(int);
+    callback entry-activated(); callback filter-requested(string); callback sort-requested();
+    callback project-action(string, string); callback preset-action(string);
+    VerticalLayout { padding: 6px; spacing: 5px;
+        HorizontalLayout { height: 40px; spacing: 4px;
+            PageButton { text: "Projects"; selected: root.category == "projects"; clicked => { root.category-selected("projects"); } }
+            PageButton { text: "Samples"; selected: root.category == "samples"; clicked => { root.category-selected("samples"); } }
+            PageButton { text: "Instrument Presets"; selected: root.category == "instrument-presets"; clicked => { root.category-selected("instrument-presets"); } }
+            PageButton { text: "FX Presets"; selected: root.category == "fx-presets"; clicked => { root.category-selected("fx-presets"); } }
+            PageButton { text: "Other"; selected: root.category == "other"; clicked => { root.category-selected("other"); } }
+        }
+        HorizontalLayout { height: 40px; spacing: 4px;
+            PageButton { text: "Parent"; clicked => { root.parent-requested(); } }
+            LineEdit { horizontal-stretch: 3; text <=> root.filter-text; placeholder-text: "Filter current location"; accepted => { root.filter-requested(self.text); } }
+            PageButton { text: "Apply Filter"; clicked => { root.filter-requested(root.filter-text); } }
+            PageButton { text: "Sort: " + root.sort-mode; clicked => { root.sort-requested(); } }
+        }
+        Text { height: 26px; text: root.location; color: Theme.muted; overflow: elide; }
+        HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            Rectangle { horizontal-stretch: 2; background: Theme.panel; border-radius: Theme.radius;
+                ScrollView { VerticalLayout { padding: 5px; spacing: 3px;
+                    for entry[i] in root.entries: PageButton { height: 42px; text: (entry.directory ? "▸ " : "") + entry.name + "  —  " + entry.kind; selected: entry.selected; implemented: entry.compatible; clicked => { root.entry-selected(i); } }
+                    if root.entries.length == 0: EmptyState { title: "No compatible content"; message: "Choose another category or location."; }
+                } }
+            }
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius;
+                VerticalLayout { padding: 6px; spacing: 5px;
+                    ParameterDisplay { name: "Selected content"; value: root.preview; }
+                    ParameterDisplay { name: "Destination"; value: root.destination; }
+                    PageButton { text: "Open / Apply"; implemented: root.entries.length > 0; clicked => { root.entry-activated(); } }
+                    if root.category == "projects": PageButton { text: "Save"; clicked => { root.project-action("save", ""); } }
+                    if root.category == "projects": LineEdit { text <=> root.project-path; placeholder-text: "Save As project directory"; }
+                    if root.category == "projects": PageButton { text: "Save As"; implemented: root.project-path != ""; clicked => { root.project-action("save-as", root.project-path); } }
+                    if root.category == "projects": PageButton { text: "New Project"; clicked => { root.project-action("new", ""); } }
+                    if root.category == "instrument-presets" || root.category == "fx-presets": PageButton { text: "Validate"; implemented: root.entries.length > 0; clicked => { root.preset-action("validate"); } }
+                    Text { text: root.truncated ? "Listing limited to 512 entries." : ""; color: Theme.muted; wrap: word-wrap; }
+                    Text { text: root.error; color: #ff8080; wrap: word-wrap; }
+                }
+            }
+        }
+    }
+}

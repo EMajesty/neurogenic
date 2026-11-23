@@ -123,6 +123,12 @@ peak/clip indicators follow a known loopback signal. Automated tests use
 simulated mixer state and do not establish physical meter calibration or
 external-processor latency.
 
+On the Browser page, verify touch scrolling and selection with large bounded
+directories, filter text entry, dirty-project confirmation, removable-media
+errors, destination display and preset compatibility at both display targets.
+Temporary-directory tests do not establish physical touchscreen behavior or
+filesystem latency.
+
 ## MIDI and controller inspection
 
 Use `neurogenic --list-devices` for ALSA sequencer ports. Simulated tests cover

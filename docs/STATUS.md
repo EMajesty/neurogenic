@@ -567,3 +567,10 @@ Task 077 adds an independent production Slint FX component with owner-aware
 serial-chain editing, descriptor-driven parameters, modulation-route editing,
 performance macro values and validated external-loop controls. It also closes
 a semantic validation gap for dynamic native-FX modulation destinations.
+
+Task 078 adds an independent production Slint Browser component with bounded
+project/sample/preset navigation, filtering and sorting. Project lifecycle
+operations preserve dirty-session confirmation, WAV loads target the selected
+immutable sample slot, and preset activation remains transactional. Recursive
+indexing, background pagination, native file picking and preset mutation remain
+deferred.

@@ -111,9 +111,11 @@ activated the snapshot it cannot be rolled back as a real-time operation.
 Undo/Redo does not yet capture application as one history entry.
 
 The Slint Sound page exposes validate, prepare, apply and cancel using an
-explicit library path and preset ID. Preset enumeration and saving the current
-instrument remain unavailable because they are not semantic ApplicationService
-actions; the frontend does not call `PresetLibrary` directly.
+explicit library path and preset ID. The Browser performs read-only,
+control-side `PresetLibrary` metadata enumeration, then uses the same semantic
+validation and activation actions. Saving, renaming and deleting presets remain
+unavailable because they are not semantic ApplicationService actions; the UI
+does not mutate the library directly.
 
 ## Relinking and self-contained export
 
