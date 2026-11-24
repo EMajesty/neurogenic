@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+The intended physical/display relationship is defined by
+[Reference Controller V2](REFERENCE_CONTROLLER_V2.md). Slint remains an
+independent presentation client: the locked panel does not make page indices,
+control counts or coordinates application-state identities.
+
 The FX page's Modulation and Macros subviews are the shared standalone
 authoring surface. Modulation creates and manages sources, edits parameters
 from type descriptors, and routes the selected source to compatible effect
@@ -376,3 +381,9 @@ applies the selected target through the coordinator-facing profile service.
 Opaque target IDs are not the primary UI. MIDI learn remains available for
 source capture. Complex typed action-argument editing and modal physical focus
 remain intentionally touch-assisted in this iteration.
+
+The current shell does not yet implement the complete V2 screen contract. V2
+requires eight shifted static-page labels at the top, a right-side 2×4 encoder
+field region and eight shifted function labels at the bottom. Existing shared
+models and callbacks are reusable, but current placement and primary/secondary
+fallback are not the locked interaction.

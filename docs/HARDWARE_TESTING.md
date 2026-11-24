@@ -1,5 +1,10 @@
 # Hardware bring-up and diagnostic reports
 
+Use [Reference Controller V2](REFERENCE_CONTROLLER_V2.md) as the authoritative
+panel/interaction checklist and
+[REFERENCE_CONTROLLER_V2_GAPS.md](audit/task-088/REFERENCE_CONTROLLER_V2_GAPS.md)
+to distinguish implemented software from missing firmware and physical work.
+
 For Task 086, test a dedicated controller, generic CC/relative surface,
 musical keyboard and external destination together. Verify exact-name
 reconnection, unmatched notes, route enable/disable, learn confirmation,
@@ -301,14 +306,16 @@ touchscreen/controller checklist in [SLINT_UI.md](SLINT_UI.md). Automated
 software-renderer PPMs verify generated layout and bindings only; they do not
 validate touch calibration, compositor scaling, display latency, controller
 ergonomics or physical readability.
-### Task 093 provisional-panel validation (NOT RUN)
+### Reference Controller V2 validation (NOT RUN)
 
-- Verify each page/bank label against the eventual encoder and function-button
-  placement; the software reference counts are not a panel freeze.
+- Verify the locked inventory, relative groups and every primary/SHIFT page,
+  encoder, function, editing, navigation and transport assignment. Exact CAD
+  geometry remains owner-supplied.
 - Verify logical pad assignment, reassignment and reconnect feedback without
   assuming MIDI-note or LED-chain ordering.
 - Verify rapid relative encoders, Shift fine mode, inversion, pickup and
   acceleration on representative generic MIDI surfaces.
 - Verify modal confirm/cancel event isolation and stale-event rejection on the
-  final navigation controls. Software tests do not establish switch ergonomics
-  or physical debounce behavior.
+  V2 navigation controls; chord consumption, release ordering, latch recovery,
+  held-pad locks, rollover, RGB cues and hold-and-turn shortcuts. Software tests
+  do not establish switch ergonomics, physical debounce or color readability.

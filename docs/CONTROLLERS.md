@@ -1,5 +1,12 @@
 # Application control and controller API
 
+The authoritative intended panel and default interaction design is
+[Reference Controller V2](REFERENCE_CONTROLLER_V2.md). Its inventory and
+relative placement are locked for current development; default assignments
+remain subject to prototype ergonomics. The implementation remains
+hardware-independent, and current gaps are maintained in
+[REFERENCE_CONTROLLER_V2_GAPS.md](audit/task-088/REFERENCE_CONTROLLER_V2_GAPS.md).
+
 The Slint and dedicated-controller contextual paths use the same copied
 `ContextControl` assignments. In the Modulation context, Depth-/Depth+ and
 Enable carry the selected stable route ID plus validated typed values; a page
@@ -413,6 +420,8 @@ descriptors. Reconnection invalidates feedback and republishes current context.
 The maintenance profile remains the recovery path for a profile that removes
 navigation.
 
-Final transport/navigation grouping, label placement, bank count and any
-additional dedicated controls must be revisited after the physical panel is
-frozen.
+Task 093 predates the locked V2 assignment table. Its shared contexts, typed
+arguments, configurable descriptors and logical pad positions are reusable,
+but its provisional default profile is not the V2 panel implementation. V2
+transport/navigation groups, shifted destinations, chord ownership and screen
+zones must be integrated explicitly, never inferred from numeric profile IDs.

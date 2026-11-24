@@ -47,6 +47,22 @@ activation history and scalable cancellable listings.
 Address AUD2-011 and AUD2-012 using measured domain snapshots and structured
 layout assertions. No broad visual redesign.
 
+## Task 096 — Reference Controller V2 interaction integration
+
+Implement the locked design in `docs/REFERENCE_CONTROLLER_V2.md` using the
+existing hardware-independent semantic/profile architecture. Begin with gesture
+ownership/input epochs, V2 stable identities and shifted page routing, then the
+navigation/edit/transport defaults, descriptor-driven banks and held-step lock
+path. Project-owned Performance encoder/function banks, manual mapping closure
+and firmware feedback conformance follow as bounded subphases. This milestone
+addresses the remaining AUD2-006/AUD2-007 acceptance; exact scope and RC2 IDs
+are in `REFERENCE_CONTROLLER_V2_GAPS.md`.
+
+RC2 gesture ownership may proceed alongside Task 094 if needed for safety.
+Temporary performance-state restoration depends on Task 094's unified history
+decision. Task 095 retains its independent frontend verification objective;
+this addition does not renumber or replace either task.
+
 ## Parallel hardware roadmap
 
 After Task 090, execute `docs/HARDWARE_VALIDATION_REPORT.md` on N150 and Pi 5:
@@ -62,7 +78,8 @@ issues; unperformed rows remain NOT RUN.
 - **Feature-complete initial musical workflow:** reusable song arrangement,
   modulation/macro authoring, live-loop lifecycle and portable recovery.
 - **Reference appliance validation:** all applicable report rows passed on N150;
-  Pi 5 baseline characterized separately.
+  Pi 5 baseline characterized separately, followed by the V2 physical panel
+  checklist once firmware/prototype hardware exists.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 

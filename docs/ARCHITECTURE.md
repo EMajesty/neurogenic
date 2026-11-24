@@ -607,6 +607,12 @@ frontend dependency, allocation or lock to the audio callback. Complete snapshot
 construction remains control-side and is a measured future optimization boundary.
 ### Shared contextual interaction grammar
 
+The locked physical inventory and default interaction policy are specified in
+[Reference Controller V2](REFERENCE_CONTROLLER_V2.md). This is a profile and
+presentation contract, not a new application authority. Stable destinations,
+parameters, actions, logical pad positions and modal transactions remain
+independent of panel indices and coordinates.
+
 `resolve_controller_context()` is the single presentation-neutral resolver for
 Slint and controller sessions. Context identities are `page:bank` strings;
 profiles select them, and unsupported banks fall back to the page's safe

@@ -811,5 +811,24 @@ profiles now round-trip inversion, fine scale and acceleration.
 Software simulation covers physical page selection and launch, explicit
 assignment/reassignment/clear, contextual argument copying, profile round-trip,
 generated bank and mapping-target callbacks, and both rendered resolutions.
-Physical panel ergonomics and final label placement remain NOT RUN because the
-panel layout is not finalized.
+Physical panel ergonomics and final label placement remain NOT RUN. Task 093A
+subsequently locks the V2 inventory and relative layout; it does not provide
+prototype measurements or implement the new assignments.
+
+## Task 093A Reference Controller V2 specification
+
+`REFERENCE_CONTROLLER_V2.md` locks the intended inventory and relative
+placement: eight static page controls, eight contextual functions, eight
+right-side contextual encoders, DATA plus six navigation controls, ten editing
+controls, ten transport/performance controls and sixteen pads. It defines
+primary/SHIFT destinations, modifier chord ownership, held-step locks,
+contextual banks, modal precedence, project-owned Performance customization,
+feedback semantics and the firmware boundary without coupling application state
+to panel positions.
+
+This is a design specification, not an implementation claim. Task 093 provides
+reusable typed contexts, descriptors, logical pad assignments and feedback;
+`REFERENCE_CONTROLLER_V2_GAPS.md` records the missing V2 gesture arbiter,
+shifted page routing, dedicated cluster mappings, held-pad lock path,
+project-owned encoder/function banks, modal focus, RGB policy and firmware/
+physical validation. All physical V2 validation remains NOT RUN.
