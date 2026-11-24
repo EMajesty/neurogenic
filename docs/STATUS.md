@@ -1,5 +1,26 @@
 # Implementation status
 
+## Task 088 consolidated audit
+
+The post-remediation evidence audit is published in
+[`docs/audit/task-088/`](audit/task-088/IMPLEMENTATION_AUDIT.md). It reconciles
+AUD-001–AUD-017 and separates engine, semantic API, Slint, dedicated/generic
+controller, persistence, automated test and physical evidence.
+
+The engine/application surface is broad and the eight Slint pages are real, but
+the first complete standalone song-authoring workflow remains blocked. Step
+editing mutates the legacy `Track::pattern`, whereas reusable pattern lifecycle,
+launching and arrangement clips use `SongArrangement::patterns`; the Slint
+Arrangement subview is selection-only. The audit therefore reopens AUD-002 and
+recommends Task 089 to unify reusable pattern editing and add transactional
+arrangement authoring before optional DSP expansion.
+
+No callback-safety or data-loss P0 was confirmed. A direct host Slint test run
+did expose an assertion abort in libremidi when its udev monitor was unavailable;
+this is tracked as AUD2-004 pending clean-environment reproduction. The default
+Nix package still disables Slint. All N150, Raspberry Pi 5, physical audio/MIDI,
+RP2040 controller and touchscreen validation remains **NOT RUN**.
+
 Task 087 adds a Release `production` preset with Slint, an installable appliance
 tree, Slint-first launcher, storage/device preflight and a graphical-session
 user service with bounded restart. Maintenance mode uses Null audio and isolated
