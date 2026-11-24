@@ -111,18 +111,29 @@ can adjust depth, enable state or delete an existing route through the same
 semantic actions. It intentionally does not duplicate graph creation or
 topology validation; detailed multi-owner editing belongs to FX/Modulation.
 
-The Slint FX/Modulation page now supplies that multi-owner inspection surface:
-it lists stable modulator and route IDs, creates routes to the currently
-selected descriptor-approved effect parameter, and edits depth, enabled state
-and deletion through the existing graph actions. Cycle, scope, capacity and
-destination validation remain authoritative in `ApplicationService`; the UI
-does not build or validate a parallel graph.
+The Slint FX/Modulation page supplies the shared authoring surface. It creates,
+selects from the implemented type registry, creates, duplicates, enables and
+removes descriptor-backed instances; lists and edits
+the selected source's discoverable parameters; creates routes to the currently
+selected compatible descriptor-backed instrument, mixer or effect parameter;
+and edits route depth, enable state and
+deletion. Sound reuses the same authoritative routes for its track-local
+inspector. Cycle, scope, capacity and destination validation remain authoritative
+in `ApplicationService`; the UI does not build or validate a parallel graph.
+
+The UI chooser is populated from semantic discovery and exposes every
+implemented type with its actual parameter, port, owner and update-rate
+descriptors: LFO, ADSR, sample/hold, random, follower, XY, MIDI CC, step,
+Euclidean, clocked random, function and transform/math sources, velocity, gate
+and performance macro sources (macros themselves are authored in the Macro
+subview rather than instantiated as ordinary modulators).
 
 Projects write optional version-3 `modulation.ngm`. It preserves source settings, seeds,
 route IDs, scopes, track IDs, depths, and destinations. Older projects load an
 empty matrix. Forward versions and unsafe destinations are rejected.
 
-Current limitations: no per-voice sample filter, audio-rate modulation,
+Current limitations: no general authoring Undo/Redo (timeline history is a
+separate authority), no per-voice sample filter, audio-rate modulation,
 recursive graphs, modulation curves, or per-track MIDI CC/XY lanes. Dynamic
 voice-local sample ADSR/LFO/function/random/step/velocity/gate sources are
 implemented; group follower taps observe post-fader group audio. Delay

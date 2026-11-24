@@ -6,8 +6,13 @@ export struct FxOwnerItem { name: string, kind: string, selected: bool }
 export struct FxInstanceItem { id: int, name: string, kind: string, bypass: bool, selected: bool }
 export struct FxParameterItem { id: int, name: string, value: string, unit: string, normalized: float, automatable: bool, modulatable: bool, selected: bool }
 export struct FxModulatorItem { id: int, name: string, kind: string, owner: string, enabled: bool, selected: bool }
+export struct FxModulatorParameterItem { id: string, name: string, value: string, unit: string, selected: bool }
+export struct FxModulatorTypeItem { id: int, name: string, category: string, selected: bool }
+export struct FxDestinationItem { id: string, name: string, range: string, selected: bool }
 export struct FxRouteItem { id: int, source: string, destination: string, depth: string, enabled: bool, selected: bool, valid: bool }
 export struct FxMacroItem { id: int, name: string, assignments: string, value: float, enabled: bool, selected: bool }
+export struct FxMacroAssignmentItem { id: int, destination: string, range: string, curve: string, enabled: bool, selected: bool }
+export struct FxSceneItem { id: int, name: string, summary: string, selected: bool }
 
 export component FxPage inherits Rectangle {
     background: Theme.background;
@@ -15,12 +20,19 @@ export component FxPage inherits Rectangle {
     in property <bool> chain-bypass: false; in property <string> error;
     in property <[FxOwnerItem]> owners; in property <[FxInstanceItem]> effects;
     in property <[FxParameterItem]> parameters; in property <[FxModulatorItem]> modulators;
+    in property <[FxModulatorParameterItem]> modulator-parameters;
+    in property <[FxModulatorTypeItem]> modulator-types; in property <[FxDestinationItem]> destinations;
     in property <[FxRouteItem]> routes; in property <[FxMacroItem]> macros;
+    in property <[FxMacroAssignmentItem]> macro-assignments; in property <[FxSceneItem]> macro-scenes;
     in property <[MixerFxItem]> external-fx;
     callback subview-selected(string); callback owner-selected(int); callback effect-selected(int);
     callback effect-add(string); callback effect-action(string); callback parameter-selected(int); callback parameter-adjusted(int);
     callback modulator-selected(int); callback route-selected(int); callback route-action(string); callback route-create();
-    callback macro-selected(int); callback macro-adjusted(int); callback external-selected(int); callback external-adjust(string, int); callback external-toggle(string);
+    callback modulator-type-selected(int); callback modulator-action(string); callback modulator-parameter-selected(int); callback modulator-parameter-adjusted(int); callback destination-selected(int);
+    callback macro-selected(int); callback macro-adjusted(int); callback macro-action(string);
+    callback macro-assignment-selected(int); callback macro-assignment-action(string);
+    callback macro-scene-selected(int); callback macro-scene-action(string);
+    callback external-selected(int); callback external-adjust(string, int); callback external-toggle(string);
     callback preset-action(string);
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 36px; spacing: 4px;
@@ -71,17 +83,30 @@ export component FxPage inherits Rectangle {
         }
         if root.subview == "modulation": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
             VerticalLayout { horizontal-stretch: 1; spacing: 4px; Text { text: "Sources"; color: Theme.foreground; }
+                for kind[i] in root.modulator-types: PageButton { height: 34px; text: kind.name; selected: kind.selected; clicked => { root.modulator-type-selected(i); } }
                 for source[i] in root.modulators: PageButton { text: source.name + " — " + source.kind; selected: source.selected; implemented: source.enabled; clicked => { root.modulator-selected(i); } }
-                if root.modulators.length == 0: EmptyState { title: "No modulators"; message: "Create modulators from Sound or the semantic API."; }
+                if root.modulators.length == 0: EmptyState { title: "No modulators"; message: "Create a descriptor-backed source."; }
+                HorizontalLayout { height: 38px; spacing: 3px; PageButton { text: "Add LFO"; clicked => { root.modulator-action("create"); } } PageButton { text: "Duplicate"; implemented: root.modulators.length > 0; clicked => { root.modulator-action("duplicate"); } } PageButton { text: "Enable"; implemented: root.modulators.length > 0; clicked => { root.modulator-action("toggle"); } } PageButton { text: "Remove"; implemented: root.modulators.length > 0; clicked => { root.modulator-action("delete"); } } }
+                Text { text: "Source parameters"; color: Theme.accent; }
+                for parameter[i] in root.modulator-parameters: PageButton { height: 36px; text: parameter.name + "  " + parameter.value + " " + parameter.unit; selected: parameter.selected; clicked => { root.modulator-parameter-selected(i); } }
+                HorizontalLayout { height: 36px; spacing: 3px; PageButton { text: "Parameter -"; implemented: root.modulator-parameters.length > 0; clicked => { root.modulator-parameter-adjusted(-1); } } PageButton { text: "Parameter +"; implemented: root.modulator-parameters.length > 0; clicked => { root.modulator-parameter-adjusted(1); } } }
             }
             VerticalLayout { horizontal-stretch: 2; spacing: 4px; Text { text: "Routes"; color: Theme.foreground; }
+                Text { text: "Compatible destinations"; color: Theme.accent; }
+                for destination[i] in root.destinations: PageButton { height: 34px; text: destination.name + "  " + destination.range; selected: destination.selected; clicked => { root.destination-selected(i); } }
                 for route[i] in root.routes: PageButton { text: route.source + " → " + route.destination + "  " + route.depth; selected: route.selected; implemented: route.valid; clicked => { root.route-selected(i); } }
-                HorizontalLayout { height: 38px; spacing: 4px; PageButton { text: "Create to Selected Parameter"; implemented: root.modulators.length > 0 && root.parameters.length > 0; clicked => { root.route-create(); } } PageButton { text: "Depth -"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-down"); } } PageButton { text: "Depth +"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-up"); } } PageButton { text: "Enable"; implemented: root.routes.length > 0; clicked => { root.route-action("toggle"); } } PageButton { text: "Remove"; implemented: root.routes.length > 0; clicked => { root.route-action("remove"); } } }
+                HorizontalLayout { height: 38px; spacing: 4px; PageButton { text: "Create Route"; implemented: root.modulators.length > 0 && root.destinations.length > 0; clicked => { root.route-create(); } } PageButton { text: "Depth -"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-down"); } } PageButton { text: "Depth +"; implemented: root.routes.length > 0; clicked => { root.route-action("depth-up"); } } PageButton { text: "Enable"; implemented: root.routes.length > 0; clicked => { root.route-action("toggle"); } } PageButton { text: "Remove"; implemented: root.routes.length > 0; clicked => { root.route-action("remove"); } } }
             }
         }
         if root.subview == "macros": VerticalLayout { vertical-stretch: 1; spacing: 4px;
+            HorizontalLayout { height: 38px; spacing: 4px; PageButton { text: "New Macro"; clicked => { root.macro-action("create"); } } PageButton { text: "Rename"; implemented: root.macros.length > 0; clicked => { root.macro-action("rename"); } } PageButton { text: "Delete"; implemented: root.macros.length > 0; clicked => { root.macro-action("delete"); } } PageButton { text: "Assign Selected Destination"; implemented: root.macros.length > 0 && root.destinations.length > 0; clicked => { root.macro-assignment-action("add"); } } }
             for macro[i] in root.macros: Rectangle { height: 54px; background: macro.selected ? Theme.selected : Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 4px; spacing: 4px; ParameterDisplay { horizontal-stretch: 2; name: macro.name; value: round(macro.value * 100) + "% — " + macro.assignments; } PageButton { text: "-"; clicked => { root.macro-selected(i); root.macro-adjusted(-1); } } PageButton { text: "+"; clicked => { root.macro-selected(i); root.macro-adjusted(1); } } } TouchArea { clicked => { root.macro-selected(i); } } }
-            if root.macros.length == 0: EmptyState { title: "No performance macros"; message: "Macro creation and assignment remain available through semantic services."; }
+            if root.macros.length == 0: EmptyState { title: "No performance macros"; message: "Create a reusable multi-destination performance control."; }
+            for assignment[i] in root.macro-assignments: PageButton { height: 36px; text: assignment.destination + "  " + assignment.range; selected: assignment.selected; clicked => { root.macro-assignment-selected(i); } }
+            HorizontalLayout { height: 36px; spacing: 4px; PageButton { text: "Invert Range"; implemented: root.macro-assignments.length > 0; clicked => { root.macro-assignment-action("invert"); } } PageButton { text: "Remove Assignment"; implemented: root.macro-assignments.length > 0; clicked => { root.macro-assignment-action("remove"); } } }
+            Text { text: "Performance scenes"; color: Theme.accent; }
+            for scene[i] in root.macro-scenes: PageButton { height: 36px; text: scene.name + " — " + scene.summary; selected: scene.selected; clicked => { root.macro-scene-selected(i); } }
+            HorizontalLayout { height: 36px; spacing: 4px; PageButton { text: "Capture"; implemented: root.macros.length > 0; clicked => { root.macro-scene-action("capture"); } } PageButton { text: "Recall"; implemented: root.macro-scenes.length > 0; clicked => { root.macro-scene-action("recall"); } } PageButton { text: "Update"; implemented: root.macro-scenes.length > 0; clicked => { root.macro-scene-action("update"); } } PageButton { text: "Delete"; implemented: root.macro-scenes.length > 0; clicked => { root.macro-scene-action("delete"); } } }
         }
         if root.subview == "external": VerticalLayout { vertical-stretch: 1; spacing: 5px;
             for fx[i] in root.external-fx: Rectangle { height: 66px; background: Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 5px; spacing: 4px; ParameterDisplay { horizontal-stretch: 2; name: fx.name + " — " + fx.status; value: fx.routing + "  Wet " + round(fx.wet * 100) + "%  Lat " + fx.latency-frames + "f"; } PageButton { text: "Send Pair"; clicked => { root.external-selected(i); root.external-toggle("send-pair"); } } PageButton { text: "Return Pair"; clicked => { root.external-selected(i); root.external-toggle("return-pair"); } } PageButton { text: "Send +"; implemented: fx.send-available; clicked => { root.external-selected(i); root.external-adjust("send", 1); } } PageButton { text: "Return +"; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-adjust("return", 1); } } PageButton { text: "Wet +"; implemented: fx.send-available && fx.return-available; clicked => { root.external-selected(i); root.external-adjust("wet", 1); } } PageButton { text: "Latency +"; clicked => { root.external-selected(i); root.external-adjust("latency", 1); } } PageButton { text: "Monitor"; selected: !fx.return-mute; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-toggle("return-mute"); } } PageButton { text: "Enable"; selected: fx.enabled; clicked => { root.external-selected(i); root.external-toggle("enabled"); } } PageButton { text: "Bypass"; implemented: fx.enabled; selected: fx.bypass; clicked => { root.external-selected(i); root.external-toggle("bypass"); } } } }

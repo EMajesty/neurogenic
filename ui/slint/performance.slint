@@ -5,7 +5,7 @@ import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
 import { MixerPage, MixerChannelItem, MixerFxItem } from "mixer_page.slint";
-import { FxPage, FxOwnerItem, FxInstanceItem, FxParameterItem, FxModulatorItem, FxRouteItem, FxMacroItem } from "fx_page.slint";
+import { FxPage, FxOwnerItem, FxInstanceItem, FxParameterItem, FxModulatorItem, FxModulatorParameterItem, FxModulatorTypeItem, FxDestinationItem, FxRouteItem, FxMacroItem, FxMacroAssignmentItem, FxSceneItem } from "fx_page.slint";
 import { BrowserPage, BrowserEntryItem } from "browser_page.slint";
 import { SetupPage, SetupDeviceItem, SetupControllerItem, SetupMidiRouteItem, SetupMappingItem } from "setup_page.slint";
 
@@ -110,7 +110,10 @@ export component PerformanceWindow inherits Window {
     in property <bool> fx-chain-bypass: false; in property <string> fx-error: "";
     in property <[FxOwnerItem]> fx-owners; in property <[FxInstanceItem]> fx-effects;
     in property <[FxParameterItem]> fx-parameters; in property <[FxModulatorItem]> fx-modulators;
+    in property <[FxModulatorParameterItem]> fx-modulator-parameters;
+    in property <[FxModulatorTypeItem]> fx-modulator-types; in property <[FxDestinationItem]> fx-destinations;
     in property <[FxRouteItem]> fx-routes; in property <[FxMacroItem]> fx-macros;
+    in property <[FxMacroAssignmentItem]> fx-macro-assignments; in property <[FxSceneItem]> fx-macro-scenes;
     in property <string> browser-category: "projects"; in property <string> browser-location: "";
     in property <string> browser-destination: "Current project"; in property <string> browser-preview: "No selection";
     in property <string> browser-sort: "name"; in property <string> browser-error: "";
@@ -197,7 +200,10 @@ export component PerformanceWindow inherits Window {
     callback fx-subview-selected(string); callback fx-owner-selected(int); callback fx-effect-selected(int);
     callback fx-effect-add(string); callback fx-effect-action(string); callback fx-parameter-selected(int); callback fx-parameter-adjusted(int);
     callback fx-modulator-selected(int); callback fx-route-selected(int); callback fx-route-action(string); callback fx-route-create();
-    callback fx-macro-selected(int); callback fx-macro-adjusted(int);
+    callback fx-modulator-type-selected(int); callback fx-modulator-action(string); callback fx-modulator-parameter-selected(int); callback fx-modulator-parameter-adjusted(int); callback fx-destination-selected(int);
+    callback fx-macro-selected(int); callback fx-macro-adjusted(int); callback fx-macro-action(string);
+    callback fx-macro-assignment-selected(int); callback fx-macro-assignment-action(string);
+    callback fx-macro-scene-selected(int); callback fx-macro-scene-action(string);
     callback browser-category-selected(string); callback browser-parent(); callback browser-entry-selected(int);
     callback browser-activate(); callback browser-filter-requested(string); callback browser-sort-requested();
     callback browser-project-action(string, string); callback browser-preset-action(string);
@@ -303,13 +309,16 @@ export component PerformanceWindow inherits Window {
         }
         if root.page-id == "fx": FxPage {
             vertical-stretch: 1; subview: root.fx-subview; owner-name: root.fx-owner-name; chain-bypass: root.fx-chain-bypass; error: root.fx-error;
-            owners: root.fx-owners; effects: root.fx-effects; parameters: root.fx-parameters; modulators: root.fx-modulators; routes: root.fx-routes; macros: root.fx-macros; external-fx: root.mixer-external-fx;
+            owners: root.fx-owners; effects: root.fx-effects; parameters: root.fx-parameters; modulators: root.fx-modulators; modulator-parameters: root.fx-modulator-parameters; modulator-types: root.fx-modulator-types; destinations: root.fx-destinations; routes: root.fx-routes; macros: root.fx-macros; macro-assignments: root.fx-macro-assignments; macro-scenes: root.fx-macro-scenes; external-fx: root.mixer-external-fx;
             subview-selected(value) => { root.fx-subview-selected(value); } owner-selected(index) => { root.fx-owner-selected(index); }
             effect-selected(index) => { root.fx-effect-selected(index); } effect-add(kind) => { root.fx-effect-add(kind); }
             effect-action(action) => { root.fx-effect-action(action); } parameter-selected(index) => { root.fx-parameter-selected(index); }
             parameter-adjusted(steps) => { root.fx-parameter-adjusted(steps); } modulator-selected(index) => { root.fx-modulator-selected(index); }
+            modulator-type-selected(index) => { root.fx-modulator-type-selected(index); } modulator-action(action) => { root.fx-modulator-action(action); } modulator-parameter-selected(index) => { root.fx-modulator-parameter-selected(index); } modulator-parameter-adjusted(steps) => { root.fx-modulator-parameter-adjusted(steps); } destination-selected(index) => { root.fx-destination-selected(index); }
             route-selected(index) => { root.fx-route-selected(index); } route-action(action) => { root.fx-route-action(action); } route-create => { root.fx-route-create(); }
-            macro-selected(index) => { root.fx-macro-selected(index); } macro-adjusted(steps) => { root.fx-macro-adjusted(steps); }
+            macro-selected(index) => { root.fx-macro-selected(index); } macro-adjusted(steps) => { root.fx-macro-adjusted(steps); } macro-action(action) => { root.fx-macro-action(action); }
+            macro-assignment-selected(index) => { root.fx-macro-assignment-selected(index); } macro-assignment-action(action) => { root.fx-macro-assignment-action(action); }
+            macro-scene-selected(index) => { root.fx-macro-scene-selected(index); } macro-scene-action(action) => { root.fx-macro-scene-action(action); }
             external-selected(index) => { root.mixer-fx-selected(index); } external-adjust(operation, steps) => { root.mixer-fx-adjust(operation, steps); } external-toggle(operation) => { root.mixer-fx-toggle(operation); }
             preset-action(action) => { root.sound-preset-action(action, "", ""); }
         }

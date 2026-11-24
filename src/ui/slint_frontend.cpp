@@ -35,8 +35,13 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<FxInstanceItem>> fx_effects;
     std::shared_ptr<slint::VectorModel<FxParameterItem>> fx_parameters;
     std::shared_ptr<slint::VectorModel<FxModulatorItem>> fx_modulators;
+    std::shared_ptr<slint::VectorModel<FxModulatorTypeItem>> fx_modulator_types;
+    std::shared_ptr<slint::VectorModel<FxModulatorParameterItem>> fx_modulator_parameters;
+    std::shared_ptr<slint::VectorModel<FxDestinationItem>> fx_destinations;
     std::shared_ptr<slint::VectorModel<FxRouteItem>> fx_routes;
     std::shared_ptr<slint::VectorModel<FxMacroItem>> fx_macros;
+    std::shared_ptr<slint::VectorModel<FxMacroAssignmentItem>> fx_macro_assignments;
+    std::shared_ptr<slint::VectorModel<FxSceneItem>> fx_macro_scenes;
     std::shared_ptr<slint::VectorModel<BrowserEntryItem>> browser_entries;
     std::shared_ptr<slint::VectorModel<slint::SharedString>> browser_missing_assets;
     std::shared_ptr<slint::VectorModel<SetupDeviceItem>> audio_inputs,
@@ -413,6 +418,25 @@ void publish(const SlintUiState &state,
         fx_modulators.push_back({static_cast<int>(modulator.id), text(modulator.name),
             text(modulator.type), text(modulator.owner), modulator.enabled, modulator.selected});
     publish_model(models.fx_modulators, std::move(fx_modulators), [&](auto value) { window->set_fx_modulators(value); });
+    std::vector<FxModulatorTypeItem> fx_modulator_types;
+    for (const auto &type : state.fx.modulator_types)
+        fx_modulator_types.push_back({static_cast<int>(type.id), text(type.name),
+            text(type.category), type.selected});
+    publish_model(models.fx_modulator_types, std::move(fx_modulator_types),
+        [&](auto value) { window->set_fx_modulator_types(value); });
+    std::vector<FxModulatorParameterItem> fx_modulator_parameters;
+    for (const auto &parameter : state.fx.modulator_parameters)
+        fx_modulator_parameters.push_back({text(parameter.id), text(parameter.name),
+            text(parameter.value), text(parameter.unit), parameter.selected});
+    publish_model(models.fx_modulator_parameters,
+        std::move(fx_modulator_parameters),
+        [&](auto value) { window->set_fx_modulator_parameters(value); });
+    std::vector<FxDestinationItem> fx_destinations;
+    for (const auto &destination : state.fx.destinations)
+        fx_destinations.push_back({text(destination.id), text(destination.name),
+            text(destination.range), destination.selected});
+    publish_model(models.fx_destinations, std::move(fx_destinations),
+        [&](auto value) { window->set_fx_destinations(value); });
     std::vector<FxRouteItem> fx_routes;
     for (const auto &route : state.fx.routes)
         fx_routes.push_back({static_cast<int>(route.id), text(route.source), text(route.destination),
@@ -423,6 +447,19 @@ void publish(const SlintUiState &state,
         fx_macros.push_back({static_cast<int>(macro.id), text(macro.name), text(macro.assignments),
             macro.value, macro.enabled, macro.selected});
     publish_model(models.fx_macros, std::move(fx_macros), [&](auto value) { window->set_fx_macros(value); });
+    std::vector<FxMacroAssignmentItem> fx_macro_assignments;
+    for (const auto &assignment : state.fx.macro_assignments)
+        fx_macro_assignments.push_back({static_cast<int>(assignment.id),
+            text(assignment.destination), text(assignment.range),
+            text(assignment.curve), assignment.enabled, assignment.selected});
+    publish_model(models.fx_macro_assignments, std::move(fx_macro_assignments),
+        [&](auto value) { window->set_fx_macro_assignments(value); });
+    std::vector<FxSceneItem> fx_macro_scenes;
+    for (const auto &scene : state.fx.scenes)
+        fx_macro_scenes.push_back({static_cast<int>(scene.id), text(scene.name),
+            text(scene.summary), scene.selected});
+    publish_model(models.fx_macro_scenes, std::move(fx_macro_scenes),
+        [&](auto value) { window->set_fx_macro_scenes(value); });
     window->set_browser_category(text(state.browser.category));
     window->set_browser_location(text(state.browser.location));
     window->set_browser_destination(text(state.browser.destination));
@@ -909,6 +946,21 @@ int run_slint_frontend(ApplicationService &application,
         window->on_fx_modulator_selected([&](int index) {
             (void)adapter.select_fx_modulator(static_cast<std::size_t>(index)); publish(adapter.state(), window);
         });
+        window->on_fx_modulator_type_selected([&](int index) {
+            (void)adapter.select_fx_modulator_type(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_modulator_action([&](slint::SharedString operation) {
+            (void)adapter.manage_fx_modulator(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_modulator_parameter_selected([&](int index) {
+            (void)adapter.select_fx_modulator_parameter(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_modulator_parameter_adjusted([&](int steps) {
+            (void)adapter.adjust_fx_modulator_parameter(steps); publish(adapter.state(), window);
+        });
+        window->on_fx_destination_selected([&](int index) {
+            (void)adapter.select_fx_destination(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
         window->on_fx_route_selected([&](int index) {
             (void)adapter.select_fx_route(static_cast<std::size_t>(index)); publish(adapter.state(), window);
         });
@@ -923,6 +975,21 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_fx_macro_adjusted([&](int steps) {
             (void)adapter.adjust_fx_macro(steps); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_action([&](slint::SharedString operation) {
+            (void)adapter.manage_fx_macro(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_assignment_selected([&](int index) {
+            (void)adapter.select_fx_macro_assignment(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_assignment_action([&](slint::SharedString operation) {
+            (void)adapter.manage_fx_macro_assignment(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_scene_selected([&](int index) {
+            (void)adapter.select_fx_scene(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_fx_macro_scene_action([&](slint::SharedString operation) {
+            (void)adapter.manage_fx_scene(operation.data()); publish(adapter.state(), window);
         });
         window->on_browser_category_selected([&](slint::SharedString category) {
             (void)adapter.select_browser_category(category.data()); publish(adapter.state(), window);
@@ -1086,7 +1153,31 @@ int run_slint_frontend(ApplicationService &application,
                     window->invoke_text_entry_action("cancel");
                     break;
                 case 4: window->invoke_mixer_bank_changed(0); break;
-                case 5: window->invoke_fx_subview_selected("presets"); break;
+                case 5:
+                    window->invoke_fx_subview_selected("modulation");
+                    window->invoke_fx_modulator_action("create");
+                    if (!window->get_fx_modulators() ||
+                        window->get_fx_modulators()->row_count() == 0)
+                        throw std::runtime_error(
+                            "generated modulator creation did not publish");
+                    window->invoke_fx_modulator_selected(0);
+                    if (window->get_fx_modulator_parameters() &&
+                        window->get_fx_modulator_parameters()->row_count() > 0) {
+                        window->invoke_fx_modulator_parameter_selected(0);
+                        window->invoke_fx_modulator_parameter_adjusted(1);
+                    }
+                    window->invoke_fx_subview_selected("macros");
+                    window->invoke_fx_macro_action("create");
+                    if (!window->get_text_entry_visible())
+                        throw std::runtime_error(
+                            "generated macro creation did not open keyboard");
+                    window->invoke_text_entry_action("confirm");
+                    window->invoke_fx_macro_scene_action("capture");
+                    if (!window->get_text_entry_visible())
+                        throw std::runtime_error(
+                            "generated scene capture did not open keyboard");
+                    window->invoke_text_entry_action("confirm");
+                    break;
                 case 6: window->invoke_browser_category_selected("instrument-presets"); break;
                 case 7:
                     window->invoke_setup_subview_selected("midi");

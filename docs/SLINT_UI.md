@@ -1,5 +1,12 @@
 # Slint UI foundation
 
+The FX page's Modulation and Macros subviews are the shared standalone
+authoring surface. Modulation creates and manages sources, edits parameters
+from type descriptors, and routes the selected source to compatible effect
+parameters. Macros use the shared keyboard for names, support multiple
+assignments and inverted native ranges, and capture/recall macro-value scenes.
+Sound presents track-local assignments without maintaining a second graph.
+
 Production appliance builds use the `production` CMake preset and the launcher
 selects `--frontend slint`. Supervision belongs in the user's graphical session;
 see [REFERENCE_APPLIANCE.md](REFERENCE_APPLIANCE.md). Software-rendered target

@@ -426,6 +426,17 @@ ActionRegistry::ActionRegistry() {
                 {"polarity", ValueType::text, false},
                 {"smoothing", ValueType::real, false},
                 {"steps", ValueType::integer, false}}));
+    add(action("macro.assignment-update.v1", "Update macro destination",
+               "Performance",
+               {{"macro_id", ValueType::integer},
+                {"assignment_id", ValueType::integer},
+                {"destination", ValueType::text},
+                {"minimum", ValueType::real},
+                {"maximum", ValueType::real},
+                {"curve", ValueType::text, false},
+                {"polarity", ValueType::text, false},
+                {"smoothing", ValueType::real, false},
+                {"steps", ValueType::integer, false}}));
     add(action("macro.assignment-delete.v1", "Remove macro destination",
                "Performance",
                {{"macro_id", ValueType::integer},
@@ -438,6 +449,18 @@ ActionRegistry::ActionRegistry() {
                 {"curve", ValueType::text, false}}));
     add(action("macro.scene-delete.v1", "Delete performance scene",
                "Performance", {{"id", ValueType::integer}}));
+    add(action("macro.scene-rename.v1", "Rename performance scene",
+               "Performance", {{"id", ValueType::integer},
+                                {"name", ValueType::text}}));
+    add(action("macro.scene-update.v1", "Update performance scene",
+               "Performance", {{"id", ValueType::integer},
+                                {"name", ValueType::text},
+                                {"duration", ValueType::real, false},
+                                {"tempo_sync", ValueType::boolean, false},
+                                {"curve", ValueType::text, false}}));
+    add(action("macro.scene-duplicate.v1", "Duplicate performance scene",
+               "Performance", {{"id", ValueType::integer},
+                                {"name", ValueType::text}}));
     add(action("macro.scene-recall.v1", "Recall performance scene",
                "Performance",
                {{"id", ValueType::integer},
@@ -1763,7 +1786,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         mixer_configuration_, ignored);
                 }
             }
-        } else if (command.action_id == "macro.assignment-set.v1") {
+        } else if (command.action_id == "macro.assignment-set.v1" ||
+                   command.action_id == "macro.assignment-update.v1") {
             MacroAssignment assignment;
             assignment.destination_id = text("destination");
             assignment.minimum = static_cast<float>(real("minimum"));
@@ -1787,12 +1811,69 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 assignment.polarity = ModulationPolarity::bipolar;
             else if (polarity != "unipolar")
                 error = "unknown macro assignment polarity";
+            const auto destination =
+                resolve_parameter_destination(assignment.destination_id);
+            std::optional<std::pair<float, float>> destination_range;
+            if (const auto descriptor =
+                    parameters_.get(assignment.destination_id);
+                descriptor && descriptor->modulatable &&
+                descriptor->type == ParameterType::real)
+                destination_range = {
+                    {static_cast<float>(number(descriptor->minimum)),
+                     static_cast<float>(number(descriptor->maximum))}};
+            else if (destination &&
+                     destination->target != ParameterTarget::native_effect) {
+                for (const auto &descriptor : parameters_.parameters())
+                    if (const auto candidate =
+                            resolve_parameter_destination(descriptor.id);
+                        candidate && descriptor.modulatable &&
+                        descriptor.type == ParameterType::real &&
+                        candidate->target == destination->target &&
+                        candidate->parameter == destination->parameter) {
+                        destination_range = {{
+                            static_cast<float>(number(descriptor.minimum)),
+                            static_cast<float>(number(descriptor.maximum))}};
+                        break;
+                    }
+            }
+            else if (destination &&
+                     destination->target == ParameterTarget::native_effect) {
+                const auto effect = std::find_if(
+                    mixer_configuration_.effects.instances.begin(),
+                    mixer_configuration_.effects.instances.begin() +
+                        mixer_configuration_.effects.instance_count,
+                    [&](const auto &candidate) {
+                        return candidate.id == destination->instance;
+                    });
+                if (effect != mixer_configuration_.effects.instances.begin() +
+                                  mixer_configuration_.effects.instance_count)
+                    for (const auto &descriptor :
+                         effect_parameter_descriptors(effect->type))
+                        if (descriptor.id == destination->parameter &&
+                            descriptor.modulatable)
+                            destination_range = {
+                                {descriptor.minimum, descriptor.maximum}};
+            }
+            if (!destination_range)
+                error = "macro destination is not a modulatable real parameter";
+            else if (assignment.minimum < destination_range->first ||
+                     assignment.minimum > destination_range->second ||
+                     assignment.maximum < destination_range->first ||
+                     assignment.maximum > destination_range->second)
+                error = "macro assignment range exceeds destination range";
             MacroAssignmentId id{};
-            if (error.empty() && performance_macros_.assign(
-                                     static_cast<PerformanceMacroId>(
-                                         integer("macro_id")),
-                                     std::move(assignment), id, error))
-                structural = true;
+            if (error.empty()) {
+                const auto macro_id = static_cast<PerformanceMacroId>(
+                    integer("macro_id"));
+                if (command.action_id == "macro.assignment-update.v1")
+                    structural = performance_macros_.update_assignment(
+                        macro_id,
+                        static_cast<MacroAssignmentId>(integer("assignment_id")),
+                        std::move(assignment), error);
+                else if (performance_macros_.assign(
+                             macro_id, std::move(assignment), id, error))
+                    structural = true;
+            }
         } else if (command.action_id == "macro.assignment-delete.v1") {
             structural = performance_macros_.remove_assignment(
                 static_cast<PerformanceMacroId>(integer("macro_id")),
@@ -1807,6 +1888,31 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         } else if (command.action_id == "macro.scene-delete.v1") {
             structural = performance_macros_.erase_scene(
                 static_cast<PerformanceSceneId>(integer("id")), error);
+        } else if (command.action_id == "macro.scene-rename.v1") {
+            structural = performance_macros_.rename_scene(
+                static_cast<PerformanceSceneId>(integer("id")), text("name"),
+                error);
+        } else if (command.action_id == "macro.scene-update.v1") {
+            const auto scene_id =
+                static_cast<PerformanceSceneId>(integer("id"));
+            const auto scenes = performance_macros_.project().scenes;
+            const auto found = std::find_if(
+                scenes.begin(), scenes.end(), [=](const auto &scene) {
+                    return scene.id == scene_id;
+                });
+            if (found == scenes.end())
+                error = "performance scene was not found";
+            else
+                structural = performance_macros_.update_scene(
+                    scene_id, text("name", found->name),
+                    static_cast<float>(real("duration", found->morph_duration)),
+                    boolean("tempo_sync", found->tempo_sync),
+                    morph_curve(text("curve"), found->curve), error);
+        } else if (command.action_id == "macro.scene-duplicate.v1") {
+            PerformanceSceneId id{};
+            structural = performance_macros_.duplicate_scene(
+                static_cast<PerformanceSceneId>(integer("id")), text("name"),
+                id, error);
         } else if (command.action_id == "macro.scene-recall.v1") {
             const auto scene_id =
                 static_cast<PerformanceSceneId>(integer("id"));
@@ -7967,6 +8073,10 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             if (error.empty()) {
                 modulation_configuration_ = next;
                 project_.modulation = next;
+                if (command.action_id == "modulator.route-create.v1" &&
+                    next.route_count)
+                    state_.selected_modulation_route =
+                        next.routes[next.route_count - 1].id;
                 changed_locked();
             }
         } else if (command.action_id == "modulation.route-create.v1") {
@@ -8233,11 +8343,26 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             if (source < 0 ||
                 source >= static_cast<std::int64_t>(ModulationSourceId::count))
                 error = "invalid modulation source";
-            else if (!publish_modulation_with_macros(modulation_configuration_,
-                                                     error))
-                error = "modulation publication queue is full";
-            else
-                changed_locked();
+            else {
+                auto next = modulation_configuration_;
+                next.sources[static_cast<std::size_t>(source)] = {};
+                bool incompatible{};
+                for (std::size_t i = 0; i < next.route_count; ++i)
+                    incompatible |=
+                        next.routes[i].source ==
+                            static_cast<ModulationSourceId>(source) &&
+                        next.routes[i].scope != ModulationScope::global;
+                if (incompatible)
+                    error = "default source scope conflicts with an existing route";
+                else if (!publish_modulation_with_macros(next, error))
+                    error = "modulation publication queue is full";
+                else {
+                    modulation_configuration_ = next;
+                    project_.modulation = next;
+                    state_.project_dirty = true;
+                    changed_locked();
+                }
+            }
         } else if (command.action_id == "modulation.xy.v1") {
             const auto position = *argument<NormalizedXY>(command, "position");
             if (position.x < 0 || position.x > 1 || position.y < 0 ||

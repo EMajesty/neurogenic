@@ -733,6 +733,10 @@ bool SlintFrontendAdapter::refresh() {
         ? std::string_view("samples")
         : next.shell.page_id == "sound" ? std::string_view("parameters")
         : next.shell.page_id == "mixer" ? std::string_view("mixer")
+        : next.shell.page_id == "fx" && state_.fx.subview == "modulation"
+            ? std::string_view("modulation")
+        : next.shell.page_id == "fx" && state_.fx.subview == "macros"
+            ? std::string_view("performance")
         : next.shell.page_id == "fx" ? std::string_view("parameters")
         : next.shell.page_id == "performance" ? std::string_view("performance")
                                                 : std::string_view("sequencer");
@@ -1199,9 +1203,14 @@ bool SlintFrontendAdapter::refresh() {
     next.fx.selected_owner = state_.fx.selected_owner;
     next.fx.selected_effect = state_.fx.selected_effect;
     next.fx.selected_parameter = state_.fx.selected_parameter;
+    next.fx.selected_modulator_type = state_.fx.selected_modulator_type;
     next.fx.selected_modulator = state_.fx.selected_modulator;
+    next.fx.selected_modulator_parameter = state_.fx.selected_modulator_parameter;
+    next.fx.selected_destination = state_.fx.selected_destination;
     next.fx.selected_route = state_.fx.selected_route;
     next.fx.selected_macro = state_.fx.selected_macro;
+    next.fx.selected_macro_assignment = state_.fx.selected_macro_assignment;
+    next.fx.selected_scene = state_.fx.selected_scene;
     for (std::size_t i = 0; i < configuration.track_count; ++i) {
         const auto id = configuration.tracks[i].track;
         const auto summary = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
@@ -1291,6 +1300,40 @@ bool SlintFrontendAdapter::refresh() {
     }
     if (next.fx.selected_parameter >= next.fx.parameters.size()) next.fx.selected_parameter = 0;
     if (!next.fx.parameters.empty()) next.fx.parameters[next.fx.selected_parameter].selected = true;
+    for (const auto &type : modulator_type_registry())
+        if (type.type != ModulatorType::performance_macro)
+            next.fx.modulator_types.push_back(
+                {static_cast<std::int64_t>(type.type), std::string(type.name),
+                 std::string(type.category), false});
+    if (next.fx.selected_modulator_type >= next.fx.modulator_types.size())
+        next.fx.selected_modulator_type = 0;
+    if (!next.fx.modulator_types.empty())
+        next.fx.modulator_types[next.fx.selected_modulator_type].selected = true;
+    for (const auto &parameter : snapshot.parameters) {
+        const auto destination = resolve_parameter_destination(parameter.id);
+        if (!destination || !parameter.modulatable ||
+            parameter.type != ParameterType::real)
+            continue;
+        next.fx.destinations.push_back(
+            {parameter.id, parameter.name,
+             format_value(numeric_value(parameter.minimum)) + ".." +
+                 format_value(numeric_value(parameter.maximum)) + " " + parameter.unit,
+             numeric_value(parameter.minimum), numeric_value(parameter.maximum), false});
+    }
+    for (const auto &parameter : next.fx.parameters)
+        if (parameter.modulatable && next.fx.selected_effect < next.fx.effects.size())
+            next.fx.destinations.push_back(
+                {"fx." + std::to_string(next.fx.effects[next.fx.selected_effect].id) +
+                     "." + std::to_string(parameter.id),
+                 next.fx.effects[next.fx.selected_effect].name + " / " +
+                     parameter.name,
+                 format_value(parameter.minimum) + ".." +
+                     format_value(parameter.maximum) + " " + parameter.unit,
+                 parameter.minimum, parameter.maximum, false});
+    if (next.fx.selected_destination >= next.fx.destinations.size())
+        next.fx.selected_destination = 0;
+    if (!next.fx.destinations.empty())
+        next.fx.destinations[next.fx.selected_destination].selected = true;
     for (std::size_t i = 0; i < snapshot.modulation.modulator_count; ++i) {
         const auto &modulator = snapshot.modulation.modulators[i];
         const auto *descriptor = find_modulator_type(modulator.type);
@@ -1303,12 +1346,54 @@ bool SlintFrontendAdapter::refresh() {
     }
     if (next.fx.selected_modulator >= next.fx.modulators.size()) next.fx.selected_modulator = 0;
     if (!next.fx.modulators.empty()) next.fx.modulators[next.fx.selected_modulator].selected = true;
+    if (!next.fx.modulators.empty()) {
+        const auto selected_id = next.fx.modulators[next.fx.selected_modulator].id;
+        const auto instance = std::find_if(
+            snapshot.modulation.modulators.begin(),
+            snapshot.modulation.modulators.begin() + snapshot.modulation.modulator_count,
+            [=](const auto &value) { return value.id == selected_id; });
+        if (instance != snapshot.modulation.modulators.begin() +
+                            snapshot.modulation.modulator_count)
+            if (const auto *type = find_modulator_type(instance->type))
+                for (const auto &parameter : type->parameters) {
+                    const auto current = modulator_parameter_value(
+                        instance->settings, instance->type, parameter.numeric_id);
+                    next.fx.modulator_parameters.push_back(
+                        {std::string(parameter.id), std::string(parameter.name),
+                         format_value(current), std::string(parameter.unit),
+                         parameter.minimum, parameter.maximum, current,
+                         parameter.discrete, false});
+                }
+    }
+    if (next.fx.selected_modulator_parameter >=
+        next.fx.modulator_parameters.size())
+        next.fx.selected_modulator_parameter = 0;
+    if (!next.fx.modulator_parameters.empty())
+        next.fx.modulator_parameters[next.fx.selected_modulator_parameter]
+            .selected = true;
     for (std::size_t i = 0; i < snapshot.modulation.route_count; ++i) {
         const auto &route = snapshot.modulation.routes[i];
+        auto destination_label = std::string("Parameter ") +
+                                 std::to_string(route.destination.parameter);
+        for (const auto &parameter : snapshot.parameters)
+            if (const auto destination =
+                    resolve_parameter_destination(parameter.id);
+                destination &&
+                destination->target == route.destination.target &&
+                destination->parameter == route.destination.parameter &&
+                (!route.destination.instance || !destination->instance ||
+                 destination->instance == route.destination.instance)) {
+                destination_label = parameter.name;
+                break;
+            }
+        if (route.destination.target == ParameterTarget::native_effect)
+            destination_label = "FX " +
+                std::to_string(route.destination.instance) + " / " +
+                destination_label;
         next.fx.routes.push_back({route.id, route.source_instance,
             route.source_instance ? "Modulator " + std::to_string(route.source_instance)
                                   : "Source " + std::to_string(static_cast<unsigned>(route.source)),
-            "Parameter " + std::to_string(route.destination.parameter),
+            std::move(destination_label),
             format_value(route.depth), route.enabled, false, true});
     }
     if (next.fx.selected_route >= next.fx.routes.size()) next.fx.selected_route = 0;
@@ -1325,6 +1410,38 @@ bool SlintFrontendAdapter::refresh() {
     }
     if (next.fx.selected_macro >= next.fx.macros.size()) next.fx.selected_macro = 0;
     if (!next.fx.macros.empty()) next.fx.macros[next.fx.selected_macro].selected = true;
+    if (!next.fx.macros.empty()) {
+        const auto macro_id = next.fx.macros[next.fx.selected_macro].id;
+        const auto macro = std::find_if(
+            snapshot.performance_macros.macros.begin(),
+            snapshot.performance_macros.macros.end(),
+            [=](const auto &value) { return value.id == macro_id; });
+        if (macro != snapshot.performance_macros.macros.end())
+            for (const auto &assignment : macro->assignments)
+                next.fx.macro_assignments.push_back(
+                    {assignment.id, macro->id, assignment.destination_id,
+                     format_value(assignment.minimum) + ".." +
+                         format_value(assignment.maximum),
+                     std::to_string(static_cast<unsigned>(assignment.curve)),
+                     assignment.minimum, assignment.maximum,
+                     assignment.enabled, false});
+    }
+    if (next.fx.selected_macro_assignment >=
+        next.fx.macro_assignments.size())
+        next.fx.selected_macro_assignment = 0;
+    if (!next.fx.macro_assignments.empty())
+        next.fx.macro_assignments[next.fx.selected_macro_assignment].selected = true;
+    for (const auto &scene : snapshot.performance_macros.scenes)
+        next.fx.scenes.push_back(
+            {scene.id, scene.name,
+             std::to_string(scene.macro_values.size()) + " macros / " +
+                 format_value(scene.morph_duration) +
+                 (scene.tempo_sync ? " beats" : " seconds"),
+             false});
+    if (next.fx.selected_scene >= next.fx.scenes.size())
+        next.fx.selected_scene = 0;
+    if (!next.fx.scenes.empty())
+        next.fx.scenes[next.fx.selected_scene].selected = true;
     next.fx.error = last_error_;
     next.browser = state_.browser;
     next.browser.missing_assets.clear();
@@ -1837,11 +1954,12 @@ bool SlintFrontendAdapter::relink_missing_asset(bool map_directory) {
 
 bool SlintFrontendAdapter::request_text_entry(std::string operation,
                                                std::string current) {
-    static constexpr std::array<std::string_view, 13> supported{
+    static constexpr std::array<std::string_view, 16> supported{
         "project-new", "project-save-as", "track-rename", "pattern-rename",
         "recording-export", "processing-export", "profile-save", "browser-filter",
         "preset-capture-sound", "preset-capture-fx", "preset-rename",
-        "preset-duplicate", "preset-export-portable"};
+        "preset-duplicate", "preset-export-portable", "macro-create",
+        "macro-rename", "macro-scene-capture"};
     if (std::find(supported.begin(), supported.end(), operation) == supported.end())
         return false;
     state_.text_entry = {};
@@ -1878,6 +1996,10 @@ bool SlintFrontendAdapter::request_text_entry(std::string operation,
     else if (state_.text_entry.operation == "preset-capture-sound")
         state_.text_entry.context_preset_type =
             state_.sound.sample ? "sample" : "synth";
+    else if (state_.text_entry.operation == "macro-rename" &&
+             state_.fx.selected_macro < state_.fx.macros.size())
+        state_.text_entry.context_id =
+            state_.fx.macros[state_.fx.selected_macro].id;
     ++local_revision_;
     return refresh();
 }
@@ -1926,6 +2048,19 @@ bool SlintFrontendAdapter::text_entry_action(std::string action) {
             accepted = execute({"pattern.rename.v1",
                 {{"id", static_cast<std::int64_t>(state_.sequencer.selected_pattern_id)},
                  {"name", value}}, {}, 0});
+        else if (operation == "macro-create")
+            accepted = execute({"macro.create.v1",
+                {{"name", value}, {"owner", std::string("project")},
+                 {"value", 0.0}}, {}, 0});
+        else if (operation == "macro-rename")
+            accepted = execute({"macro.rename.v1",
+                {{"id", static_cast<std::int64_t>(entry.context_id)},
+                 {"name", value}}, {}, 0});
+        else if (operation == "macro-scene-capture")
+            accepted = execute({"macro.scene-capture.v1",
+                {{"name", value}, {"duration", 0.0},
+                 {"tempo_sync", false}, {"curve", std::string("linear")}},
+                {}, 0});
         else if (operation == "project-new") {
             if (application_.snapshot().project_dirty) {
                 state_.browser.confirmation_pending = true;
@@ -3320,6 +3455,84 @@ bool SlintFrontendAdapter::select_fx_modulator(std::size_t index) {
     return refresh();
 }
 
+bool SlintFrontendAdapter::select_fx_modulator_type(std::size_t index) {
+    if (index >= state_.fx.modulator_types.size()) return false;
+    state_.fx.selected_modulator_type = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::manage_fx_modulator(std::string operation) {
+    if (operation == "create") {
+        if (state_.fx.selected_modulator_type >=
+            state_.fx.modulator_types.size())
+            return false;
+        auto owner = ModulatorOwnerKind::master;
+        std::uint64_t owner_id{};
+        if (state_.fx.owner_kind == "track") {
+            owner = ModulatorOwnerKind::track;
+            owner_id = state_.sound.track_id;
+        } else if (state_.fx.owner_kind == "group") {
+            owner = ModulatorOwnerKind::group;
+            owner_id = static_cast<std::uint64_t>(state_.fx.owner_index);
+        } else if (state_.fx.owner_kind == "aux") {
+            owner = ModulatorOwnerKind::auxiliary;
+            owner_id = static_cast<std::uint64_t>(state_.fx.owner_index);
+        }
+        return execute({"modulator.create.v1",
+            {{"type", state_.fx.modulator_types[
+                          state_.fx.selected_modulator_type].id},
+             {"owner", static_cast<std::int64_t>(owner)},
+             {"owner_id", static_cast<std::int64_t>(owner_id)},
+             {"name", std::string("LFO")}}, {}, 0});
+    }
+    if (state_.fx.selected_modulator >= state_.fx.modulators.size())
+        return false;
+    const auto &source = state_.fx.modulators[state_.fx.selected_modulator];
+    if (operation == "duplicate")
+        return execute({"modulator.duplicate.v1",
+            {{"id", static_cast<std::int64_t>(source.id)}}, {}, 0});
+    if (operation == "toggle")
+        return execute({"modulator.enable.v1",
+            {{"id", static_cast<std::int64_t>(source.id)},
+             {"enabled", !source.enabled}}, {}, 0});
+    if (operation == "delete")
+        return execute({"modulator.delete.v1",
+            {{"id", static_cast<std::int64_t>(source.id)}}, {}, 0});
+    return false;
+}
+
+bool SlintFrontendAdapter::select_fx_destination(std::size_t index) {
+    if (index >= state_.fx.destinations.size()) return false;
+    state_.fx.selected_destination = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::select_fx_modulator_parameter(std::size_t index) {
+    if (index >= state_.fx.modulator_parameters.size()) return false;
+    state_.fx.selected_modulator_parameter = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::adjust_fx_modulator_parameter(double steps) {
+    if (state_.fx.selected_modulator >= state_.fx.modulators.size() ||
+        state_.fx.selected_modulator_parameter >=
+            state_.fx.modulator_parameters.size())
+        return false;
+    const auto &source = state_.fx.modulators[state_.fx.selected_modulator];
+    const auto &parameter = state_.fx.modulator_parameters[
+        state_.fx.selected_modulator_parameter];
+    const auto increment = parameter.discrete
+        ? 1.0 : std::max((parameter.maximum - parameter.minimum) / 100.0, .001);
+    return execute({"modulator.parameter-set.v1",
+        {{"id", static_cast<std::int64_t>(source.id)},
+         {"parameter", parameter.id},
+         {"value", std::clamp(parameter.current + steps * increment,
+                               parameter.minimum, parameter.maximum)}}, {}, 0});
+}
+
 bool SlintFrontendAdapter::select_fx_route(std::size_t index) {
     if (index >= state_.fx.routes.size()) return false;
     state_.fx.selected_route = index;
@@ -3351,18 +3564,15 @@ bool SlintFrontendAdapter::edit_fx_route(std::string operation) {
 
 bool SlintFrontendAdapter::create_fx_route() {
     if (state_.fx.selected_modulator >= state_.fx.modulators.size() ||
-        state_.fx.selected_effect >= state_.fx.effects.size() ||
-        state_.fx.selected_parameter >= state_.fx.parameters.size()) {
-        last_error_ = "Select a modulator and effect parameter first";
+        state_.fx.selected_destination >= state_.fx.destinations.size()) {
+        last_error_ = "Select a modulator and compatible destination first";
         return false;
     }
     const auto &source = state_.fx.modulators[state_.fx.selected_modulator];
-    const auto &effect = state_.fx.effects[state_.fx.selected_effect];
-    const auto &parameter = state_.fx.parameters[state_.fx.selected_parameter];
+    const auto &destination = state_.fx.destinations[state_.fx.selected_destination];
     return execute({"modulator.route-create.v1",
                     {{"source_id", static_cast<std::int64_t>(source.id)},
-                     {"destination", "fx." + std::to_string(effect.id) + "." +
-                                         std::to_string(parameter.id)},
+                     {"destination", destination.id},
                      {"depth", 0.5}}, {}, 0});
 }
 
@@ -3379,6 +3589,92 @@ bool SlintFrontendAdapter::adjust_fx_macro(double steps) {
     return execute({"macro.value-set.v1",
                     {{"id", static_cast<std::int64_t>(macro.id)},
                      {"value", std::clamp<double>(macro.value + steps * .05, 0.0, 1.0)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::manage_fx_macro(std::string operation) {
+    if (operation == "create")
+        return request_text_entry("macro-create", "Macro");
+    if (state_.fx.selected_macro >= state_.fx.macros.size()) return false;
+    const auto &macro = state_.fx.macros[state_.fx.selected_macro];
+    if (operation == "rename")
+        return request_text_entry("macro-rename", macro.name);
+    if (operation == "delete")
+        return execute({"macro.delete.v1",
+            {{"id", static_cast<std::int64_t>(macro.id)}}, {}, 0});
+    return false;
+}
+
+bool SlintFrontendAdapter::select_fx_macro_assignment(std::size_t index) {
+    if (index >= state_.fx.macro_assignments.size()) return false;
+    state_.fx.selected_macro_assignment = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::manage_fx_macro_assignment(std::string operation) {
+    if (state_.fx.selected_macro >= state_.fx.macros.size()) return false;
+    const auto &macro = state_.fx.macros[state_.fx.selected_macro];
+    if (operation == "add") {
+        if (state_.fx.selected_destination >= state_.fx.destinations.size()) {
+            last_error_ = "Select a compatible parameter destination first";
+            return false;
+        }
+        const auto &destination =
+            state_.fx.destinations[state_.fx.selected_destination];
+        return execute({"macro.assignment-set.v1",
+            {{"macro_id", static_cast<std::int64_t>(macro.id)},
+             {"destination", destination.id},
+             {"minimum", destination.minimum},
+             {"maximum", destination.maximum},
+             {"curve", std::string("linear")},
+             {"polarity", std::string("unipolar")}, {"steps", std::int64_t{2}}},
+            {}, 0});
+    }
+    if (state_.fx.selected_macro_assignment >=
+        state_.fx.macro_assignments.size())
+        return false;
+    const auto &assignment = state_.fx.macro_assignments[
+        state_.fx.selected_macro_assignment];
+    if (operation == "remove")
+        return execute({"macro.assignment-delete.v1",
+            {{"macro_id", static_cast<std::int64_t>(macro.id)},
+             {"assignment_id", static_cast<std::int64_t>(assignment.id)}}, {}, 0});
+    if (operation == "invert")
+        return execute({"macro.assignment-update.v1",
+            {{"macro_id", static_cast<std::int64_t>(macro.id)},
+             {"assignment_id", static_cast<std::int64_t>(assignment.id)},
+             {"destination", assignment.destination},
+             {"minimum", static_cast<double>(assignment.maximum)},
+             {"maximum", static_cast<double>(assignment.minimum)},
+             {"curve", std::string("linear")},
+             {"polarity", std::string("unipolar")}, {"steps", std::int64_t{2}}},
+            {}, 0});
+    return false;
+}
+
+bool SlintFrontendAdapter::select_fx_scene(std::size_t index) {
+    if (index >= state_.fx.scenes.size()) return false;
+    state_.fx.selected_scene = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::manage_fx_scene(std::string operation) {
+    if (operation == "capture")
+        return request_text_entry("macro-scene-capture", "Scene");
+    if (state_.fx.selected_scene >= state_.fx.scenes.size()) return false;
+    const auto &scene = state_.fx.scenes[state_.fx.selected_scene];
+    if (operation == "recall")
+        return execute({"macro.scene-recall.v1",
+            {{"id", static_cast<std::int64_t>(scene.id)}}, {}, 0});
+    if (operation == "update")
+        return execute({"macro.scene-update.v1",
+            {{"id", static_cast<std::int64_t>(scene.id)}, {"name", scene.name}},
+            {}, 0});
+    if (operation == "delete")
+        return execute({"macro.scene-delete.v1",
+            {{"id", static_cast<std::int64_t>(scene.id)}}, {}, 0});
+    return false;
 }
 
 bool SlintFrontendAdapter::select_setup_subview(std::string subview) {

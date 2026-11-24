@@ -77,6 +77,22 @@ transient. Older projects load an empty macro collection without changing their
 sound. Invalid owners, destinations, duplicate IDs and over-budget data are
 rejected before audio publication.
 
+## Standalone authoring
+
+The FX Macros subview creates and names macros through the shared touchscreen
+keyboard, adjusts their normalized performance value, and assigns the selected
+descriptor-approved FX parameter without exposing internal IDs. Assignments
+retain stable IDs and display destination and native range; their range can be
+inverted or the assignment removed. One macro may address multiple supported
+synth, sample, mixer, external-FX, native-FX or modulator destinations through
+the shared destination resolver.
+
+The scene list captures current macro values, recalls them through prepared
+callback commands, explicitly updates a capture, and deletes it. Scene capture
+does not include clips, patterns, routing or complete project state. Macro and
+scene authoring is independent of controller mapping; profiles bind physical
+controls to the same semantic objects.
+
 Current limitations: scene capture stores macro values (the optional numeric
 parameter list is reserved), assignment-specific smoothing metadata is
 persisted but DSP destinations currently use their existing smoothing, recorded

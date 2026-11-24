@@ -240,6 +240,24 @@ struct SlintFxModulatorItem {
     bool enabled{}, selected{};
 };
 
+struct SlintFxModulatorParameterItem {
+    std::string id, name, value, unit;
+    double minimum{}, maximum{}, current{};
+    bool discrete{}, selected{};
+};
+
+struct SlintFxModulatorTypeItem {
+    std::int64_t id{};
+    std::string name, category;
+    bool selected{};
+};
+
+struct SlintFxDestinationItem {
+    std::string id, name, range;
+    double minimum{}, maximum{};
+    bool selected{};
+};
+
 struct SlintFxRouteItem {
     std::uint32_t id{}, source_id{};
     std::string source, destination, depth;
@@ -253,19 +271,39 @@ struct SlintFxMacroItem {
     bool enabled{}, selected{};
 };
 
+struct SlintFxMacroAssignmentItem {
+    std::uint64_t id{}, macro_id{};
+    std::string destination, range, curve;
+    float minimum{}, maximum{};
+    bool enabled{}, selected{};
+};
+
+struct SlintFxSceneItem {
+    std::uint64_t id{};
+    std::string name, summary;
+    bool selected{};
+};
+
 struct SlintFxPageState {
     std::string subview{"chain"}, owner_kind{"track"}, owner_name{"Unavailable"},
         error;
     std::int64_t owner_index{};
     std::size_t selected_owner{}, selected_effect{}, selected_parameter{},
-        selected_modulator{}, selected_route{}, selected_macro{};
+        selected_modulator_type{}, selected_modulator{},
+        selected_modulator_parameter{}, selected_destination{}, selected_route{},
+        selected_macro{}, selected_macro_assignment{}, selected_scene{};
     bool chain_bypass{};
     std::vector<SlintFxOwnerItem> owners;
     std::vector<SlintFxInstanceItem> effects;
     std::vector<SlintFxParameterItem> parameters;
     std::vector<SlintFxModulatorItem> modulators;
+    std::vector<SlintFxModulatorTypeItem> modulator_types;
+    std::vector<SlintFxModulatorParameterItem> modulator_parameters;
+    std::vector<SlintFxDestinationItem> destinations;
     std::vector<SlintFxRouteItem> routes;
     std::vector<SlintFxMacroItem> macros;
+    std::vector<SlintFxMacroAssignmentItem> macro_assignments;
+    std::vector<SlintFxSceneItem> scenes;
 };
 
 enum class SlintBrowserEntryKind : std::uint8_t {
@@ -297,6 +335,7 @@ struct SlintTextEntryState {
     std::string title, text, operation, error, context_library,
         context_preset_id, context_preset_type;
     TrackId context_track{};
+    std::uint64_t context_id{};
     std::size_t cursor{};
     bool visible{}, uppercase{}, symbols{};
 };
@@ -518,11 +557,21 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool select_effect_parameter(std::size_t index);
     [[nodiscard]] bool adjust_effect_parameter(double steps);
     [[nodiscard]] bool select_fx_modulator(std::size_t index);
+    [[nodiscard]] bool select_fx_modulator_type(std::size_t index);
+    [[nodiscard]] bool manage_fx_modulator(std::string operation);
+    [[nodiscard]] bool select_fx_modulator_parameter(std::size_t index);
+    [[nodiscard]] bool adjust_fx_modulator_parameter(double steps);
+    [[nodiscard]] bool select_fx_destination(std::size_t index);
     [[nodiscard]] bool select_fx_route(std::size_t index);
     [[nodiscard]] bool edit_fx_route(std::string operation);
     [[nodiscard]] bool create_fx_route();
     [[nodiscard]] bool select_fx_macro(std::size_t index);
     [[nodiscard]] bool adjust_fx_macro(double steps);
+    [[nodiscard]] bool manage_fx_macro(std::string operation);
+    [[nodiscard]] bool select_fx_macro_assignment(std::size_t index);
+    [[nodiscard]] bool manage_fx_macro_assignment(std::string operation);
+    [[nodiscard]] bool select_fx_scene(std::size_t index);
+    [[nodiscard]] bool manage_fx_scene(std::string operation);
     [[nodiscard]] bool select_browser_category(std::string category);
     [[nodiscard]] bool navigate_browser(std::string path);
     [[nodiscard]] bool browser_parent();

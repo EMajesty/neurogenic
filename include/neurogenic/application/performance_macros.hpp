@@ -94,12 +94,19 @@ class PerformanceMacroService {
     bool set_value(PerformanceMacroId, float, std::string &);
     bool assign(PerformanceMacroId, MacroAssignment, MacroAssignmentId &,
                 std::string &);
+    bool update_assignment(PerformanceMacroId, MacroAssignmentId,
+                           MacroAssignment, std::string &);
     bool remove_assignment(PerformanceMacroId, MacroAssignmentId,
                            std::string &);
     bool capture_scene(std::string, float, bool, MacroMorphCurve,
                        PerformanceSceneId &,
                        std::string &);
     bool erase_scene(PerformanceSceneId, std::string &);
+    bool rename_scene(PerformanceSceneId, std::string, std::string &);
+    bool update_scene(PerformanceSceneId, std::string, float, bool,
+                      MacroMorphCurve, std::string &);
+    bool duplicate_scene(PerformanceSceneId, std::string,
+                         PerformanceSceneId &, std::string &);
     bool start_morph(PerformanceSceneId, float, bool, MusicalTick,
                      std::uint64_t, std::uint32_t, double, std::string &);
     void stop_morph() noexcept;

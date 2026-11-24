@@ -1,5 +1,11 @@
 # Project persistence
 
+Modulation sources, routes and performance macros/scenes are project state.
+Stable source, route, macro, assignment and scene identities are serialized in
+the committed generation and validated before publication on reopen. Runtime
+oscillator phase, scene-morph progress and pending commands are transient.
+Failed validation or publication preserves the preceding audio-active graph.
+
 Committed performance captures persist as ordinary arrangement clips. Timeline
 version 10 scene, slot, and follow definitions remain compatible; transient
 capture queues and active session ownership are not serialized.

@@ -282,6 +282,37 @@ bool PerformanceMacroService::remove_assignment(PerformanceMacroId macro_id,
     return true;
 }
 
+bool PerformanceMacroService::update_assignment(
+    PerformanceMacroId macro_id, MacroAssignmentId id,
+    MacroAssignment assignment, std::string &error) {
+    auto *macro = find(macro_id);
+    if (!macro) {
+        error = "performance macro was not found";
+        return false;
+    }
+    const auto found = std::find_if(
+        macro->assignments.begin(), macro->assignments.end(),
+        [=](const auto &candidate) { return candidate.id == id; });
+    ModulatorInstanceId target{};
+    ModulatorParameterId parameter{};
+    if (found == macro->assignments.end() || assignment.destination_id.empty() ||
+        (!resolve_parameter_destination(assignment.destination_id) &&
+         !modulator_destination(assignment.destination_id, target, parameter)) ||
+        !std::isfinite(assignment.minimum) ||
+        !std::isfinite(assignment.maximum) ||
+        assignment.minimum == assignment.maximum ||
+        !std::isfinite(assignment.smoothing_seconds) ||
+        assignment.smoothing_seconds < 0 || assignment.smoothing_seconds > 10 ||
+        assignment.steps < 2) {
+        error = "invalid or unavailable macro assignment update";
+        return false;
+    }
+    assignment.id = id;
+    *found = std::move(assignment);
+    error.clear();
+    return true;
+}
+
 bool PerformanceMacroService::capture_scene(std::string name, float duration,
                                             bool tempo_sync,
                                             MacroMorphCurve curve,
@@ -320,6 +351,72 @@ bool PerformanceMacroService::erase_scene(PerformanceSceneId id,
     }
     if (morph_.scene == id)
         stop_morph();
+    error.clear();
+    return true;
+}
+
+bool PerformanceMacroService::rename_scene(PerformanceSceneId id,
+                                           std::string name,
+                                           std::string &error) {
+    const auto found = std::find_if(project_.scenes.begin(), project_.scenes.end(),
+                                    [=](const auto &scene) {
+                                        return scene.id == id;
+                                    });
+    if (found == project_.scenes.end() || name.empty() || name.size() > 128) {
+        error = "invalid performance scene identity or name";
+        return false;
+    }
+    found->name = std::move(name);
+    error.clear();
+    return true;
+}
+
+bool PerformanceMacroService::update_scene(PerformanceSceneId id,
+                                           std::string name, float duration,
+                                           bool tempo_sync,
+                                           MacroMorphCurve curve,
+                                           std::string &error) {
+    const auto found = std::find_if(project_.scenes.begin(), project_.scenes.end(),
+                                    [=](const auto &scene) {
+                                        return scene.id == id;
+                                    });
+    if (found == project_.scenes.end() || name.empty() || name.size() > 128 ||
+        !std::isfinite(duration) || duration < 0 || duration > 3600 ||
+        curve > MacroMorphCurve::s_curve) {
+        error = "invalid performance scene update";
+        return false;
+    }
+    found->name = std::move(name);
+    found->morph_duration = duration;
+    found->tempo_sync = tempo_sync;
+    found->curve = curve;
+    found->macro_values.clear();
+    for (const auto &macro : project_.macros)
+        found->macro_values.emplace_back(macro.id, macro.value);
+    error.clear();
+    return true;
+}
+
+bool PerformanceMacroService::duplicate_scene(PerformanceSceneId source,
+                                              std::string name,
+                                              PerformanceSceneId &id,
+                                              std::string &error) {
+    const auto found = std::find_if(project_.scenes.begin(), project_.scenes.end(),
+                                    [=](const auto &scene) {
+                                        return scene.id == source;
+                                    });
+    if (found == project_.scenes.end() || name.empty() || name.size() > 128 ||
+        project_.scenes.size() == MacroProject::default_scene_capacity) {
+        error = "invalid performance scene duplication";
+        return false;
+    }
+    id = 1;
+    for (const auto &scene : project_.scenes)
+        id = std::max(id, scene.id + 1);
+    auto copy = *found;
+    copy.id = id;
+    copy.name = std::move(name);
+    project_.scenes.push_back(std::move(copy));
     error.clear();
     return true;
 }

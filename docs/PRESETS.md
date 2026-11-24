@@ -1,5 +1,12 @@
 # Reusable sound presets
 
+Preset capture includes only modulation owned by the captured instrument or FX
+scope. Import remaps modulator and effect identities and repairs internal route
+references; project-wide performance macros, scenes, controller mappings and
+unrelated routing are excluded. Task 091 does not broaden the preset format to
+capture project macros because their ownership is not safely portable as local
+instrument state.
+
 Processed assets are referenced exactly like other sample assets; preset save
 does not embed a processing job or silently bundle its PCM. Portable export may
 copy the resulting WAV through the existing explicit asset packaging path.

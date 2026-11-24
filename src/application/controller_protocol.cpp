@@ -236,6 +236,20 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[5] = {"REDO", "edit.redo.v1"};
         lower[6] = {"PATTERN-", "pattern.previous.v1"};
         lower[7] = {"PATTERN+", "pattern.next.v1"};
+    } else if (context == "modulation" && state.selected_modulation_route) {
+        const auto route = std::find_if(
+            state.modulation.routes.begin(),
+            state.modulation.routes.begin() + state.modulation.route_count,
+            [&](const auto &candidate) {
+                return candidate.id == state.selected_modulation_route;
+            });
+        if (route != state.modulation.routes.begin() +
+                         state.modulation.route_count) {
+            lower[0] = {"DEPTH-", "modulation.route-depth.v1"};
+            lower[1] = {"DEPTH+", "modulation.route-depth.v1"};
+            lower[2] = {route->enabled ? "DISABLE" : "ENABLE",
+                        "modulation.route-enable.v1"};
+        }
     }
     if (modifiers.shift || modifiers.shift_latched) {
         lower[0] = {"UNDO", "edit.undo.v1"};
@@ -250,6 +264,28 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         result[8 + i] = action_control(8 + i, std::string(lower[i].first),
                                        std::string(lower[i].second), available);
         result[8 + i].feedback_revision = state.revision;
+    }
+    if (context == "modulation" && state.selected_modulation_route) {
+        const auto route = std::find_if(
+            state.modulation.routes.begin(),
+            state.modulation.routes.begin() + state.modulation.route_count,
+            [&](const auto &candidate) {
+                return candidate.id == state.selected_modulation_route;
+            });
+        if (route != state.modulation.routes.begin() +
+                         state.modulation.route_count) {
+            const auto route_id = static_cast<std::int64_t>(route->id);
+            result[8].arguments = {
+                {"route_id", route_id},
+                {"depth", static_cast<double>(std::clamp(route->depth - .05F,
+                                                         -1.0F, 1.0F))}};
+            result[9].arguments = {
+                {"route_id", route_id},
+                {"depth", static_cast<double>(std::clamp(route->depth + .05F,
+                                                         -1.0F, 1.0F))}};
+            result[10].arguments = {{"route_id", route_id},
+                                    {"enabled", !route->enabled}};
+        }
     }
     return result;
 }

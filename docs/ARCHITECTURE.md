@@ -1,5 +1,23 @@
 # Architecture
 
+## Modulation authoring boundary
+
+`ApplicationService` owns the editable `ModulationConfiguration` and
+`PerformanceMacroService`; frontends and controller sessions dispatch stable
+semantic identities and consume copied snapshots. Source, route and macro edits
+are validated and compiled on the control thread, then published as a prepared
+fixed-capacity graph. The callback evaluates numeric destinations and performs
+no discovery, allocation, locking or graph mutation. Macro assignments compile
+into the same graph, so Sound, Mixer and FX do not own parallel systems.
+
+Base and automation values are established before graph contributions;
+parameter locks address their scheduled base/automation lane; enabled
+modulation routes and macro mappings then contribute deltas and the destination
+clamps once. Live macro gestures are bounded commands. Persistent graph
+authoring has no general project-object Undo/Redo because history currently
+owns timeline transactions; this remains explicit rather than adding a second
+history authority.
+
 The default Nix package is the production Slint appliance. Pinned Slint 1.19.0
 and Corrosion sources enter CMake through disconnected FetchContent overrides;
 Cargo resolves only against a fixed-output vendored closure. The installed ELF

@@ -1,5 +1,31 @@
 # Implementation status
 
+## Task 091 modulation and performance macro authoring
+
+The production FX/Modulation surface now authors the existing graph instead of
+only inspecting it: users can choose implemented source types, create,
+duplicate, enable and remove sources,
+edit their descriptor-backed parameters, create compatible effect routes, and
+edit route depth and state. The same surface creates/names performance macros,
+assigns a selected compatible synth/sample/mixer/FX parameter, edits or inverts assignment
+ranges, adjusts live macro values, and captures, updates, recalls or deletes
+macro scenes. Sound continues to expose the focused track-local route view.
+
+`modulation.source-reset.v1` now actually restores defaults and rejects a reset
+that would invalidate existing scoped routes. Macro assignment updates and
+scene rename/update/duplication are presentation-neutral semantic actions. A
+deterministic production-path test verifies graph publication, cycle rejection,
+multi-destination macro response, scene recall and save/reopen restoration.
+General authoring Undo/Redo remains a documented limitation because the current
+history authority is timeline-scoped.
+
+Task validation passed 33/33 development tests, 36/36 Slint-enabled tests at
+both supported render sizes, and 33/33 ASan/UBSan tests (LeakSanitizer disabled
+under ptrace). The sandboxed production `nix build`, full `nix flake check`
+including the AArch64 cross-compile check, and installed headless device
+enumeration smoke test also passed. Physical controller, touchscreen and audio
+hardware validation remains **NOT RUN**.
+
 ## Task 090 missing-device runtime and production packaging
 
 The libremidi abort was reproduced at `udev.hpp:101`: the Slint Nix environment

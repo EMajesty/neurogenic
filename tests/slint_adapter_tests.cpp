@@ -666,6 +666,11 @@ int main() {
         require(adapter.refresh() && !adapter.state().fx.modulators.empty() &&
                     adapter.select_fx_modulator(adapter.state().fx.modulators.size() - 1),
                 "global FX modulator is selectable");
+        require(!adapter.state().fx.modulator_parameters.empty() &&
+                    adapter.select_fx_modulator_parameter(0) &&
+                    adapter.adjust_fx_modulator_parameter(1),
+                "descriptor-backed modulator parameters are editable");
+        engine.process(ack_left, ack_right);
         if (!adapter.create_fx_route())
             throw std::runtime_error("FX route creation: " + adapter.last_error());
         engine.process(ack_left, ack_right);
@@ -687,6 +692,26 @@ int main() {
         require(adapter.select_fx_macro(0) && adapter.adjust_fx_macro(1) &&
                     adapter.state().fx.macros[0].value > macro_value,
                 "macro adjustment uses existing performance macro service");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.manage_fx_macro_assignment("add"),
+                "selected descriptor-backed FX parameter can become a macro assignment");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() &&
+                    adapter.state().fx.macro_assignments.size() == 1 &&
+                    adapter.select_fx_macro_assignment(0) &&
+                    adapter.manage_fx_macro_assignment("invert"),
+                "macro assignment ranges are inspectable and invertible");
+        engine.process(ack_left, ack_right);
+        require(adapter.manage_fx_scene("capture") &&
+                    adapter.state().text_entry.visible &&
+                    adapter.text_entry_action("confirm"),
+                "performance scenes use shared text entry and semantic capture");
+        engine.process(ack_left, ack_right);
+        require(adapter.refresh() && adapter.state().fx.scenes.size() == 1 &&
+                    adapter.select_fx_scene(0) &&
+                    adapter.manage_fx_scene("recall"),
+                "captured performance scene is selectable and recallable");
         require(adapter.select_fx_subview("external") &&
                     adapter.state().fx.subview == "external" &&
                     adapter.state().mixer.external_fx.size() == 2,

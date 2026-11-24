@@ -1,5 +1,13 @@
 # Application control and controller API
 
+The Slint and dedicated-controller contextual paths use the same copied
+`ContextControl` assignments. In the Modulation context, Depth-/Depth+ and
+Enable carry the selected stable route ID plus validated typed values; a page
+or selection change regenerates those arguments rather than redirecting a
+previously confirmed invocation. The reference controller requires no encoder
+push. Macro performance values remain semantic musical objects and are bound to
+physical controls separately through controller profiles.
+
 Task 086 makes MIDI learn transactional: eligible note/CC input is held pending
 until explicit confirmation; cancel and timeout do not modify mappings. Setup
 can inspect/remove mappings and save `.ngc`. The coordinator and MIDI mapper
