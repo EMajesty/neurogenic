@@ -84,11 +84,13 @@ int main() {
             {"Output B", "Output B", "2 channels", false, true}};
         setup_runtime.midi_inputs = {{"MIDI A", "MIDI A", "simulated", false, true}};
         setup_runtime.controllers = {{"surface.1", "midi", "Surface",
-            "profile.1", "MIDI", "Connected", {}, true, true, false}};
+            "profile.1", "MIDI", "Connected", {}, "Idle", true, true, false}};
+        setup_runtime.mappings = {{"surface.1", "encoder.1",
+            "Port 1 / Ch 1 / 74", "Absolute CC", 0, false, false}};
         setup_runtime.requested.audio_output = "Output A";
         setup_runtime.requested.audio_input = "Input A";
         setup_runtime.requested.audio_buffer_frames = 128;
-        bool preferences_saved{}, learn_started{}, learn_cancelled{}, exit_requested{};
+        bool preferences_saved{}, learn_started{}, learn_cancelled{}, mapping_removed{}, exit_requested{};
         SlintSetupServices setup_services;
         setup_services.snapshot = [&] { return setup_runtime; };
         setup_services.save = [&](const AppliancePreferences &value,
@@ -109,6 +111,15 @@ int main() {
             [&](std::string_view id, std::string &) {
                 learn_cancelled = id == "surface.1";
                 return learn_cancelled;
+            };
+        setup_services.remove_midi_binding =
+            [&](std::string_view id, std::size_t index, std::string &) {
+                mapping_removed = id == "surface.1" && index == 0;
+                if (mapping_removed) {
+                    setup_runtime.mappings.clear();
+                    ++setup_runtime.revision;
+                }
+                return mapping_removed;
             };
         setup_services.request_exit = [&] {
             exit_requested = true;
@@ -875,12 +886,29 @@ int main() {
                     adapter.setup_preferences_action("revert") &&
                     !adapter.state().setup.fullscreen,
                 "pending Setup preferences can be reverted without affecting active state");
+        require(adapter.select_setup_subview("midi"), "Setup selects MIDI routing");
+        const auto route_added = adapter.edit_setup_midi_route("add");
+        require(route_added && adapter.state().setup.midi_routes.size() == 1,
+                "Setup creates an authoritative MIDI route");
+        require(adapter.select_setup_midi_route(0) &&
+                    adapter.edit_setup_midi_route("toggle-cc") &&
+                    !adapter.state().setup.midi_routes[0].control_change,
+                "Setup edits MIDI route message filtering");
+        require(adapter.edit_setup_midi_route("toggle-enabled") &&
+                    !adapter.state().setup.midi_routes[0].enabled,
+                "Setup disables a MIDI route explicitly");
+        require(adapter.edit_setup_midi_route("delete") &&
+                    adapter.state().setup.midi_routes.empty(),
+                "Setup removes an authoritative MIDI route");
         require(adapter.select_setup_subview("controllers") &&
                     adapter.select_setup_controller(0) &&
                     adapter.setup_midi_learn("start", "encoder.1", "cc-absolute") &&
                     learn_started && adapter.setup_midi_learn("cancel") &&
                     learn_cancelled,
                 "controller learn is delegated to the coordinator-facing service");
+        require(adapter.select_setup_mapping(0) && adapter.remove_setup_mapping() &&
+                    mapping_removed && adapter.state().setup.mappings.empty(),
+                "controller mappings are removed through coordinator services");
         require(adapter.request_application_exit() && exit_requested,
                 "Setup exit uses the appliance dirty-session lifecycle callback");
         std::filesystem::remove_all(browser_root);

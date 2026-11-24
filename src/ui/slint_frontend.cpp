@@ -42,6 +42,8 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupDeviceItem>> audio_inputs,
         audio_outputs, midi_inputs, midi_outputs;
     std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
+    std::shared_ptr<slint::VectorModel<SetupMidiRouteItem>> midi_routes;
+    std::shared_ptr<slint::VectorModel<SetupMappingItem>> mappings;
 };
 
 class HeadlessWindowAdapter final : public slint::platform::WindowAdapter {
@@ -501,8 +503,33 @@ void publish(const SlintUiState &state,
     for (const auto &item : state.setup.controllers)
         controllers.push_back({text(item.id), text(item.transport), text(item.device),
             text(item.profile), text(item.protocol), text(item.status), text(item.error),
-            item.connected, item.feedback, item.selected});
+            text(item.learn_status), item.connected, item.feedback, item.selected});
     publish_model(models.controllers, std::move(controllers), [&](auto value) { window->set_setup_controllers(value); });
+    std::vector<SetupMidiRouteItem> midi_routes;
+    for (const auto &route : state.setup.midi_routes) {
+        std::string flags;
+        if (route.notes) flags += "Notes ";
+        if (route.control_change) flags += "CC ";
+        if (route.clock) flags += "Clock ";
+        if (route.transport) flags += "Transport";
+        const auto channel = [](std::int8_t value) {
+            return value < 0 ? std::string("Omni") : std::to_string(value + 1);
+        };
+        midi_routes.push_back({static_cast<int>(route.id),
+            text("Port " + std::to_string(route.input_port)),
+            text("Port " + std::to_string(route.output_port)),
+            text(channel(route.input_channel) + " → " + channel(route.output_channel)),
+            text(flags), route.enabled, route.selected});
+    }
+    publish_model(models.midi_routes, std::move(midi_routes),
+        [&](auto value) { window->set_setup_midi_routes(value); });
+    std::vector<SetupMappingItem> mappings;
+    for (const auto &mapping : state.setup.mappings)
+        mappings.push_back({text(mapping.endpoint_id), text(mapping.control_id),
+            text(mapping.source), text(mapping.mode), mapping.feedback,
+            mapping.selected});
+    publish_model(models.mappings, std::move(mappings),
+        [&](auto value) { window->set_setup_mappings(value); });
 }
 } // namespace
 
@@ -968,6 +995,18 @@ int run_slint_frontend(ApplicationService &application,
                                         slint::SharedString mode) {
             (void)adapter.setup_midi_learn(operation.data(), control.data(), mode.data()); publish(adapter.state(), window);
         });
+        window->on_setup_midi_route_selected([&](int index) {
+            (void)adapter.select_setup_midi_route(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_setup_midi_route_action([&](slint::SharedString operation) {
+            (void)adapter.edit_setup_midi_route(operation.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_mapping_selected([&](int index) {
+            (void)adapter.select_setup_mapping(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_setup_mapping_remove([&] {
+            (void)adapter.remove_setup_mapping(); publish(adapter.state(), window);
+        });
         window->on_setup_profile_save([&](slint::SharedString path) {
             (void)adapter.save_setup_controller_profile(path.data()); publish(adapter.state(), window);
         });
@@ -1031,7 +1070,15 @@ int run_slint_frontend(ApplicationService &application,
                 case 4: window->invoke_mixer_bank_changed(0); break;
                 case 5: window->invoke_fx_subview_selected("presets"); break;
                 case 6: window->invoke_browser_category_selected("instrument-presets"); break;
-                case 7: window->invoke_setup_subview_selected("audio"); break;
+                case 7:
+                    window->invoke_setup_subview_selected("midi");
+                    window->invoke_setup_midi_route_action("add");
+                    if (!window->get_setup_midi_routes() ||
+                        window->get_setup_midi_routes()->row_count() == 0)
+                        throw std::runtime_error("generated MIDI route callback did not publish");
+                    window->invoke_setup_midi_route_selected(0);
+                    window->invoke_setup_midi_route_action("delete");
+                    break;
                 }
                 if (!options.screenshot_path.empty())
                     capture_headless(options.screenshot_path + "-" +

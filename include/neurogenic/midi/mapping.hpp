@@ -44,8 +44,10 @@ class MidiMapper {
     void set_raw_handler(RawHandler handler) {
         raw_handler_ = std::move(handler);
     }
-    bool add_control_surface(class MidiControlSurfaceAdapter &surface);
-    void remove_control_surface(class MidiControlSurfaceAdapter &surface) noexcept;
+    bool add_control_surface(
+        const std::shared_ptr<class MidiControlSurfaceAdapter> &surface);
+    void remove_control_surface(
+        const std::shared_ptr<class MidiControlSurfaceAdapter> &surface) noexcept;
     [[nodiscard]] std::weak_ptr<void> lifetime_token() const noexcept {
         return lifetime_token_;
     }
@@ -69,7 +71,7 @@ class MidiMapper {
     NoteEventHandler note_event_handler_;
     RawHandler raw_handler_;
     mutable std::mutex control_surfaces_mutex_;
-    std::vector<class MidiControlSurfaceAdapter *> control_surfaces_;
+    std::vector<std::shared_ptr<class MidiControlSurfaceAdapter>> control_surfaces_;
     std::atomic<std::uint64_t> dropped_{}, sequence_{};
 };
 
@@ -114,10 +116,13 @@ class MidiControlSurfaceAdapter {
     explicit MidiControlSurfaceAdapter(ControllerSession &session)
         : session_(&session) {}
     bool add(MidiControlBinding, std::string &error);
+    bool replace(std::size_t, MidiControlBinding, std::string &error);
+    bool remove(std::size_t, std::string &error);
     bool dispatch(const MidiMessage &, std::string &error);
     bool begin_learn(std::string control_id, MidiControlMode,
                      std::chrono::milliseconds timeout, std::string &error);
     void cancel_learn() noexcept;
+    bool confirm_learn(std::string &error);
     void update_learn_timeout() noexcept;
     [[nodiscard]] MidiLearnStatus learn_status() const;
     [[nodiscard]] ControllerSessionState session_state() const;

@@ -1,5 +1,11 @@
 # Architecture
 
+Controller endpoint ownership uses two-phase dispatch: registries copy shared
+lifetime handles under lock, release the lock, then perform transport polling,
+feedback, learn or disconnect work. `MidiMapper` likewise snapshots surfaces
+before invocation. Musical MIDI routes remain project state while `.ngc`
+controller mappings remain appliance state.
+
 Recording presentation composition lives in `RecordingWorkflowCoordinator`.
 It owns pending stable configuration only; `RecordingService`,
 `LiveLoopService` and `ArrangementRecordingService` remain the state

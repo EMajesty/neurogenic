@@ -1,5 +1,12 @@
 # Application control and controller API
 
+Task 086 makes MIDI learn transactional: eligible note/CC input is held pending
+until explicit confirmation; cancel and timeout do not modify mappings. Setup
+can inspect/remove mappings and save `.ngc`. The coordinator and MIDI mapper
+copy shared endpoint/surface handles and release registry locks before
+transport, feedback or callback work. Action bindings carry typed arguments
+validated against semantic descriptors.
+
 Performance slots expose semantic launch/stop actions and an independent
 velocity policy. Fixed buttons, velocity MIDI input and optional Full Level do
 not imply a grid or dedicated hardware control.

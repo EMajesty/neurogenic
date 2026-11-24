@@ -671,7 +671,8 @@ ActionRegistry::ActionRegistry() {
                 {"notes", ValueType::boolean},
                 {"cc", ValueType::boolean},
                 {"clock", ValueType::boolean},
-                {"transport", ValueType::boolean}}));
+                {"transport", ValueType::boolean},
+                {"enabled", ValueType::boolean, false}}));
     add(action("midi.route-delete.v1", "Delete MIDI route", "MIDI",
                {{"id", ValueType::integer}}));
     add(action("midi.panic.v1", "MIDI panic", "MIDI"));
@@ -2290,6 +2291,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             route.control_change = *argument<bool>(command, "cc");
             route.clock = *argument<bool>(command, "clock");
             route.transport = *argument<bool>(command, "transport");
+            if (const auto enabled = argument<bool>(command, "enabled"))
+                route.enabled = *enabled;
             auto found =
                 std::find_if(next.routes.begin(),
                              next.routes.begin() +

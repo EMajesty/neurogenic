@@ -14,6 +14,7 @@ struct ContextControl {
     bool active{}, bipolar{}, pickup{};
     std::int8_t pickup_direction{};
     std::uint64_t feedback_revision{};
+    std::map<std::string, ApplicationValue> arguments;
 };
 enum class ControllerFeedbackKind : std::uint8_t { rgb, indicator, context, text };
 struct ControllerFeedback {

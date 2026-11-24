@@ -25,6 +25,8 @@ std::string context_key(const ContextControl &value) {
            << '\x1f' << value.minimum << '\x1f' << value.maximum << '\x1f'
            << value.active << value.bipolar << value.pickup << ':'
            << static_cast<int>(value.pickup_direction);
+    for (const auto &[name, argument] : value.arguments)
+        output << '\x1f' << name << '=' << argument.index();
     return output.str();
 }
 } // namespace
@@ -164,7 +166,8 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
             error.clear();
             return true;
         }
-        return submit({target.action_id, {}, state_.session_id, input.sequence},
+        return submit({target.action_id, target.arguments, state_.session_id,
+                       input.sequence},
                       error);
     }
     if (mapping->semantic == "context-encoder") {

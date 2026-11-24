@@ -3,7 +3,9 @@ import { Theme } from "theme.slint";
 import { ScrollView, LineEdit } from "std-widgets.slint";
 
 export struct SetupDeviceItem { name: string, detail: string, selected: bool, available: bool }
-export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, connected: bool, feedback: bool, selected: bool }
+export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, learn-status: string, connected: bool, feedback: bool, selected: bool }
+export struct SetupMidiRouteItem { id: int, input: string, output: string, channels: string, flags: string, enabled: bool, selected: bool }
+export struct SetupMappingItem { endpoint: string, control: string, source: string, mode: string, feedback: bool, selected: bool }
 
 export component SetupPage inherits Rectangle {
     background: Theme.background;
@@ -25,11 +27,15 @@ export component SetupPage inherits Rectangle {
     in property <[SetupDeviceItem]> audio-inputs; in property <[SetupDeviceItem]> audio-outputs;
     in property <[SetupDeviceItem]> midi-inputs; in property <[SetupDeviceItem]> midi-outputs;
     in property <[SetupControllerItem]> controllers;
+    in property <[SetupMidiRouteItem]> midi-routes;
+    in property <[SetupMappingItem]> mappings;
     in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
     callback preferences-action(string); callback controller-selected(int);
     callback midi-learn(string, string, string); callback text-requested(string, string); callback exit-requested();
+    callback midi-route-selected(int); callback midi-route-action(string);
+    callback mapping-selected(int); callback mapping-remove();
 
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
@@ -75,6 +81,16 @@ export component SetupPage inherits Rectangle {
             Rectangle { horizontal-stretch: 1; background: Theme.panel; VerticalLayout { padding: 6px; spacing: 5px;
                 ParameterDisplay { name: "Clock source"; value: root.midi-clock; }
                 PageButton { text: "Toggle Internal / External"; clicked => { root.value-adjusted("midi-clock", 1); } }
+                Text { text: "Musical routes"; color: Theme.foreground; font-size: 18px; }
+                ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 3px;
+                    for route[i] in root.midi-routes: PageButton {
+                        text: "#" + route.id + "  " + route.input + " → " + route.output + "  " + route.channels + "  " + route.flags;
+                        selected: route.selected; implemented: route.enabled;
+                        clicked => { root.midi-route-selected(i); }
+                    }
+                } }
+                HorizontalLayout { PageButton { text: "Add route"; clicked => { root.midi-route-action("add"); } } PageButton { text: "Enable"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("toggle-enabled"); } } PageButton { text: "Delete"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("delete"); } } }
+                HorizontalLayout { PageButton { text: "Notes"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("toggle-notes"); } } PageButton { text: "CC"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("toggle-cc"); } } PageButton { text: "Clock"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("toggle-clock"); } } PageButton { text: "Transport"; implemented: root.midi-routes.length > 0; clicked => { root.midi-route-action("toggle-transport"); } } }
                 Text { text: "Musical routing remains separate from controller mappings."; color: Theme.muted; wrap: word-wrap; }
             } }
         }
@@ -87,7 +103,12 @@ export component SetupPage inherits Rectangle {
                 ParameterDisplay { name: "MIDI learn"; value: root.learn-status; }
                 LineEdit { text <=> root.learn-control; placeholder-text: "Logical control ID"; }
                 LineEdit { text <=> root.learn-mode; placeholder-text: "cc-absolute / relative / note"; }
-                HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
+                HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Confirm"; implemented: root.learn-status == "Learned — confirm mapping"; clicked => { root.midi-learn("confirm", "", ""); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
+                Text { text: "Mappings"; color: Theme.foreground; font-size: 18px; }
+                ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 3px;
+                    for mapping[i] in root.mappings: PageButton { text: mapping.control + " ← " + mapping.source + " (" + mapping.mode + ")"; selected: mapping.selected; clicked => { root.mapping-selected(i); } }
+                } }
+                PageButton { text: "Remove selected mapping"; implemented: root.mappings.length > 0; clicked => { root.mapping-remove(); } }
                 PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }
                 Text { text: "Mapping targets come from the selected profile and application discovery. Graphical layout editing is intentionally not provided."; color: Theme.muted; wrap: word-wrap; }
             } }

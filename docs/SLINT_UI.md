@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+Task 086 adds stable-ID MIDI routes with port/channel descriptions, message
+filters, explicit enable and removal. Controllers shows mappings and
+capture/confirm/cancel learn; mapping removal and `.ngc` persistence use the
+coordinator. A full manual scaling/inversion/target chooser remains deferred.
+
 Slint 1.19.0 is the preferred frontend foundation. The existing SDL3 frontend
 remains available while the Slint pages gain coverage. Neither frontend owns
 musical state: both consume copied `ApplicationState` snapshots and invoke the

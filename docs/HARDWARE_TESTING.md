@@ -1,5 +1,12 @@
 # Hardware bring-up and diagnostic reports
 
+For Task 086, test a dedicated controller, generic CC/relative surface,
+musical keyboard and external destination together. Verify exact-name
+reconnection, unmatched notes, route enable/disable, learn confirmation,
+profile reload, feedback convergence and shutdown with a missing destination.
+Simulation does not validate Linux identity stability, cable feedback,
+transport blocking or physical LEDs.
+
 The recording workflow is software-tested with simulated duplex input. On
 hardware, verify the selected physical pair, monitoring policy, overflow count,
 latency and audio-active destination independently at each supported buffer

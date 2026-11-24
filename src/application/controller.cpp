@@ -108,9 +108,29 @@ bool validate_profile(const ControllerProfile &profile,
                     "role or explicit unassigned state";
             return false;
         }
-        if (!binding.action_id.empty() && !actions.find(binding.action_id)) {
-            error = "binding references unknown action: " + binding.action_id;
-            return false;
+        if (!binding.action_id.empty()) {
+            const auto *descriptor = actions.find(binding.action_id);
+            if (!descriptor) {
+                error = "binding references unknown action: " + binding.action_id;
+                return false;
+            }
+            const auto capability = std::find_if(
+                profile.capabilities.controls.begin(),
+                profile.capabilities.controls.end(), [&](const auto &value) {
+                    return value.id == binding.control_id;
+                });
+            const bool relative_value =
+                capability != profile.capabilities.controls.end() &&
+                capability->type == ControlType::relative_encoder &&
+                descriptor->arguments.size() == 1 &&
+                descriptor->arguments.front().type == ValueType::real &&
+                !binding.arguments.contains(descriptor->arguments.front().name);
+            if (!relative_value &&
+                !actions.validate(binding.action_id, binding.arguments, error)) {
+                error = "invalid bound arguments for " + binding.action_id +
+                        ": " + error;
+                return false;
+            }
         }
     }
     error.clear();
@@ -252,15 +272,17 @@ ResolvedInput ControllerMapper::resolve(const ControllerInput &input,
         }
         ApplicationCommand command;
         command.action_id = binding->action_id;
+        command.arguments = binding->arguments;
         command.source_id = profile_.capabilities.controller_id;
         command.source_sequence = input.sequence;
-        if (descriptor->arguments.empty())
+        if (descriptor->arguments.empty() ||
+            command.arguments.size() == descriptor->arguments.size())
             result.action = std::move(command);
         else if (descriptor->arguments.size() == 1 &&
                  descriptor->arguments[0].type == ValueType::real &&
                  control_it->type == ControlType::relative_encoder) {
-            command.arguments.emplace(descriptor->arguments[0].name,
-                                      input.value);
+            command.arguments.insert_or_assign(descriptor->arguments[0].name,
+                                               input.value);
             result.action = std::move(command);
         } else {
             error =

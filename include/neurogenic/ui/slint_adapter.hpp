@@ -302,8 +302,20 @@ struct SlintSetupDeviceItem {
 };
 
 struct SlintSetupControllerItem {
-    std::string id, transport, device, profile, protocol, status, error;
+    std::string id, transport, device, profile, protocol, status, error,
+        learn_status{"Idle"};
     bool connected{}, feedback{}, selected{};
+};
+struct SlintSetupMidiRouteItem {
+    std::uint32_t id{};
+    std::uint32_t input_port{}, output_port{};
+    std::int8_t input_channel{-1}, output_channel{-1};
+    bool notes{}, control_change{}, clock{}, transport{}, enabled{}, selected{};
+};
+struct SlintSetupMappingItem {
+    std::string endpoint_id, control_id, source, mode;
+    std::size_t binding_index{};
+    bool feedback{}, selected{};
 };
 
 // Copy-only runtime data supplied by the appliance.  This deliberately keeps
@@ -321,6 +333,7 @@ struct SlintSetupRuntimeSnapshot {
     std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
         midi_inputs, midi_outputs;
     std::vector<SlintSetupControllerItem> controllers;
+    std::vector<SlintSetupMappingItem> mappings;
     std::vector<std::string> lifecycle_warnings;
 };
 
@@ -330,6 +343,9 @@ struct SlintSetupServices {
     std::function<bool(std::string_view, std::string_view, std::string_view,
                        std::string &)> begin_midi_learn;
     std::function<bool(std::string_view, std::string &)> cancel_midi_learn;
+    std::function<bool(std::string_view, std::string &)> confirm_midi_learn;
+    std::function<bool(std::string_view, std::size_t, std::string &)>
+        remove_midi_binding;
     std::function<bool(std::string_view, std::string_view, std::string &)>
         save_controller_profile;
     std::function<bool()> request_exit;
@@ -352,9 +368,13 @@ struct SlintSetupPageState {
     float ui_scale{1.0F};
     std::string startup_project;
     std::size_t selected_controller{};
+    std::size_t selected_mapping{};
+    std::size_t selected_midi_route{};
     std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
         midi_inputs, midi_outputs;
     std::vector<SlintSetupControllerItem> controllers;
+    std::vector<SlintSetupMappingItem> mappings;
+    std::vector<SlintSetupMidiRouteItem> midi_routes;
     std::vector<std::string> warnings;
 };
 
@@ -523,9 +543,13 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool toggle_setup_preference(std::string property);
     [[nodiscard]] bool setup_preferences_action(std::string action);
     [[nodiscard]] bool select_setup_controller(std::size_t index);
+    [[nodiscard]] bool select_setup_midi_route(std::size_t index);
+    [[nodiscard]] bool edit_setup_midi_route(std::string operation);
     [[nodiscard]] bool setup_midi_learn(std::string operation,
                                         std::string control_id = {},
                                         std::string mode = {});
+    [[nodiscard]] bool select_setup_mapping(std::size_t index);
+    [[nodiscard]] bool remove_setup_mapping();
     [[nodiscard]] bool save_setup_controller_profile(std::string path);
     [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;

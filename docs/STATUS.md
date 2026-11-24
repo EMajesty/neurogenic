@@ -1,5 +1,12 @@
 # Implementation status
 
+Task 086 completes the safe core of standalone MIDI/controller configuration.
+Registry locks are released before external work; reentrant shutdown and failed
+feedback are tested. Setup exposes bounded musical route editing, mapping
+inspection/removal, transactional learn and `.ngc` persistence. Required action
+arguments are validated. Manual scaling/inversion/target editing remains, and
+Linux hotplug identity plus physical feedback still require hardware QA.
+
 ## Task 080 audit summary
 
 The evidence-based audit in [`docs/audit/`](audit/IMPLEMENTATION_AUDIT.md)

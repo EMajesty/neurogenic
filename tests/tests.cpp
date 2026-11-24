@@ -5893,6 +5893,16 @@ void test_controller_agnostic_sessions() {
               "bind|x|semantic|context-encoder|index=oops\n",
               malformed, error),
           "malformed controller profile rejected without exception");
+    auto missing_arguments = generic_midi_profile();
+    missing_arguments.bindings.push_back(
+        {"button.1", "midi.clock-source-set.v1"});
+    check(!validate_profile(missing_arguments, application.actions(), error) &&
+              error.find("bound arguments") != std::string::npos,
+          "controller action mappings reject missing required arguments");
+    missing_arguments.bindings.back().arguments["source"] =
+        std::string("external");
+    check(validate_profile(missing_arguments, application.actions(), error),
+          "controller action mappings accept validated bound arguments");
 
     auto midi_profile = generic_midi_profile();
     midi_profile.profile_id = "generic-midi-test";
@@ -5934,6 +5944,9 @@ void test_controller_agnostic_sessions() {
               midi.learn_status().learned->port == 3 &&
               midi.learn_status().learned->channel == 1,
           "MIDI learn captures explicit port/channel/message identity");
+    check(midi.bindings().size() == 3 && midi.confirm_learn(error) &&
+              midi.bindings().size() == 4,
+          "MIDI learn changes mappings only after explicit confirmation");
     check(midi.begin_learn("button.1", MidiControlMode::note_momentary,
                            std::chrono::seconds(1), error),
           "MIDI learn restart");
@@ -6071,6 +6084,14 @@ void test_controller_agnostic_sessions() {
     check(coordinator.dispatch_midi_feedback(
               [](const MidiMessage &) { return true; }) > 0,
           "MIDI feedback converges after transport send recovery");
+    bool reentered{};
+    coordinator.reconnect_midi();
+    coordinator.poll(application.snapshot());
+    check(coordinator.dispatch_midi_feedback([&](const MidiMessage &) {
+              reentered = !coordinator.states().empty();
+              return true;
+          }) > 0 && reentered,
+          "feedback sender can reenter coordinator without global-lock deadlock");
     coordinator.reconnect_midi();
     check(coordinator.states().front().session.resync_required,
           "MIDI controller reconnect requests a full feedback refresh");
@@ -6085,6 +6106,22 @@ void test_controller_agnostic_sessions() {
               [](const MidiMessage &) { return true; }) > 0,
           "disconnect during pending feedback converges after reconnect");
     coordinator.shutdown();
+
+    ControllerCoordinator shutdown_during_send(application);
+    MidiMapper shutdown_mapper;
+    check(shutdown_during_send.add_midi("shutdown-send", coordinated,
+                                        shutdown_mapper, error),
+          "feedback shutdown endpoint configured");
+    shutdown_during_send.poll(application.snapshot());
+    bool shutdown_reentered{};
+    (void)shutdown_during_send.dispatch_midi_feedback(
+        [&](const MidiMessage &) {
+            shutdown_reentered = true;
+            shutdown_during_send.shutdown();
+            return false;
+        });
+    check(shutdown_reentered && shutdown_during_send.states().empty(),
+          "shutdown during failed external feedback is reentrant and deterministic");
 
     std::size_t raw_after_endpoint_destruction{};
     MidiMapper lifetime_mapper;

@@ -52,6 +52,16 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
         add(state.modulation.routes[i].destination.parameter);
     }
     add(state.performance_macros.macros.size());
+    add(state.midi.route_count);
+    add(static_cast<std::uint64_t>(state.midi.clock_source));
+    for (std::size_t i = 0; i < state.midi.route_count; ++i) {
+        const auto &route = state.midi.routes[i];
+        add(route.id); add(route.input_port); add(route.output_port);
+        add(static_cast<std::uint64_t>(route.input_channel + 1));
+        add(static_cast<std::uint64_t>(route.output_channel + 1));
+        add(route.notes | (route.control_change << 1U) | (route.clock << 2U) |
+            (route.transport << 3U) | (route.enabled << 4U));
+    }
     for (const auto &macro : state.performance_macros.macros) {
         add(macro.id); add(macro.assignments.size());
     }
@@ -1349,6 +1359,7 @@ bool SlintFrontendAdapter::refresh() {
         next.setup.midi_inputs = runtime.midi_inputs;
         next.setup.midi_outputs = runtime.midi_outputs;
         next.setup.controllers = runtime.controllers;
+        next.setup.mappings = runtime.mappings;
         next.setup.warnings = runtime.lifecycle_warnings;
         next.setup.system = runtime.system;
         next.setup.version = runtime.version;
@@ -1357,6 +1368,13 @@ bool SlintFrontendAdapter::refresh() {
         next.setup.selected_controller = 0;
     for (std::size_t i = 0; i < next.setup.controllers.size(); ++i)
         next.setup.controllers[i].selected = i == next.setup.selected_controller;
+    if (next.setup.selected_mapping >= next.setup.mappings.size())
+        next.setup.selected_mapping = 0;
+    for (std::size_t i = 0; i < next.setup.mappings.size(); ++i)
+        next.setup.mappings[i].selected = i == next.setup.selected_mapping;
+    if (!next.setup.controllers.empty())
+        next.setup.controller_learn_status =
+            next.setup.controllers[next.setup.selected_controller].learn_status;
     next.setup.requested_audio_input = staged_preferences_.audio_input;
     next.setup.requested_audio_output = staged_preferences_.audio_output;
     next.setup.requested_buffer_size = staged_preferences_.audio_buffer_frames;
@@ -1380,6 +1398,19 @@ bool SlintFrontendAdapter::refresh() {
     next.setup.callback_peak_load = snapshot.performance.audio.peak_load_percent;
     next.setup.midi_clock = snapshot.midi.clock_source == MidiClockSource::external
         ? "External" : "Internal";
+    next.setup.midi_routes.clear();
+    for (std::size_t i = 0; i < snapshot.midi.route_count; ++i) {
+        const auto &route = snapshot.midi.routes[i];
+        next.setup.midi_routes.push_back({
+            route.id, route.input_port, route.output_port,
+            route.input_channel, route.output_channel, route.notes,
+            route.control_change, route.clock, route.transport, route.enabled,
+            i == state_.setup.selected_midi_route});
+    }
+    if (!next.setup.midi_routes.empty())
+        next.setup.selected_midi_route = std::min(
+            state_.setup.selected_midi_route,
+            next.setup.midi_routes.size() - 1);
     next.setup.error = last_error_;
     next.mixer.error = last_error_;
     next.shell.notification = last_error_;
@@ -3344,6 +3375,54 @@ bool SlintFrontendAdapter::select_setup_controller(std::size_t index) {
     return refresh();
 }
 
+bool SlintFrontendAdapter::select_setup_midi_route(std::size_t index) {
+    if (index >= state_.setup.midi_routes.size()) return false;
+    state_.setup.selected_midi_route = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::edit_setup_midi_route(std::string operation) {
+    if (operation == "add") {
+        std::uint32_t id{1};
+        for (const auto &route : state_.setup.midi_routes)
+            id = std::max(id, route.id + 1);
+        return execute({"midi.route-set.v1",
+            {{"id", static_cast<std::int64_t>(id)},
+             {"input_port", std::int64_t{1}}, {"output_port", std::int64_t{2}},
+             {"input_channel", std::int64_t{-1}}, {"output_channel", std::int64_t{-1}},
+             {"notes", true}, {"cc", true}, {"clock", false},
+             {"transport", false}, {"enabled", true}}, {}, 0});
+    }
+    if (state_.setup.selected_midi_route >= state_.setup.midi_routes.size()) {
+        last_error_ = "Select a MIDI route first";
+        return false;
+    }
+    const auto &route = state_.setup.midi_routes[state_.setup.selected_midi_route];
+    if (operation == "delete")
+        return execute({"midi.route-delete.v1",
+                        {{"id", static_cast<std::int64_t>(route.id)}}, {}, 0});
+    auto notes = route.notes;
+    auto cc = route.control_change;
+    auto clock = route.clock;
+    auto transport = route.transport;
+    auto enabled = route.enabled;
+    if (operation == "toggle-notes") notes = !notes;
+    else if (operation == "toggle-cc") cc = !cc;
+    else if (operation == "toggle-clock") clock = !clock;
+    else if (operation == "toggle-transport") transport = !transport;
+    else if (operation == "toggle-enabled") enabled = !enabled;
+    else { last_error_ = "Unknown MIDI route operation"; return false; }
+    return execute({"midi.route-set.v1",
+        {{"id", static_cast<std::int64_t>(route.id)},
+         {"input_port", static_cast<std::int64_t>(route.input_port)},
+         {"output_port", static_cast<std::int64_t>(route.output_port)},
+         {"input_channel", static_cast<std::int64_t>(route.input_channel)},
+         {"output_channel", static_cast<std::int64_t>(route.output_channel)},
+         {"notes", notes}, {"cc", cc}, {"clock", clock},
+         {"transport", transport}, {"enabled", enabled}}, {}, 0});
+}
+
 bool SlintFrontendAdapter::setup_midi_learn(std::string operation,
                                              std::string control_id,
                                              std::string mode) {
@@ -3356,14 +3435,38 @@ bool SlintFrontendAdapter::setup_midi_learn(std::string operation,
     bool result{};
     if (operation == "cancel" && setup_services_.cancel_midi_learn)
         result = setup_services_.cancel_midi_learn(id, error);
+    else if (operation == "confirm" && setup_services_.confirm_midi_learn)
+        result = setup_services_.confirm_midi_learn(id, error);
     else if (operation == "start" && setup_services_.begin_midi_learn)
         result = setup_services_.begin_midi_learn(id, control_id, mode, error);
     else
         error = "MIDI learn operation is unavailable";
     last_error_ = result ? std::string{} : std::move(error);
     state_.setup.controller_learn_status = result
-        ? (operation == "start" ? "Waiting for MIDI input" : "Cancelled")
+        ? (operation == "start" ? "Waiting for MIDI input" :
+           operation == "confirm" ? "Mapping committed" : "Cancelled")
         : "Unavailable";
+    ++local_revision_;
+    (void)refresh();
+    return result;
+}
+bool SlintFrontendAdapter::select_setup_mapping(std::size_t index) {
+    if (index >= state_.setup.mappings.size()) return false;
+    state_.setup.selected_mapping = index;
+    ++local_revision_;
+    return refresh();
+}
+bool SlintFrontendAdapter::remove_setup_mapping() {
+    if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
+        !setup_services_.remove_midi_binding) {
+        last_error_ = "Select a removable MIDI mapping first";
+        return false;
+    }
+    const auto mapping = state_.setup.mappings[state_.setup.selected_mapping];
+    std::string error;
+    const auto result = setup_services_.remove_midi_binding(
+        mapping.endpoint_id, mapping.binding_index, error);
+    last_error_ = result ? std::string{} : std::move(error);
     ++local_revision_;
     (void)refresh();
     return result;

@@ -82,6 +82,13 @@ remain outside the format and are documented rather than fabricated.
 
 ### AUD-005 — MIDI routing and controller mapping are not appliance-configurable
 
+**Partially resolved by Task 086.** Setup now presents configured MIDI devices
+separately from control surfaces, creates/edits/enables/removes bounded musical
+routes through `midi.route-*`, displays and removes profile mappings, and uses
+capture/confirm/cancel MIDI learn before atomic `.ngc` save. A complete
+descriptor-driven form for arbitrary mappings and scaling/inversion remains
+open; opaque action-ID entry is not presented as a workaround.
+
 - **Impact:** external instruments and third-party surfaces still require CLI,
   profile files or typed internal IDs.
 - **Evidence:** Setup exposes device preferences, clock source and learn/save,
@@ -149,6 +156,14 @@ reduction and asserts no structural rebuild during playback. Complete
   materially reduced allocations; no stale state regression.
 
 ### AUD-009 — Controller coordinator executes external work under global lock
+
+**Resolved in software by Task 086.** Coordinator registries now retain shared
+endpoint lifetime handles and copy them before polling, feedback, reconnect,
+learn and shutdown work. `MidiMapper` likewise snapshots shared surface handles
+before dispatch. Raw adapter/profile pointers no longer escape. Tests cover
+sender reentry, failure/retry convergence, shutdown during send and opposite
+mapper/coordinator destruction order. Physical transport blocking remains
+hardware validation.
 
 - **Impact:** blocked feedback can delay polling, learn, diagnostics or shutdown;
   reentrancy risk is unclear.
@@ -244,6 +259,12 @@ Preserve min/max polarity, add horizontal navigation and marker/boundary drag
 with precise semantic validation; accept with deterministic coordinate tests.
 
 ### AUD-016 — Shared contextual action arguments
+
+**Resolved by Task 086.** Profile action bindings persist typed bound arguments;
+validation rejects absent or invalid required arguments using semantic
+descriptors. Relative encoders retain the narrow single-real-argument path.
+Context buttons submit their resolved arguments and unavailable targets remain
+inert rather than being redirected.
 
 Extend contextual function assignments to carry validated bound arguments or
 explicitly limit them to zero-argument actions; accept when required-argument

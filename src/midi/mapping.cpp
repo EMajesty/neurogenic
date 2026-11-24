@@ -49,19 +49,21 @@ void MidiMapper::map_button(std::uint8_t channel, std::uint8_t note,
         std::move(id), std::move(action)};
 }
 
-bool MidiMapper::add_control_surface(MidiControlSurfaceAdapter &surface) {
+bool MidiMapper::add_control_surface(
+    const std::shared_ptr<MidiControlSurfaceAdapter> &surface) {
+    if (!surface) return false;
     std::lock_guard lock(control_surfaces_mutex_);
-    if (std::find(control_surfaces_.begin(), control_surfaces_.end(), &surface) !=
+    if (std::find(control_surfaces_.begin(), control_surfaces_.end(), surface) !=
         control_surfaces_.end())
         return false;
-    control_surfaces_.push_back(&surface);
+    control_surfaces_.push_back(surface);
     return true;
 }
 
 void MidiMapper::remove_control_surface(
-    MidiControlSurfaceAdapter &surface) noexcept {
+    const std::shared_ptr<MidiControlSurfaceAdapter> &surface) noexcept {
     std::lock_guard lock(control_surfaces_mutex_);
-    std::erase(control_surfaces_, &surface);
+    std::erase(control_surfaces_, surface);
 }
 
 bool MidiMapper::receive(const MidiMessage &message) noexcept {
@@ -80,15 +82,15 @@ bool MidiMapper::dispatch_one() {
         return false;
     std::string surface_error;
     bool consumed{};
+    std::vector<std::shared_ptr<MidiControlSurfaceAdapter>> surfaces;
     {
-        // Registration changes are control-side operations. Holding this lock
-        // while dispatching ensures unregister waits for any in-flight use.
         std::lock_guard lock(control_surfaces_mutex_);
-        consumed = std::any_of(control_surfaces_.begin(), control_surfaces_.end(),
-                               [&](auto *surface) {
-            return surface->dispatch(message, surface_error);
-        });
+        surfaces = control_surfaces_;
     }
+    consumed = std::any_of(surfaces.begin(), surfaces.end(),
+                           [&](const auto &surface) {
+        return surface->dispatch(message, surface_error);
+    });
     if (consumed) return true;
     if (raw_handler_)
         raw_handler_(message);
@@ -272,6 +274,56 @@ bool MidiControlSurfaceAdapter::add(MidiControlBinding binding,
     return true;
 }
 
+bool MidiControlSurfaceAdapter::replace(std::size_t index,
+                                        MidiControlBinding binding,
+                                        std::string &error) {
+    std::lock_guard lock(mutex_);
+    if (index >= bindings_.size()) {
+        error = "MIDI control binding index is out of range";
+        return false;
+    }
+    const auto control = std::find_if(
+        session_->descriptor().controls.begin(), session_->descriptor().controls.end(),
+        [&](const auto &value) { return value.id == binding.control_id && value.available; });
+    const bool note = binding.mode == MidiControlMode::note_momentary;
+    const bool relative = binding.mode == MidiControlMode::cc_relative_twos_complement ||
+                          binding.mode == MidiControlMode::cc_relative_binary_offset;
+    if (!binding.port || binding.port > maximum_midi_ports || binding.channel > 15 ||
+        binding.number > 127 || control == session_->descriptor().controls.end() ||
+        (note && control->type != ControlType::momentary_button &&
+         control->type != ControlType::toggle_button) ||
+        (relative && control->type != ControlType::relative_encoder) ||
+        (!note && !relative && control->type != ControlType::absolute_potentiometer &&
+         control->type != ControlType::fader && control->type != ControlType::crossfader)) {
+        error = "MIDI control binding is invalid or incompatible";
+        return false;
+    }
+    const auto duplicate = std::find_if(bindings_.begin(), bindings_.end(),
+        [&](const auto &value) {
+            return &value != &bindings_[index] && value.port == binding.port &&
+                   value.channel == binding.channel && value.number == binding.number &&
+                   value.mode == binding.mode;
+        });
+    if (duplicate != bindings_.end()) {
+        error = "MIDI control binding is ambiguous";
+        return false;
+    }
+    bindings_[index] = std::move(binding);
+    error.clear();
+    return true;
+}
+
+bool MidiControlSurfaceAdapter::remove(std::size_t index, std::string &error) {
+    std::lock_guard lock(mutex_);
+    if (index >= bindings_.size()) {
+        error = "MIDI control binding index is out of range";
+        return false;
+    }
+    bindings_.erase(bindings_.begin() + static_cast<std::ptrdiff_t>(index));
+    error.clear();
+    return true;
+}
+
 bool MidiControlSurfaceAdapter::dispatch(const MidiMessage &message,
                                          std::string &error) {
     std::lock_guard lock(mutex_);
@@ -299,7 +351,6 @@ bool MidiControlSurfaceAdapter::dispatch(const MidiMessage &message,
                 learn_.error = error;
                 return true;
             }
-            bindings_.push_back(learned);
             learn_.state = MidiLearnState::learned;
             learn_.learned = learned;
             return true;
@@ -358,8 +409,25 @@ bool MidiControlSurfaceAdapter::begin_learn(
 
 void MidiControlSurfaceAdapter::cancel_learn() noexcept {
     std::lock_guard lock(mutex_);
-    if (learn_.state == MidiLearnState::waiting)
+    if (learn_.state == MidiLearnState::waiting ||
+        learn_.state == MidiLearnState::learned)
         learn_.state = MidiLearnState::cancelled;
+}
+
+bool MidiControlSurfaceAdapter::confirm_learn(std::string &error) {
+    MidiControlBinding learned;
+    {
+        std::lock_guard lock(mutex_);
+        if (learn_.state != MidiLearnState::learned || !learn_.learned) {
+            error = "no learned MIDI binding is awaiting confirmation";
+            return false;
+        }
+        learned = *learn_.learned;
+    }
+    if (!add(std::move(learned), error)) return false;
+    std::lock_guard lock(mutex_);
+    learn_ = {};
+    return true;
 }
 
 void MidiControlSurfaceAdapter::update_learn_timeout() noexcept {

@@ -800,14 +800,39 @@ int main(int argc, char **argv) {
                             std::find(preferences.midi_outputs.begin(),
                                       preferences.midi_outputs.end(), port.name) !=
                                 preferences.midi_outputs.end(), true});
-                    for (const auto &endpoint : controllers.states())
+                    for (const auto &endpoint : controllers.states()) {
+                        std::string learn_status{"Idle"};
+                        if (const auto learn = controllers.midi_learn_status(endpoint.id)) {
+                            switch (learn->state) {
+                            case neurogenic::MidiLearnState::waiting: learn_status = "Waiting for MIDI input"; break;
+                            case neurogenic::MidiLearnState::learned: learn_status = "Learned — confirm mapping"; break;
+                            case neurogenic::MidiLearnState::cancelled: learn_status = "Cancelled"; break;
+                            case neurogenic::MidiLearnState::timed_out: learn_status = "Timed out"; break;
+                            default: break;
+                            }
+                        }
                         result.controllers.push_back({endpoint.id,
                             endpoint.transport, endpoint.expected_device,
                             endpoint.session.profile_id,
                             endpoint.transport == "usb-cdc" ? "1.x" : "MIDI",
                             endpoint.connected ? "Connected" : "Disconnected",
-                            endpoint.error, endpoint.connected,
+                            endpoint.error, learn_status, endpoint.connected,
                             endpoint.session.feedback_revision != 0, false});
+                        if (const auto profile = controllers.midi_profile(endpoint.id)) {
+                            for (std::size_t i = 0; i < profile->midi.size(); ++i) {
+                                const auto &binding = profile->midi[i];
+                                std::string mode = "Absolute CC";
+                                if (binding.mode == neurogenic::MidiControlMode::note_momentary) mode = "Note button";
+                                else if (binding.mode == neurogenic::MidiControlMode::cc_relative_twos_complement) mode = "Relative 2's complement";
+                                else if (binding.mode == neurogenic::MidiControlMode::cc_relative_binary_offset) mode = "Relative binary offset";
+                                result.mappings.push_back({endpoint.id, binding.control_id,
+                                    "Port " + std::to_string(binding.port) + " / Ch " +
+                                        std::to_string(binding.channel + 1) + " / " +
+                                        std::to_string(binding.number),
+                                    std::move(mode), i, binding.feedback, false});
+                            }
+                        }
+                    }
                     for (const auto &issue : lifecycle.snapshot().issues)
                         result.lifecycle_warnings.push_back(issue.message);
 #if defined(__aarch64__)
@@ -856,6 +881,17 @@ int main(int argc, char **argv) {
                     [&](std::string_view endpoint, std::string &cancel_error) {
                         return controllers.cancel_midi_learn(endpoint,
                                                              cancel_error);
+                    };
+                slint_options.setup.confirm_midi_learn =
+                    [&](std::string_view endpoint, std::string &confirm_error) {
+                        return controllers.confirm_midi_learn(endpoint,
+                                                              confirm_error);
+                    };
+                slint_options.setup.remove_midi_binding =
+                    [&](std::string_view endpoint, std::size_t index,
+                        std::string &remove_error) {
+                        return controllers.remove_midi_binding(endpoint, index,
+                                                               remove_error);
                     };
                 slint_options.setup.save_controller_profile =
                     [&](std::string_view endpoint, std::string_view path,

@@ -27,21 +27,28 @@ class ControllerCoordinator {
     void reconnect_midi() noexcept;
     void disconnect_midi() noexcept;
     [[nodiscard]] std::vector<ControllerEndpointState> states() const;
-    [[nodiscard]] MidiControlSurfaceAdapter *midi_surface(std::string_view id);
-    [[nodiscard]] const MidiControllerProfile *midi_profile(std::string_view id) const;
+    [[nodiscard]] std::optional<MidiControllerProfile>
+    midi_profile(std::string_view id) const;
+    [[nodiscard]] std::optional<MidiLearnStatus>
+    midi_learn_status(std::string_view id) const;
     bool save_midi_profile(std::string_view id, const std::filesystem::path &,
                            std::string &error) const;
     bool begin_midi_learn(std::string_view id, std::string control_id,
                           MidiControlMode, std::chrono::milliseconds,
                           std::string &error);
     bool cancel_midi_learn(std::string_view id, std::string &error);
+    bool confirm_midi_learn(std::string_view id, std::string &error);
+    bool set_midi_binding(std::string_view id, std::size_t index,
+                          MidiControlBinding, std::string &error);
+    bool remove_midi_binding(std::string_view id, std::size_t index,
+                             std::string &error);
     void shutdown() noexcept;
   private:
     struct SerialEndpoint;
     struct MidiEndpoint;
     ApplicationService *application_{};
-    std::vector<std::unique_ptr<SerialEndpoint>> serial_;
-    std::vector<std::unique_ptr<MidiEndpoint>> midi_;
+    std::vector<std::shared_ptr<SerialEndpoint>> serial_;
+    std::vector<std::shared_ptr<MidiEndpoint>> midi_;
     mutable std::mutex mutex_;
 };
 } // namespace neurogenic

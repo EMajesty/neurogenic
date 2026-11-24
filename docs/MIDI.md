@@ -1,5 +1,13 @@
 # MIDI routing, clock, and external sequencing
 
+Task 086 exposes the existing bounded `MidiRoute` graph in Setup: logical
+ports, omni/channel remapping, note/CC/clock/transport filters, enable and
+removal. Controller profiles remain separate. Learn accepts eligible note/CC
+traffic, captures exact port/channel/message identity, detects conflicts and
+requires confirmation before changing a mapping. Configured missing devices
+are never silently replaced. ALSA identity for multiple identical hotplugged
+devices still requires physical validation.
+
 NEUROGENIC's MIDI 1.0 subsystem keeps device ownership outside the musical
 engine. `MidiInput` and `MidiOutput` are libremidi adapters. Logical ports
 (`1..8`) remain stable in timelines and projects; a device selector binds a
