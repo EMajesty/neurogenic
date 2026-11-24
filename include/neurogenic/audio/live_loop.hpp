@@ -62,6 +62,9 @@ class LiveLoopService {
     [[nodiscard]] bool start(LiveLoopSessionId, std::string &error);
     [[nodiscard]] bool stop(LiveLoopSessionId, std::string &error);
     [[nodiscard]] bool cancel(LiveLoopSessionId, std::string &error);
+    [[nodiscard]] bool remove(LiveLoopSessionId, std::string &error);
+    [[nodiscard]] bool save(LiveLoopSessionId, const std::filesystem::path &,
+                            RecordingWavFormat, std::string &error);
     void clear() noexcept;
     void update();
     [[nodiscard]] std::vector<LiveLoopSessionStatus> sessions() const;
@@ -73,6 +76,8 @@ class LiveLoopService {
         std::shared_ptr<const Sample> previous_sample;
         std::shared_ptr<Sample> handoff_sample;
         std::uint64_t expected_publication{};
+        std::uint64_t previous_captured_frames{}, previous_actual_start_frame{},
+            previous_actual_stop_frame{};
     };
     [[nodiscard]] MusicalTick quantum(const LiveLoopConfiguration &,
                                       const Timeline &) const noexcept;

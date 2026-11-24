@@ -1,5 +1,25 @@
 # Implementation status
 
+## Task 092 standalone live-loop workflows
+
+The shared recording surface now discovers and selects stable live-loop
+sessions, reports the actual pass and iteration, and exposes initial capture,
+overdub, replacement, cancellation, export and confirmed session clearing.
+Performance contextual buttons bind the selected/active session identity for
+arm/start, stop, overdub, replace and cancel.
+
+Two correctness defects were fixed. Empty projects may now capture into any of
+the instrument's sixteen sample slots rather than being rejected according to
+the number of already-active slots. Finalization waits for the exact pending
+sample revision, so an older loaded version cannot acknowledge a newer pass.
+Cancelled or failed overdub/replacement passes preserve the previous valid
+audio-active loop.
+
+The deterministic production workflow verifies a 100-frame capture, `.25`
+initial PCM, `.625` feedback overdub, `.1` replacement, cancellation recovery,
+float WAV export, project save/reopen and restored audible playback. Physical
+gaplessness, input latency and controller/touch operation remain **NOT RUN**.
+
 ## Task 091 modulation and performance macro authoring
 
 The production FX/Modulation surface now authors the existing graph instead of

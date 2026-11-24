@@ -122,3 +122,11 @@ snapshots. Configuration is locked during active work so later UI selection
 cannot redirect a result. Slint uses this contract and never guesses a Record
 destination. Audio is reported complete only after `SampleManager`
 acknowledges the immutable version.
+
+For live loops the coordinator also owns only the presentation selection of an
+authoritative stable session ID. It can reselect existing sessions, start
+overdub or replacement, cancel without redirecting to a later UI selection,
+export the audio-active sample, and request confirmed clear. The engine/service
+remain the only recording-state authorities. Loop publication completion is
+matched by sample revision, not merely by observing any loaded sample in the
+destination slot.

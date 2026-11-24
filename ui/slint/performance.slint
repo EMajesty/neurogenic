@@ -11,6 +11,7 @@ import { SetupPage, SetupDeviceItem, SetupControllerItem, SetupMidiRouteItem, Se
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
+export struct LiveLoopItem { label: string, state: string, mode: string, selected: bool, audio-active: bool }
 
 export component PerformanceWindow inherits Window {
     title: "NEUROGENIC"; preferred-width: 1280px; preferred-height: 800px;
@@ -163,6 +164,13 @@ export component PerformanceWindow inherits Window {
     in property <bool> recording-can-commit: false;
     in property <float> recording-progress: 0;
     in property <int> recording-overflows: 0;
+    in property <string> recording-pass: "capture";
+    in property <int> recording-loop-iteration: 0;
+    in property <bool> recording-can-overdub: false;
+    in property <bool> recording-can-replace: false;
+    in property <bool> recording-can-clear: false;
+    in property <bool> recording-can-save: false;
+    in property <[LiveLoopItem]> recording-loops;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
     callback page-selected(int); callback transport-invoked(string);
@@ -189,6 +197,7 @@ export component PerformanceWindow inherits Window {
     callback recording-mode-selected(string);
     callback recording-source-selected(string);
     callback recording-quantization-selected(string);
+    callback recording-loop-selected(int);
     callback recording-closed();
     callback sound-subview-selected(string); callback sound-instrument-selected(string);
     callback sound-parameter-selected(int); callback sound-parameter-adjusted(int, int);
@@ -374,6 +383,10 @@ export component PerformanceWindow inherits Window {
                     PageButton { text: "Performance"; selected: root.recording-mode == "Performance capture"; clicked => { root.recording-mode-selected("performance"); } }
                 }
                 HorizontalLayout { ParameterDisplay { name: "State"; value: root.recording-phase; } ParameterDisplay { name: "Source"; value: root.recording-source; } ParameterDisplay { name: "Destination"; value: root.recording-destination; } ParameterDisplay { name: "Quantization"; value: root.recording-quantization; } }
+                if root.recording-mode == "Live loop": HorizontalLayout { spacing: 4px;
+                    for loop[i] in root.recording-loops: PageButton { text: loop.label + " · " + loop.state; selected: loop.selected; implemented: true; clicked => { root.recording-loop-selected(i); } }
+                }
+                if root.recording-mode == "Live loop": HorizontalLayout { ParameterDisplay { name: "Pass"; value: root.recording-pass; } ParameterDisplay { name: "Iteration"; value: root.recording-loop-iteration; } }
                 HorizontalLayout { spacing: 4px;
                     PageButton { text: "External stereo"; implemented: root.recording-mode == "External audio" || root.recording-mode == "Live loop"; clicked => { root.recording-source-selected("external-stereo"); } }
                     PageButton { text: "Track"; implemented: root.recording-mode != "External audio"; clicked => { root.recording-source-selected("track"); } }
@@ -392,15 +405,17 @@ export component PerformanceWindow inherits Window {
                     PageButton { text: "Start"; implemented: root.recording-can-start; clicked => { root.recording-action("start"); } }
                     PageButton { text: "Stop"; implemented: root.recording-can-stop; clicked => { root.recording-action("stop"); } }
                     PageButton { text: "Commit"; implemented: root.recording-can-commit; clicked => { root.recording-action("commit"); } }
-                    PageButton { text: "Overdub"; implemented: root.recording-mode == "Live loop" && root.recording-phase == "Completed"; clicked => { root.recording-action("overdub"); } }
-                    PageButton { text: "Replace"; implemented: root.recording-mode == "Live loop" && root.recording-phase == "Completed"; clicked => { root.recording-action("replace"); } }
+                    PageButton { text: "Overdub"; implemented: root.recording-can-overdub; clicked => { root.recording-action("overdub"); } }
+                    PageButton { text: "Replace"; implemented: root.recording-can-replace; clicked => { root.recording-action("replace"); } }
+                    PageButton { text: "Save"; implemented: root.recording-can-save; clicked => { root.recording-action("save"); } }
+                    PageButton { text: "Clear"; implemented: root.recording-can-clear; clicked => { root.modal-visible = true; } }
                     PageButton { text: "Cancel"; implemented: root.recording-can-cancel; clicked => { root.recording-action("cancel"); } }
                     PageButton { text: "Close"; implemented: true; clicked => { root.recording-closed(); } }
                 }
             }
         }
     }
-    if root.modal-visible || root.browser-confirmation-pending: Rectangle { x: 0; y: 0; background: #88111111; ModalDialog { width: min(520px, parent.width - 48px); height: 210px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: "Confirm"; message: root.browser-confirmation-pending ? root.browser-confirmation-message : "Confirm this operation."; accepted => { if (root.browser-confirmation-pending) { root.browser-confirm(true); } root.modal-visible = false; } rejected => { if (root.browser-confirmation-pending) { root.browser-confirm(false); } root.modal-visible = false; } } }
+    if root.modal-visible || root.browser-confirmation-pending: Rectangle { x: 0; y: 0; background: #88111111; ModalDialog { width: min(520px, parent.width - 48px); height: 210px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: "Confirm"; message: root.browser-confirmation-pending ? root.browser-confirmation-message : root.recording-visible && root.recording-can-clear ? "Clear this live-loop session? Captured sample data remains available." : "Confirm this operation."; accepted => { if (root.browser-confirmation-pending) { root.browser-confirm(true); } else if (root.recording-visible && root.recording-can-clear) { root.recording-action("clear"); } root.modal-visible = false; } rejected => { if (root.browser-confirmation-pending) { root.browser-confirm(false); } root.modal-visible = false; } } }
     if root.text-entry-visible: Rectangle { x: 0; y: 0; background: #aa111111;
         TouchKeyboard { width: min(900px, parent.width - 24px); height: min(560px, parent.height - 24px); x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: root.text-entry-title; value: root.text-entry-value; cursor-position: root.text-entry-cursor; error: root.text-entry-error; uppercase: root.text-entry-uppercase; symbols: root.text-entry-symbols; insert(value) => { root.text-entry-insert(value); } action(value) => { root.text-entry-action(value); } }
     }

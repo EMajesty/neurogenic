@@ -151,6 +151,11 @@ struct SlintSamplePageState {
 };
 
 struct SlintRecordingWorkflowState {
+    struct LoopItem {
+        std::uint64_t id{};
+        std::string label, state, mode;
+        bool selected{}, audio_active{};
+    };
     bool visible{};
     std::string mode{"External audio"}, phase{"Idle"},
         source{"external-stereo"}, destination{"Sample slot 0"},
@@ -161,7 +166,11 @@ struct SlintRecordingWorkflowState {
     std::size_t captured_events{};
     float progress{};
     bool can_configure{true}, can_arm{}, can_start{}, can_stop{}, can_cancel{},
-        can_commit{}, result_audio_active{}, result_pending{};
+        can_commit{}, can_overdub{}, can_replace{}, can_clear{}, can_save{},
+        result_audio_active{}, result_pending{};
+    std::uint64_t session_id{}, loop_iteration{};
+    std::string pass{"capture"};
+    std::vector<LoopItem> loops;
 };
 
 struct SlintSoundParameterItem {
@@ -486,6 +495,7 @@ class SlintFrontendAdapter {
                                             std::uint64_t source_id = 0);
     [[nodiscard]] bool set_recording_destination(std::uint32_t slot);
     [[nodiscard]] bool set_recording_quantization(std::string quantization);
+    [[nodiscard]] bool select_live_loop(std::size_t index);
     void close_recording() noexcept;
     [[nodiscard]] bool select_pattern(std::size_t index, bool launch = false);
     [[nodiscard]] bool create_pattern(bool duplicate = false);

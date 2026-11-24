@@ -486,9 +486,27 @@ bool SlintFrontendAdapter::refresh() {
         state_.recording.can_cancel = recording.can_cancel;
         state_.recording.can_commit =
             recording.phase == RecordingWorkflowPhase::finalizing;
+        state_.recording.can_overdub = recording.can_overdub;
+        state_.recording.can_replace = recording.can_replace;
+        state_.recording.can_clear = recording.can_clear;
+        state_.recording.can_save = recording.can_save;
         state_.recording.result_audio_active = recording.result_audio_active;
         state_.recording.result_pending = recording.result_pending;
         state_.recording.error = recording.error;
+        state_.recording.session_id = recording.live_loop_session;
+        state_.recording.loop_iteration = recording.loop_iteration;
+        state_.recording.pass = recording.live_loop_mode;
+        state_.recording.loops.clear();
+        for (const auto &loop : recording.live_loop_sessions)
+            state_.recording.loops.push_back({
+                loop.id,
+                "Loop " + std::to_string(loop.id) + " · Track " +
+                    std::to_string(loop.configuration.destination_track),
+                live_loop_state_name(loop.state),
+                loop.mode == LiveLoopMode::overdub ? "overdub"
+                    : loop.mode == LiveLoopMode::replace ? "replace" : "capture",
+                loop.id == recording.live_loop_session,
+                loop.state == LiveLoopState::playing});
         state_.shell.transport = recording.phase != RecordingWorkflowPhase::idle &&
                                          recording.phase != RecordingWorkflowPhase::configuring
                                      ? recording.status
@@ -663,9 +681,26 @@ bool SlintFrontendAdapter::refresh() {
     next.recording.can_stop = recording.can_stop;
     next.recording.can_cancel = recording.can_cancel;
     next.recording.can_commit = recording.phase == RecordingWorkflowPhase::finalizing;
+    next.recording.can_overdub = recording.can_overdub;
+    next.recording.can_replace = recording.can_replace;
+    next.recording.can_clear = recording.can_clear;
+    next.recording.can_save = recording.can_save;
     next.recording.result_audio_active = recording.result_audio_active;
     next.recording.result_pending = recording.result_pending;
     next.recording.error = recording.error;
+    next.recording.session_id = recording.live_loop_session;
+    next.recording.loop_iteration = recording.loop_iteration;
+    next.recording.pass = recording.live_loop_mode;
+    for (const auto &loop : recording.live_loop_sessions)
+        next.recording.loops.push_back({
+            loop.id,
+            "Loop " + std::to_string(loop.id) + " · Track " +
+                std::to_string(loop.configuration.destination_track),
+            live_loop_state_name(loop.state),
+            loop.mode == LiveLoopMode::overdub ? "overdub"
+                : loop.mode == LiveLoopMode::replace ? "replace" : "capture",
+            loop.id == recording.live_loop_session,
+            loop.state == LiveLoopState::playing});
     if (recording.phase != RecordingWorkflowPhase::idle &&
         recording.phase != RecordingWorkflowPhase::configuring)
         next.shell.transport = recording.status;
@@ -1878,9 +1913,20 @@ bool SlintFrontendAdapter::confirm_browser_action(bool accept) {
         return execute({"project.save-as.v1",
             {{"path", path},
              {"name", std::filesystem::path(path).filename().string()}}, {}, 0});
-    if (action == "recording-export-overwrite")
-        return execute({"recording.save.v1",
-            {{"path", path}, {"format", std::string("float32")}}, {}, 0});
+    if (action == "recording-export-overwrite") {
+        if (recording_workflow_.configuration().mode ==
+            RecordingWorkflowMode::live_loop) {
+            std::string error;
+            const auto saved = recording_workflow_.save_live_loop(path, error);
+            if (!saved) {
+                last_error_ = std::move(error);
+                state_.shell.notification = last_error_;
+            }
+            return saved;
+        } else
+            return execute({"recording.save.v1",
+                {{"path", path}, {"format", std::string("float32")}}, {}, 0});
+    }
     if (action == "processing-export-overwrite")
         return processing_action("save", path);
     if (action == "profile-save-overwrite")
@@ -2139,9 +2185,14 @@ bool SlintFrontendAdapter::text_entry_action(std::string action) {
                         "The selected file already exists. Replace it?";
                     accepted = true;
                 } else if (operation == "recording-export")
-                    accepted = execute({"recording.save.v1",
-                        {{"path", path.string()},
-                         {"format", std::string("float32")}}, {}, 0});
+                    if (recording_workflow_.configuration().mode ==
+                        RecordingWorkflowMode::live_loop)
+                        accepted = recording_workflow_.save_live_loop(
+                            path.string(), last_error_);
+                    else
+                        accepted = execute({"recording.save.v1",
+                            {{"path", path.string()},
+                             {"format", std::string("float32")}}, {}, 0});
                 else if (operation == "processing-export")
                     accepted = processing_action("save", path.string());
                 else
@@ -2283,6 +2334,23 @@ bool SlintFrontendAdapter::set_recording_quantization(std::string value) {
     return refresh();
 }
 
+bool SlintFrontendAdapter::select_live_loop(std::size_t index) {
+    const auto recording = recording_workflow_.snapshot();
+    if (index >= recording.live_loop_sessions.size()) {
+        last_error_ = "Live-loop session is unavailable";
+        return false;
+    }
+    std::string error;
+    if (!recording_workflow_.select_live_loop(
+            recording.live_loop_sessions[index].id, error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
 bool SlintFrontendAdapter::recording_action(std::string action) {
     std::string error;
     bool accepted{};
@@ -2303,6 +2371,9 @@ bool SlintFrontendAdapter::recording_action(std::string action) {
     else if (action == "stop") accepted = recording_workflow_.stop(error);
     else if (action == "overdub") accepted = recording_workflow_.overdub(false, error);
     else if (action == "replace") accepted = recording_workflow_.overdub(true, error);
+    else if (action == "clear") accepted = recording_workflow_.clear_live_loop(error);
+    else if (action == "save")
+        return request_text_entry("recording-export", "live-loop.wav");
     else if (action == "cancel") accepted = recording_workflow_.cancel(error);
     else if (action == "commit") accepted = recording_workflow_.commit(error);
     else {

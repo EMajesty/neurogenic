@@ -52,6 +52,14 @@ It owns pending stable configuration only; `RecordingService`,
 authorities. Sample-processing source/result ownership remains in
 `SampleProcessingService`; frontend models never hold PCM.
 
+Live-loop completion records the exact `SampleManager` revision submitted for
+each pass and accepts only that revision's audio-active acknowledgement. An
+already loaded older version cannot prematurely complete finalization.
+Overdub/replacement retain the prior immutable sample and timing metadata until
+the new version succeeds; cancellation or failure restores that playing state.
+Session clear removes the stable arrangement clip transactionally while
+retaining the sample slot for other owners.
+
 Integrated performance validation drives the production prepared-timeline,
 immutable-sample, mixer/FX/modulation, MIDI, live-loop, launcher, and capture
 paths. Simulated devices provide deterministic input and timestamps; there is no

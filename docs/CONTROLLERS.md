@@ -387,3 +387,9 @@ Sixteen pads remain the current absolute step page. Slint preserves validated
 contextual action arguments instead of reducing assignments to bare action IDs.
 Arrangement editing is exposed as discrete stable-ID actions suitable for
 profile bindings; no encoder push or pixel-precise drag is assumed.
+
+When a live-loop session exists, the Performance context exposes stable-ID
+Arm/Start, Stop, Overdub, Replace and Cancel actions. Availability follows the
+authoritative pass state; the controller cannot redirect an armed pass by
+changing a later UI selection. Destructive Clear is deliberately confirmation
+only and is not assigned to an ordinary performance button.

@@ -4,6 +4,12 @@ Arrangement audio clips reuse immutable sample versions and the sample voice
 pool. Active clips retain old versions across replacement; new activations use
 the current audio-active slot. See [AUDIO_CLIPS.md](AUDIO_CLIPS.md).
 
+Audio-active live-loop results use the same immutable sample-slot versions.
+Explicit export writes PCM through the recording WAV writer and attaches the
+path to that active slot; failed export leaves the active version unchanged.
+Clearing a live-loop session removes its arrangement clip but deliberately
+retains the sample slot so instruments and later export remain safe.
+
 Offline bounce is also control-side: an immutable source version is retained
 while an ordered processing job creates a new finite mono/stereo sample. WAV
 save and `SampleManager` publication are explicit; the original PCM and voices

@@ -791,6 +791,11 @@ ActionRegistry::ActionRegistry() {
                {{"id", ValueType::integer}}));
     add(action("live-loop.cancel.v1", "Cancel live-loop operation", "Recording",
                {{"id", ValueType::integer}}));
+    add(action("live-loop.clear.v1", "Clear live-loop session", "Recording",
+               {{"id", ValueType::integer}}));
+    add(action("live-loop.save.v1", "Save live-loop audio", "Recording",
+               {{"id", ValueType::integer}, {"path", ValueType::text},
+                {"format", ValueType::text, false}}));
     add(action("live-loop.source-set.v1", "Set live-loop source", "Recording",
                {{"id", ValueType::integer}, {"source", ValueType::text},
                 {"source_id", ValueType::integer, false}}));
@@ -2022,7 +2027,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             const auto track = *argument<std::int64_t>(command, "track");
             const auto slot = *argument<std::int64_t>(command, "slot");
             if (track <= 0 || slot < 0 ||
-                slot >= static_cast<std::int64_t>(engine_.sample_slot_count()))
+                slot >= static_cast<std::int64_t>(
+                            AudioEngine::default_note_bank_size))
                 error = "invalid live-loop track or sample slot";
             else {
                 configuration.destination_track = static_cast<TrackId>(track);
@@ -2072,6 +2078,23 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             (void)live_loops_.stop(id_argument(), error);
         } else if (command.action_id == "live-loop.cancel.v1") {
             (void)live_loops_.cancel(id_argument(), error);
+        } else if (command.action_id == "live-loop.clear.v1") {
+            (void)live_loops_.remove(id_argument(), error);
+        } else if (command.action_id == "live-loop.save.v1") {
+            auto format = RecordingWavFormat::pcm16;
+            if (const auto value = argument<std::string>(command, "format")) {
+                if (*value == "float32")
+                    format = RecordingWavFormat::float32;
+                else if (*value != "pcm16")
+                    error = "live-loop WAV format must be pcm16 or float32";
+            }
+            if (error.empty() && live_loops_.save(
+                    id_argument(), std::filesystem::path(
+                        *argument<std::string>(command, "path")),
+                    format, error)) {
+                std::lock_guard lock(mutex_);
+                state_.project_dirty = true;
+            }
         } else {
             const auto id = id_argument();
             const auto *status = live_loops_.find(id);
@@ -2106,6 +2129,10 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         }
         {
             std::lock_guard lock(mutex_);
+            if (error.empty() &&
+                (command.action_id == "live-loop.clear.v1" ||
+                 command.action_id == "live-loop.save.v1"))
+                state_.project_dirty = true;
             changed_locked();
         }
     } else if (command.action_id.rfind("recording.", 0) == 0) {
@@ -8460,8 +8487,25 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
     return {error.empty(), sequence, snapshot().revision, std::move(error)};
 }
 void ApplicationService::synchronize_locked() const {
+    const auto previous_live_loops = state_.live_loops;
     live_loops_.update();
     state_.live_loops = live_loops_.sessions();
+    const auto completed_live_loop_pass = std::any_of(
+        state_.live_loops.begin(), state_.live_loops.end(),
+        [&](const auto &session) {
+            if (session.state != LiveLoopState::playing)
+                return false;
+            const auto previous = std::find_if(
+                previous_live_loops.begin(), previous_live_loops.end(),
+                [&](const auto &candidate) { return candidate.id == session.id; });
+            return previous == previous_live_loops.end() ||
+                   previous->state != LiveLoopState::playing ||
+                   previous->actual_stop_frame != session.actual_stop_frame;
+        });
+    if (completed_live_loop_pass) {
+        state_.project_dirty = true;
+        ++state_.revision;
+    }
     if (pending_preset_ && pending_preset_->published &&
         engine_.preset_activation_cancelled(
             pending_preset_->activation_sequence)) {

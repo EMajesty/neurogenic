@@ -330,6 +330,14 @@ own a recorder. The Sample page exposes processing progress, cancellation,
 explicit WAV save and explicit destination publication, and only offers the
 published result after immutable-version acknowledgement.
 
+Live-loop mode lists authoritative stable-ID sessions and displays the active
+pass, waiting/recording/finalizing state, loop iteration and errors. Initial
+capture, overdub, replacement, cancellation, float-WAV export and confirmed
+clear use the shared recording coordinator. Closing the modal is presentation
+only and never cancels a pass. Reopening reconstructs the current state from
+the application snapshot. Generated-component tests exercise create/arm,
+selection and cancellation and render the modal at 1920x1200 and 1024x600.
+
 The `slint-production-build-and-test` CI job configures pinned Slint 1.19,
 compiles generated components, links the production appliance and runs the
 Slint-enabled CTest suite. Headless builds remain independent. Rendered UI

@@ -49,6 +49,7 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
     std::shared_ptr<slint::VectorModel<SetupMidiRouteItem>> midi_routes;
     std::shared_ptr<slint::VectorModel<SetupMappingItem>> mappings;
+    std::shared_ptr<slint::VectorModel<LiveLoopItem>> live_loops;
 };
 
 class HeadlessWindowAdapter final : public slint::platform::WindowAdapter {
@@ -126,6 +127,20 @@ void publish(const SlintUiState &state,
         window->set_recording_phase(text(state.recording.phase));
         window->set_recording_progress(state.recording.progress);
         window->set_recording_overflows(static_cast<int>(state.recording.overflow_count));
+        window->set_recording_can_overdub(state.recording.can_overdub);
+        window->set_recording_can_replace(state.recording.can_replace);
+        window->set_recording_can_clear(state.recording.can_clear);
+        window->set_recording_can_save(state.recording.can_save);
+        window->set_recording_pass(text(state.recording.pass));
+        window->set_recording_loop_iteration(
+            static_cast<int>(state.recording.loop_iteration));
+        std::vector<LiveLoopItem> live_loops;
+        for (const auto &loop : state.recording.loops)
+            live_loops.push_back({text(loop.label), text(loop.state),
+                                  text(loop.mode), loop.selected,
+                                  loop.audio_active});
+        publish_model(models.live_loops, std::move(live_loops),
+                      [&](auto value) { window->set_recording_loops(value); });
         window->set_processing_status(text(state.sample.processing_status));
         window->set_processing_progress(state.sample.processing_progress);
         window->set_processing_can_cancel(state.sample.processing_can_cancel);
@@ -232,9 +247,24 @@ void publish(const SlintUiState &state,
     window->set_recording_can_stop(state.recording.can_stop);
     window->set_recording_can_cancel(state.recording.can_cancel);
     window->set_recording_can_commit(state.recording.can_commit);
+    window->set_recording_can_overdub(state.recording.can_overdub);
+    window->set_recording_can_replace(state.recording.can_replace);
+    window->set_recording_can_clear(state.recording.can_clear);
+    window->set_recording_can_save(state.recording.can_save);
+    window->set_recording_pass(text(state.recording.pass));
+    window->set_recording_loop_iteration(
+        static_cast<int>(state.recording.loop_iteration));
     window->set_recording_progress(state.recording.progress);
     window->set_recording_overflows(
         static_cast<int>(state.recording.overflow_count));
+    std::vector<LiveLoopItem> live_loops;
+    live_loops.reserve(state.recording.loops.size());
+    for (const auto &loop : state.recording.loops)
+        live_loops.push_back({text(loop.label), text(loop.state),
+                              text(loop.mode), loop.selected,
+                              loop.audio_active});
+    publish_model(models.live_loops, std::move(live_loops),
+                  [&](auto value) { window->set_recording_loops(value); });
     window->set_sample_ready(state.sample.ready);
     window->set_sample_stereo(state.sample.channels > 1);
     window->set_waveform_zoom(state.sample.zoom);
@@ -831,6 +861,11 @@ int run_slint_frontend(ApplicationService &application,
                 (void)adapter.set_recording_quantization(quantization.data());
                 publish(adapter.state(), window);
             });
+        window->on_recording_loop_selected([&](int index) {
+            if (index >= 0)
+                (void)adapter.select_live_loop(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
         window->on_recording_action([&](slint::SharedString action) {
             (void)adapter.recording_action(action.data());
             publish(adapter.state(), window);
@@ -1197,9 +1232,21 @@ int run_slint_frontend(ApplicationService &application,
             window->invoke_transport_invoked("record");
             if (!window->get_recording_visible())
                 throw std::runtime_error("recording modal did not become visible");
+            window->invoke_recording_mode_selected("live-loop");
+            window->invoke_recording_quantization_selected("immediate");
+            window->invoke_recording_action("arm");
+            if (!window->get_recording_loops() ||
+                window->get_recording_loops()->row_count() == 0)
+                throw std::runtime_error(
+                    "generated live-loop arm did not publish a session");
+            window->invoke_recording_loop_selected(0);
             if (!options.screenshot_path.empty())
                 capture_headless(options.screenshot_path + "-recording.ppm");
             window->invoke_recording_action("cancel");
+            if (std::string_view(window->get_recording_phase().data()) !=
+                "Cancelled")
+                throw std::runtime_error(
+                    "generated live-loop cancellation did not round trip");
             window->invoke_recording_closed();
             window->invoke_text_entry_requested("browser-filter", "kick");
             window->invoke_text_entry_insert(" ");

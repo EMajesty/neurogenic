@@ -128,7 +128,7 @@ ApplicationDiscovery discover_application(const ApplicationService &application)
         {"sample-analysis", 1, true, {}},
         {"sample-processing", 1, true, {}},
         {"audio-clips", 2, true, {}},
-        {"live-looping", 2, true, {}},
+        {"live-looping", 3, true, {}},
         {"high-frequency-telemetry", 1, true, {}},
         {"typed-parameter-bindings", 1, true, {}}};
     result.object_types = {

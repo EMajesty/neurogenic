@@ -1,7 +1,9 @@
 #include "neurogenic/audio/live_loop.hpp"
 #include "neurogenic/audio/sample_manager.hpp"
+#include "neurogenic/application/controller_protocol.hpp"
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
@@ -62,8 +64,15 @@ int main() try {
           "live-loop clip metadata is incorrect");
 
     configuration.overdub_feedback = .5F;
+    const auto before_canceled_overdub = samples.active_sample(SampleSlotId{3});
     check(loops.configure(id, configuration, error) &&
               loops.arm(id, LiveLoopMode::overdub, error) &&
+              loops.cancel(id, error) &&
+              loops.find(id)->state == LiveLoopState::playing &&
+              loops.find(id)->captured_frames == 100 &&
+              samples.active_sample(SampleSlotId{3}) == before_canceled_overdub,
+          "canceled overdub did not preserve the active loop");
+    check(loops.arm(id, LiveLoopMode::overdub, error) &&
               loops.start(id, error),
           "overdub did not start");
     left.fill(.5F);
@@ -72,6 +81,8 @@ int main() try {
     recorder.capture_internal(RecordingSource::master_post_effects, left, right,
                               overdub_start);
     loops.update();
+    check(loops.find(id)->state == LiveLoopState::finalizing,
+          "overdub acknowledged an older active sample publication");
     engine.process(ack_left, ack_right);
     loops.update();
     const auto overdubbed = samples.active_sample(SampleSlotId{3});
@@ -94,6 +105,16 @@ int main() try {
     check(replaced && std::abs(replaced->interleaved.front() - .1F) < 1e-6F,
           "replace pass did not preserve clip identity with new audio");
 
+    const auto export_path = std::filesystem::temp_directory_path() /
+        "neurogenic-live-loop-result.wav";
+    std::error_code ignored;
+    std::filesystem::remove(export_path, ignored);
+    check(loops.save(id, export_path, RecordingWavFormat::float32, error) &&
+              std::filesystem::file_size(export_path) == 44 + 100 * 2 * 4 &&
+              samples.status(SampleSlotId{3}).source_path == export_path,
+          "audio-active loop export did not preserve the reusable asset path");
+    std::filesystem::remove(export_path, ignored);
+
     engine.restart();
     engine.process(ack_left, ack_right);
     LiveLoopConfiguration beat = configuration;
@@ -106,6 +127,9 @@ int main() try {
     check(beat_status->requested_start_frame == engine.callback_frame_position() +
               24'000 && beat_status->requested_start_tick == 960,
           "beat boundary was not derived from authoritative transport");
+    check(!loops.remove(beat_id, error) &&
+              error.find("active") != std::string::npos,
+          "active live-loop session removal was not rejected");
     check(loops.cancel(beat_id, error), "armed loop cancellation failed");
 
     LiveLoopConfiguration unsafe = configuration;
@@ -127,6 +151,27 @@ int main() try {
     check(loops.create(unsafe, error) == 0 &&
               error.find("capacity") != std::string::npos,
           "live-loop session capacity exhaustion was not reported");
+    check(loops.remove(id, error) &&
+              timelines.snapshot().timeline.arrangement.audio_clips.empty() &&
+              samples.active_sample(SampleSlotId{3}),
+          "clearing a session did not remove its clip while retaining PCM");
+
+    ApplicationState controller_state;
+    LiveLoopSessionStatus controller_loop;
+    controller_loop.id = 42;
+    controller_loop.state = LiveLoopState::playing;
+    controller_state.live_loops.push_back(controller_loop);
+    controller_state.available_actions = {
+        "live-loop.arm.v1", "live-loop.start.v1", "live-loop.stop.v1",
+        "live-loop.overdub.v1", "live-loop.replace.v1",
+        "live-loop.cancel.v1"};
+    const auto controls = resolve_controller_context(
+        controller_state, "performance", {});
+    check(controls[10].label == "OVERDUB" && controls[10].active &&
+              std::get<std::int64_t>(controls[10].arguments.at("id")) == 42 &&
+              controls[11].label == "REPLACE" && controls[11].active &&
+              !controls[9].active,
+          "performance context did not preserve the stable live-loop target");
 
     // The duplex callback deliberately spans the stop boundary. The first
     // captured sample must be rendered at that exact frame, with neither a

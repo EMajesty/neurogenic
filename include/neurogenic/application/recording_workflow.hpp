@@ -49,7 +49,12 @@ struct RecordingWorkflowSnapshot {
     std::size_t captured_events{};
     float progress{};
     bool can_configure{true}, can_arm{}, can_start{}, can_stop{}, can_cancel{};
+    bool can_overdub{}, can_replace{}, can_clear{}, can_save{};
     bool result_audio_active{}, result_pending{};
+    std::string live_loop_mode{"capture"};
+    std::uint64_t loop_iteration{}, requested_start_frame{},
+        requested_stop_frame{};
+    std::vector<LiveLoopSessionStatus> live_loop_sessions;
     std::string status{"Idle"}, error;
 };
 
@@ -67,6 +72,10 @@ class RecordingWorkflowCoordinator {
     [[nodiscard]] bool start(std::string &error);
     [[nodiscard]] bool stop(std::string &error);
     [[nodiscard]] bool overdub(bool replace, std::string &error);
+    [[nodiscard]] bool select_live_loop(LiveLoopSessionId, std::string &error);
+    [[nodiscard]] bool clear_live_loop(std::string &error);
+    [[nodiscard]] bool save_live_loop(const std::string &path,
+                                      std::string &error);
     [[nodiscard]] bool cancel(std::string &error);
     [[nodiscard]] bool commit(std::string &error);
     [[nodiscard]] RecordingWorkflowSnapshot snapshot() const;

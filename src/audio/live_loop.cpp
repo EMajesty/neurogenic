@@ -248,6 +248,9 @@ bool LiveLoopService::arm(LiveLoopSessionId id, LiveLoopMode mode,
     session->status.error.clear();
     session->previous_sample = samples_.active_sample(
         session->status.configuration.destination_slot);
+    session->previous_captured_frames = session->status.captured_frames;
+    session->previous_actual_start_frame = session->status.actual_start_frame;
+    session->previous_actual_stop_frame = session->status.actual_stop_frame;
     active_id_ = id;
     error.clear();
     return true;
@@ -291,9 +294,70 @@ bool LiveLoopService::cancel(LiveLoopSessionId id, std::string &error) {
         session->handoff_sample.reset();
         active_id_ = 0;
     }
-    session->status.state = LiveLoopState::canceled;
-    session->status.captured_frames = 0;
+    if (session->status.mode != LiveLoopMode::capture &&
+        session->status.clip_id && session->previous_sample) {
+        session->status.state = LiveLoopState::playing;
+        session->status.captured_frames = session->previous_captured_frames;
+        session->status.actual_start_frame = session->previous_actual_start_frame;
+        session->status.actual_stop_frame = session->previous_actual_stop_frame;
+        session->previous_sample.reset();
+    } else {
+        session->status.state = LiveLoopState::canceled;
+        session->status.captured_frames = 0;
+    }
+    session->status.error.clear();
     error.clear();
+    return true;
+}
+
+bool LiveLoopService::remove(LiveLoopSessionId id, std::string &error) {
+    const auto found = std::find_if(sessions_.begin(), sessions_.end(),
+        [=](const auto &session) { return session.status.id == id; });
+    if (found == sessions_.end()) {
+        error = "live-loop session does not exist";
+        return false;
+    }
+    if (active_id_ == id) {
+        error = "cannot clear an active live-loop pass";
+        return false;
+    }
+    if (found->status.clip_id) {
+        auto transaction = timeline_.edit();
+        if (!transaction.delete_audio_clip(found->status.clip_id, error) ||
+            !timeline_.commit(std::move(transaction),
+                              TimelineCommitPolicy::next_audio_callback,
+                              error))
+            return false;
+    }
+    // Retain the immutable sample slot: other instruments may still own it and
+    // the user may export or reassign it after clearing the live session.
+    sessions_.erase(found);
+    error.clear();
+    return true;
+}
+
+bool LiveLoopService::save(LiveLoopSessionId id,
+                           const std::filesystem::path &path,
+                           RecordingWavFormat format, std::string &error) {
+    const auto *session = find(id);
+    if (!session || session->state != LiveLoopState::playing) {
+        error = !session ? "live-loop session does not exist"
+                         : "live-loop audio is not active";
+        return false;
+    }
+    const auto sample = samples_.active_sample(
+        session->configuration.destination_slot);
+    if (!sample) {
+        error = "live-loop sample is not audio-active";
+        return false;
+    }
+    if (!RecordingService::save_sample_wav(*sample, path, format, error))
+        return false;
+    if (!samples_.set_source_path(session->configuration.destination_slot,
+                                  path)) {
+        error = "saved live-loop sample is not active";
+        return false;
+    }
     return true;
 }
 void LiveLoopService::clear() noexcept {
@@ -331,8 +395,16 @@ void LiveLoopService::update() {
         return;
     }
     if (recording.state == RecordingState::error) {
-        session->status.state = LiveLoopState::error;
         session->status.error = recording.error;
+        if (session->status.mode != LiveLoopMode::capture &&
+            session->previous_sample) {
+            session->status.state = LiveLoopState::playing;
+            session->status.captured_frames = session->previous_captured_frames;
+            session->status.actual_start_frame = session->previous_actual_start_frame;
+            session->status.actual_stop_frame = session->previous_actual_stop_frame;
+            session->previous_sample.reset();
+        } else
+            session->status.state = LiveLoopState::error;
         active_id_ = 0;
         return;
     }
@@ -347,6 +419,8 @@ void LiveLoopService::update() {
                         session->status.configuration.destination_slot,
                         session->handoff_sample, {}))
                     throw std::runtime_error("gapless sample publication failed");
+                session->expected_publication = samples_.status(
+                    session->status.configuration.destination_slot).revision;
                 recording_.mark_publication_pending();
                 session->status.state = LiveLoopState::finalizing;
                 return;
@@ -367,18 +441,30 @@ void LiveLoopService::update() {
             std::string error;
             if (!recording_.finalize_sample_to_slot(samples_, std::move(result), error))
                 throw std::runtime_error(error);
+            session->expected_publication = samples_.status(
+                session->status.configuration.destination_slot).revision;
             session->status.state = LiveLoopState::finalizing;
         } catch (const std::exception &exception) {
-            session->status.state = LiveLoopState::error;
             session->status.error = exception.what();
             session->status.handoff_failure = exception.what();
+            if (session->status.mode != LiveLoopMode::capture &&
+                session->previous_sample) {
+                session->status.state = LiveLoopState::playing;
+                session->status.captured_frames = session->previous_captured_frames;
+                session->status.actual_start_frame = session->previous_actual_start_frame;
+                session->status.actual_stop_frame = session->previous_actual_stop_frame;
+                session->previous_sample.reset();
+            } else
+                session->status.state = LiveLoopState::error;
             active_id_ = 0;
         }
         return;
     }
     if (recording.state != RecordingState::publication_pending) return;
     const auto slot = samples_.status(session->status.configuration.destination_slot);
-    if (slot.state != SampleSlotLoadState::loaded || !slot.has_sample) return;
+    if (slot.state != SampleSlotLoadState::loaded || !slot.has_sample ||
+        slot.active_revision != session->expected_publication)
+        return;
     recording_.acknowledge_audio_active();
     auto transaction = timeline_.edit();
     auto activation_tick = session->status.requested_stop_tick;

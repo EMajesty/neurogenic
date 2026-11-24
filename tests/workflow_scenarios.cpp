@@ -336,6 +336,120 @@ void scenario_mixer_recording_external() {
             "simulated six-channel external loop was unavailable");
 }
 
+void scenario_live_loop_lifecycle() {
+    TempDirectory temporary("live-loop");
+    const auto wav = temporary.path / "captured-loop.wav";
+    const auto project = temporary.path / "live-loop.ngp";
+    Context context;
+    context.action("project.new.v1", {{"name", std::string("Live Loop")}});
+    create_track(context, 1, "Loop");
+    context.action("project.save-as.v1",
+                   {{"path", project.string()},
+                    {"name", std::string("Live Loop")}});
+    require(!context.application.snapshot().project_dirty,
+            "baseline live-loop project remained dirty");
+
+    RecordingWorkflowCoordinator workflow(context.application);
+    RecordingWorkflowConfiguration configuration;
+    configuration.mode = RecordingWorkflowMode::live_loop;
+    configuration.source = "master-post";
+    configuration.destination = SampleSlotId{3};
+    configuration.destination_track = 1;
+    configuration.channels = 2;
+    configuration.quantization = "immediate";
+    configuration.loop_length_ticks = 4; // exactly 100 frames at 120 BPM.
+    std::string error;
+    auto accepted = workflow.configure(configuration, error);
+    require(accepted, "semantic loop configuration failed: " + error);
+    accepted = workflow.arm(error);
+    require(accepted, "semantic initial loop arm failed: " + error);
+    accepted = workflow.start(error);
+    require(accepted, "semantic initial loop start failed: " + error);
+    auto state = workflow.snapshot();
+    require(state.live_loop_session && state.phase == RecordingWorkflowPhase::waiting,
+            "live-loop workflow did not expose the waiting phase");
+    const auto session = state.live_loop_session;
+    std::array<float, 100> left{}, right{};
+    left.fill(.25F); right.fill(.25F);
+    context.application.recording().capture_internal(
+        RecordingSource::master_post_effects, left, right,
+        state.live_loop_sessions.front().requested_start_frame);
+    (void)context.application.snapshot();
+    state = workflow.snapshot();
+    require(state.phase == RecordingWorkflowPhase::finalizing &&
+                state.captured_frames == 100,
+            "initial loop did not enter revision-specific finalization");
+    context.process(1, 1);
+    (void)context.application.snapshot();
+    state = workflow.snapshot();
+    auto sample = context.samples.active_sample(SampleSlotId{3});
+    require(state.phase == RecordingWorkflowPhase::completed &&
+                state.result_audio_active && sample && sample->frames() == 100 &&
+                std::fabs(sample->interleaved.front() - .25F) < 1e-6F &&
+                context.application.snapshot().project_dirty,
+            "initial capture PCM or publication acknowledgement was incorrect");
+
+    context.action("live-loop.feedback-set.v1",
+                   {{"id", static_cast<std::int64_t>(session)},
+                    {"feedback", .5}});
+    require(workflow.overdub(false, error), "semantic overdub failed: " + error);
+    state = workflow.snapshot();
+    left.fill(.5F); right.fill(.5F);
+    context.application.recording().capture_internal(
+        RecordingSource::master_post_effects, left, right,
+        state.live_loop_sessions.front().requested_start_frame);
+    (void)context.application.snapshot();
+    require(workflow.snapshot().phase == RecordingWorkflowPhase::finalizing,
+            "overdub did not wait for its own publication acknowledgement");
+    context.process(1, 1); (void)context.application.snapshot();
+    sample = context.samples.active_sample(SampleSlotId{3});
+    require(sample && std::fabs(sample->interleaved.front() - .625F) < 1e-6F,
+            "overdub PCM did not apply the configured feedback mix");
+
+    require(workflow.overdub(true, error), "semantic replacement failed: " + error);
+    state = workflow.snapshot();
+    left.fill(.1F); right.fill(.1F);
+    context.application.recording().capture_internal(
+        RecordingSource::master_post_effects, left, right,
+        state.live_loop_sessions.front().requested_start_frame);
+    (void)context.application.snapshot();
+    context.process(1, 1); (void)context.application.snapshot();
+    sample = context.samples.active_sample(SampleSlotId{3});
+    require(sample && std::fabs(sample->interleaved.front() - .1F) < 1e-6F,
+            "replacement PCM did not become audio-active");
+
+    require(workflow.overdub(false, error) && workflow.cancel(error),
+            "overdub cancellation failed: " + error);
+    state = workflow.snapshot();
+    require(state.phase == RecordingWorkflowPhase::completed &&
+                context.samples.active_sample(SampleSlotId{3}) == sample,
+            "canceled overdub did not preserve the previous active version");
+    require(workflow.save_live_loop(wav.string(), error) &&
+                std::filesystem::file_size(wav) == 44 + 100 * 2 * 4,
+            "live-loop export failed: " + error);
+    context.action("project.save-as.v1",
+                   {{"path", project.string()},
+                    {"name", std::string("Live Loop")}});
+
+    Context restored;
+    restored.open_project(project);
+    restored.samples.wait_idle();
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        restored.process(64);
+        if (restored.samples.status(SampleSlotId{3}).state ==
+            SampleSlotLoadState::loaded)
+            break;
+    }
+    const auto reopened = restored.samples.active_sample(SampleSlotId{3});
+    require(reopened && reopened->frames() == 100 &&
+                std::fabs(reopened->interleaved.front() - .1F) < 2e-4F &&
+                restored.timeline.snapshot().timeline.arrangement.audio_clips.size() == 1,
+            "saved live-loop asset or arrangement reference did not restore");
+    restored.action("transport.restart.v1");
+    require(restored.process(512) > .01,
+            "restored live-loop arrangement produced no audio");
+}
+
 void scenario_midi_performance_gui() {
     TempDirectory temporary("midi");
     const auto project = temporary.path / "midi.ngp";
@@ -559,6 +673,7 @@ int main(int argc, char **argv) {
         std::pair{"beat-project", scenario_beat_project},
         std::pair{"synth-modulation", scenario_synth_modulation},
         std::pair{"mixer-recording-external", scenario_mixer_recording_external},
+        std::pair{"live-loop-lifecycle", scenario_live_loop_lifecycle},
         std::pair{"midi-performance-gui", scenario_midi_performance_gui},
         std::pair{"reusable-pattern-arrangement",
                   scenario_reusable_pattern_arrangement}};

@@ -360,7 +360,7 @@ if(NEUROGENIC_BUILD_TESTS)
   target_link_libraries(neurogenic_workflows PRIVATE neurogenic_engine neurogenic_gui)
   add_test(NAME neurogenic_workflows COMMAND neurogenic_workflows all)
   set_tests_properties(neurogenic_workflows PROPERTIES
-    PASS_REGULAR_EXPRESSION "neurogenic.workflow.summary.v1 passed=5"
+    PASS_REGULAR_EXPRESSION "neurogenic.workflow.summary.v1 passed=6"
     TIMEOUT 30)
   add_executable(neurogenic_integration_validation
     tests/integration_validation.cpp)

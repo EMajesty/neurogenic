@@ -458,6 +458,21 @@ bool RecordingService::save_wav(const std::filesystem::path &path,
                                 std::string &error) const {
     try {
         const auto sample = completed_sample();
+        return save_sample_wav(sample, path, format, error);
+    } catch (const std::exception &exception) {
+        error = exception.what();
+        return false;
+    }
+}
+
+bool RecordingService::save_sample_wav(const Sample &sample,
+                                       const std::filesystem::path &path,
+                                       RecordingWavFormat format,
+                                       std::string &error) {
+    try {
+        if (sample.sample_rate == 0 || sample.frames() == 0 ||
+            (sample.channels != 1 && sample.channels != 2))
+            throw std::runtime_error("sample is not exportable");
         std::ofstream output(path, std::ios::binary | std::ios::trunc);
         if (!output)
             throw std::runtime_error("cannot open recording output");

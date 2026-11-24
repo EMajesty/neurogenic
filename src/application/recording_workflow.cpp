@@ -77,8 +77,25 @@ bool RecordingWorkflowCoordinator::configure(
         error = "live-loop destination track and length are required";
         return false;
     }
+    const auto retain_session = live_loop_session_ &&
+        configuration_.mode == RecordingWorkflowMode::live_loop &&
+        value.mode == RecordingWorkflowMode::live_loop &&
+        configuration_.destination == value.destination &&
+        configuration_.destination_track == value.destination_track &&
+        configuration_.loop_length_ticks == value.loop_length_ticks;
+    if (retain_session) {
+        if (!submit("live-loop.source-set.v1",
+                    {{"id", static_cast<std::int64_t>(live_loop_session_)},
+                     {"source", value.source},
+                     {"source_id", static_cast<std::int64_t>(value.source_id)}},
+                    error) ||
+            !submit("live-loop.quantization-set.v1",
+                    {{"id", static_cast<std::int64_t>(live_loop_session_)},
+                     {"quantization", value.quantization}}, error))
+            return false;
+    } else
+        live_loop_session_ = 0;
     configuration_ = std::move(value);
-    live_loop_session_ = 0;
     configured_ = true;
     error.clear();
     return true;
@@ -178,6 +195,80 @@ bool RecordingWorkflowCoordinator::overdub(bool replace, std::string &error) {
                   {{"id", static_cast<std::int64_t>(live_loop_session_)}}, error);
 }
 
+bool RecordingWorkflowCoordinator::select_live_loop(LiveLoopSessionId id,
+                                                     std::string &error) {
+    const auto state = application_.snapshot();
+    const auto found = std::find_if(state.live_loops.begin(),
+        state.live_loops.end(), [=](const auto &session) {
+            return session.id == id;
+        });
+    if (found == state.live_loops.end()) {
+        error = "live-loop session does not exist";
+        return false;
+    }
+    const auto current = snapshot();
+    if (!current.can_configure && live_loop_session_ != id) {
+        error = "cannot change live-loop selection during an active pass";
+        return false;
+    }
+    configuration_.mode = RecordingWorkflowMode::live_loop;
+    configuration_.destination_track = found->configuration.destination_track;
+    configuration_.destination = found->configuration.destination_slot;
+    configuration_.source_id = found->configuration.source_id;
+    configuration_.channels = found->configuration.channels;
+    configuration_.loop_length_ticks = found->configuration.length_ticks;
+    switch (found->configuration.source) {
+    case RecordingSource::external_mono: configuration_.source = "external-mono"; break;
+    case RecordingSource::external_stereo: configuration_.source = "external-stereo"; break;
+    case RecordingSource::physical_input: configuration_.source = "physical-input"; break;
+    case RecordingSource::track_channel: configuration_.source = "track"; break;
+    case RecordingSource::group_pre_effects: configuration_.source = "group-pre"; break;
+    case RecordingSource::group_post_effects: configuration_.source = "group-post"; break;
+    case RecordingSource::group_post_fader: configuration_.source = "group-fader"; break;
+    case RecordingSource::auxiliary_bus: configuration_.source = "aux"; break;
+    case RecordingSource::master_pre_effects: configuration_.source = "master-pre"; break;
+    case RecordingSource::master_post_effects: configuration_.source = "master-post"; break;
+    case RecordingSource::external_fx_return: configuration_.source = "external-fx-return"; break;
+    case RecordingSource::external_fx_mix: configuration_.source = "external-fx-mix"; break;
+    }
+    switch (found->configuration.quantization) {
+    case LiveLoopQuantization::immediate: configuration_.quantization = "immediate"; break;
+    case LiveLoopQuantization::subdivision: configuration_.quantization = "subdivision"; break;
+    case LiveLoopQuantization::beat: configuration_.quantization = "beat"; break;
+    case LiveLoopQuantization::bar: configuration_.quantization = "bar"; break;
+    }
+    live_loop_session_ = id;
+    configured_ = true;
+    error.clear();
+    return true;
+}
+
+bool RecordingWorkflowCoordinator::clear_live_loop(std::string &error) {
+    if (!live_loop_session_) {
+        error = "select a live-loop session first";
+        return false;
+    }
+    if (!submit("live-loop.clear.v1",
+                {{"id", static_cast<std::int64_t>(live_loop_session_)}},
+                error))
+        return false;
+    live_loop_session_ = 0;
+    return true;
+}
+
+bool RecordingWorkflowCoordinator::save_live_loop(const std::string &path,
+                                                   std::string &error) {
+    if (!live_loop_session_ || path.empty()) {
+        error = !live_loop_session_ ? "select a live-loop session first"
+                                    : "live-loop export path is empty";
+        return false;
+    }
+    return submit("live-loop.save.v1",
+                  {{"id", static_cast<std::int64_t>(live_loop_session_)},
+                   {"path", path}, {"format", std::string("float32")}},
+                  error);
+}
+
 bool RecordingWorkflowCoordinator::cancel(std::string &error) {
     if (audio_mode(configuration_.mode))
         return submit("recording.cancel.v1", {}, error);
@@ -206,6 +297,7 @@ RecordingWorkflowSnapshot RecordingWorkflowCoordinator::snapshot() const {
     out.configuration = configuration_;
     out.live_loop_session = live_loop_session_;
     const auto state = application_.snapshot();
+    out.live_loop_sessions = state.live_loops;
     if (!configured_) {
         out.phase = RecordingWorkflowPhase::idle;
     } else if (audio_mode(configuration_.mode)) {
@@ -242,6 +334,24 @@ RecordingWorkflowSnapshot RecordingWorkflowCoordinator::snapshot() const {
             out.captured_frames = found->captured_frames;
             out.overflow_count = found->overflow_count;
             out.error = found->error.empty() ? found->handoff_failure : found->error;
+            out.loop_iteration = found->loop_iteration;
+            out.requested_start_frame = found->requested_start_frame;
+            out.requested_stop_frame = found->requested_stop_frame;
+            out.capacity_frames = found->requested_stop_frame >
+                                          found->requested_start_frame
+                                      ? found->requested_stop_frame -
+                                            found->requested_start_frame
+                                      : 0;
+            out.progress = out.capacity_frames
+                               ? std::min(1.0F, static_cast<float>(
+                                      found->captured_frames) /
+                                      static_cast<float>(out.capacity_frames))
+                               : 0.0F;
+            out.live_loop_mode = found->mode == LiveLoopMode::overdub
+                                     ? "overdub"
+                                 : found->mode == LiveLoopMode::replace
+                                     ? "replace"
+                                     : "capture";
             switch (found->state) {
             case LiveLoopState::idle: out.phase = RecordingWorkflowPhase::configuring; break;
             case LiveLoopState::armed: out.phase = RecordingWorkflowPhase::armed; break;
@@ -284,6 +394,11 @@ RecordingWorkflowSnapshot RecordingWorkflowCoordinator::snapshot() const {
                     out.phase == RecordingWorkflowPhase::waiting;
     out.can_stop = out.phase == RecordingWorkflowPhase::recording;
     out.can_cancel = !out.can_configure || out.phase == RecordingWorkflowPhase::failed;
+    out.can_overdub = configuration_.mode == RecordingWorkflowMode::live_loop &&
+                      out.phase == RecordingWorkflowPhase::completed;
+    out.can_replace = out.can_overdub;
+    out.can_clear = out.can_overdub;
+    out.can_save = out.can_overdub && out.result_audio_active;
     return out;
 }
 

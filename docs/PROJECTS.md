@@ -210,6 +210,11 @@ to write that asset aborts the new generation instead of silently dropping the
 capture. Missing recorded assets use the same reporting and relinking path as
 other samples.
 
+Live-loop session buffers and pass state are transient. After explicit WAV
+export, the destination sample slot has the saved source path and the ordinary
+arrangement audio clip and relative asset reference persist. Save/reopen thus
+restores the musical loop and PCM, not an in-progress recorder session.
+
 ## Appliance preferences and unsaved work
 
 Appliance preferences are not project data. Versioned `appliance.conf` stores

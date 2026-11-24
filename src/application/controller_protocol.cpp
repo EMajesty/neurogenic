@@ -250,6 +250,25 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             lower[2] = {route->enabled ? "DISABLE" : "ENABLE",
                         "modulation.route-enable.v1"};
         }
+    } else if (context == "performance" && !state.live_loops.empty()) {
+        const auto session = std::find_if(
+            state.live_loops.begin(), state.live_loops.end(),
+            [](const auto &candidate) {
+                return candidate.state != LiveLoopState::playing &&
+                       candidate.state != LiveLoopState::idle &&
+                       candidate.state != LiveLoopState::canceled &&
+                       candidate.state != LiveLoopState::error;
+            });
+        const auto &loop = session != state.live_loops.end()
+                               ? *session : state.live_loops.front();
+        lower[0] = {loop.state == LiveLoopState::armed ? "START LOOP"
+                                                       : "ARM LOOP",
+                    loop.state == LiveLoopState::armed
+                        ? "live-loop.start.v1" : "live-loop.arm.v1"};
+        lower[1] = {"STOP LOOP", "live-loop.stop.v1"};
+        lower[2] = {"OVERDUB", "live-loop.overdub.v1"};
+        lower[3] = {"REPLACE", "live-loop.replace.v1"};
+        lower[4] = {"CANCEL", "live-loop.cancel.v1"};
     }
     if (modifiers.shift || modifiers.shift_latched) {
         lower[0] = {"UNDO", "edit.undo.v1"};
@@ -286,6 +305,31 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             result[10].arguments = {{"route_id", route_id},
                                     {"enabled", !route->enabled}};
         }
+    } else if (context == "performance" && !state.live_loops.empty()) {
+        const auto session = std::find_if(
+            state.live_loops.begin(), state.live_loops.end(),
+            [](const auto &candidate) {
+                return candidate.state != LiveLoopState::playing &&
+                       candidate.state != LiveLoopState::idle &&
+                       candidate.state != LiveLoopState::canceled &&
+                       candidate.state != LiveLoopState::error;
+            });
+        const auto &loop = session != state.live_loops.end()
+                               ? *session : state.live_loops.front();
+        const auto id = static_cast<std::int64_t>(loop.id);
+        result[8].arguments = {{"id", id}};
+        if (loop.state != LiveLoopState::armed)
+            result[8].arguments.emplace("mode", std::string("capture"));
+        for (std::size_t index = 9; index <= 12; ++index)
+            result[index].arguments = {{"id", id}};
+        result[9].active = loop.state == LiveLoopState::recording ||
+                           loop.state == LiveLoopState::overdubbing ||
+                           loop.state == LiveLoopState::replacing;
+        result[10].active = result[11].active =
+            loop.state == LiveLoopState::playing;
+        result[12].active = loop.state == LiveLoopState::armed ||
+                            loop.state == LiveLoopState::waiting ||
+                            result[9].active;
     }
     return result;
 }

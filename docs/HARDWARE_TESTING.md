@@ -13,6 +13,13 @@ latency and audio-active destination independently at each supported buffer
 size. Repeat track/group/master resampling and live-loop handoff; deterministic
 fixture results are not physical latency measurements.
 
+For live-loop validation, capture a known physical input at immediate, beat and
+bar boundaries; record requested/actual frames, first-playback frame, XRUNs and
+audible discontinuities. Repeat overdub, replacement, cancellation and export
+at every supported buffer size. Confirm that a failed or cancelled pass leaves
+the prior loop audible. Software PCM assertions do not establish physical
+gaplessness or round-trip latency; all such rows remain **NOT RUN** here.
+
 For the dedicated controller, first run
 `neurogenic-diagnostics --controller-protocol-test`, then launch with
 `neurogenic --gui --controller /dev/serial/by-id/...`. Verify every transition,

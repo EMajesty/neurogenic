@@ -99,6 +99,10 @@ class RecordingService {
     }
     [[nodiscard]] bool save_wav(const std::filesystem::path &,
                                 RecordingWavFormat, std::string &error) const;
+    [[nodiscard]] static bool save_sample_wav(const Sample &,
+                                              const std::filesystem::path &,
+                                              RecordingWavFormat,
+                                              std::string &error);
     [[nodiscard]] Sample completed_sample() const;
     [[nodiscard]] bool prepare_gapless_buffer(std::shared_ptr<Sample>,
                                               std::string &error) noexcept;
