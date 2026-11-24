@@ -348,6 +348,31 @@ int main() {
         require(adapter.select_arrangement_clip(0) &&
                     adapter.state().sequencer.arrangement[0].selected,
                 "arrangement clip selection is page-local and observable");
+        const auto original_clip_start =
+            timeline.snapshot().timeline.arrangement.clips[0].start;
+        require(adapter.manage_arrangement("move-right") &&
+                    timeline.snapshot().timeline.arrangement.clips[0].start >
+                        original_clip_start &&
+                    adapter.manage_arrangement("longer"),
+                "arrangement clip movement and resizing use semantic actions");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.manage_arrangement("duplicate") &&
+                    timeline.snapshot().timeline.arrangement.clips.size() == 2,
+                "arrangement clip duplication uses stable source identity");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.select_arrangement_clip(1) &&
+                    adapter.manage_arrangement("delete") &&
+                    adapter.state().sequencer.confirm_delete_clip &&
+                    adapter.manage_arrangement("confirm-delete") &&
+                    timeline.snapshot().timeline.arrangement.clips.size() == 1,
+                "arrangement clip deletion requires explicit confirmation");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.manage_arrangement("create-pattern") &&
+                    timeline.snapshot().timeline.arrangement.clips.size() == 2,
+                "selected reusable pattern can be placed from Arrangement");
         require(adapter.select_page(0) &&
                     adapter.state().shell.page_id == "performance",
                 "performance navigation restores working page");

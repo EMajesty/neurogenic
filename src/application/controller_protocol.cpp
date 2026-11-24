@@ -234,8 +234,8 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[3] = {"MUTE", "track.mute-toggle.v1"};
         lower[4] = {"UNDO", "edit.undo.v1"};
         lower[5] = {"REDO", "edit.redo.v1"};
-        lower[6] = {"FILL", "performance.fill-latch.v1"};
-        lower[7] = {"PLAY", "transport.play.v1"};
+        lower[6] = {"PATTERN-", "pattern.previous.v1"};
+        lower[7] = {"PATTERN+", "pattern.next.v1"};
     }
     if (modifiers.shift || modifiers.shift_latched) {
         lower[0] = {"UNDO", "edit.undo.v1"};

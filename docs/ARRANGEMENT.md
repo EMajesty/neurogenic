@@ -103,6 +103,12 @@ Live recording captures callback-acknowledged pattern activations,
 deterministic chain/follow transitions, and eligible semantic parameter changes
 as clips and song automation. See `ARRANGEMENT_RECORDING.md`.
 
+Task 089 makes reusable `PatternDefinition` track content the edit authority
+for any nonzero selected pattern. The production Slint Arrangement view places
+pattern and audio clips and provides discrete move, resize, duplicate, delete,
+loop-boundary and seek operations. Every operation addresses a stable clip ID
+and publishes through the existing transaction/history path.
+
 ## Limitations
 
 - Song end can loop, stop exactly at the prepared end frame, or stop and return
@@ -110,6 +116,7 @@ as clips and song automation. See `ARRANGEMENT_RECORDING.md`.
   occurs on the control thread after the exact callback stop.
 - Seeking uses the bounded `arrangement.seek.v1` transport command and shares
   the existing transport frame and MIDI SPP timing domain.
-- Audio-file clips, warping, and same-track clip overlap are unsupported.
+- Arrangement authoring is intentionally a compact structured editor; it does
+  not yet provide arbitrary drag gestures, piano-roll editing or bulk transforms.
 - Runtime chain edits take effect after a newly validated plan is published;
   they do not rewrite the already-active plan in place.

@@ -22,6 +22,7 @@ namespace neurogenic {
 struct SlintContextItem {
     std::string label{"Unavailable"}, value{"--"}, unit, parameter_id,
         action_id;
+    std::map<std::string, ApplicationValue> arguments;
     bool available{};
 };
 
@@ -79,6 +80,8 @@ struct SlintPatternItem {
 struct SlintArrangementItem {
     std::uint64_t id{};
     std::string label, range, kind;
+    std::uint64_t track{}, source{};
+    MusicalTick start{}, duration{};
     bool selected{}, enabled{};
 };
 
@@ -97,10 +100,12 @@ struct SlintSequencerPageState {
         lock_parameter{"Unavailable"}, lock_value{"--"};
     std::uint64_t step_page{}, step_page_count{1}, selected_pattern_id{},
         selected_clip_id{};
+    std::string selected_clip_kind;
     std::size_t selected_lock_index{};
     bool arrangement_view{}, playhead_follow{}, has_selected_event{},
         can_page_previous{}, can_page_next{}, lock_available{};
-    bool confirm_delete_track{}, confirm_delete_pattern{};
+    bool confirm_delete_track{}, confirm_delete_pattern{},
+        confirm_delete_clip{};
     std::array<SlintStepItem, 16> steps;
     std::vector<SlintTrackItem> tracks;
     std::vector<SlintPatternItem> patterns;
@@ -460,6 +465,7 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool cycle_step_resolution();
     [[nodiscard]] bool toggle_arrangement_view();
     [[nodiscard]] bool select_arrangement_clip(std::size_t index);
+    [[nodiscard]] bool manage_arrangement(std::string operation);
     [[nodiscard]] bool select_sample_slot(int direction);
     [[nodiscard]] bool load_sample(std::string path);
     [[nodiscard]] bool select_slice(std::size_t index);

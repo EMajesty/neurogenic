@@ -372,3 +372,10 @@ Minimal and full controllers use the same project Save action and dirty-state
 feedback. Destructive New/Open/Close commands cannot bypass unsaved-work
 protection accidentally; an explicit `discard` argument is required. Startup,
 degraded-device recovery, and shutdown do not depend on touchscreen input.
+
+The Sequencer context assigns function controls to step-page navigation, step
+reset, track mute, Undo/Redo and previous/next reusable-pattern selection.
+Sixteen pads remain the current absolute step page. Slint preserves validated
+contextual action arguments instead of reducing assignments to bare action IDs.
+Arrangement editing is exposed as discrete stable-ID actions suitable for
+profile bindings; no encoder push or pixel-precise drag is assumed.

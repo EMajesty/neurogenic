@@ -106,6 +106,38 @@ std::string_view trigger_condition_name(TriggerCondition value) {
         "not-fill"};
     return names[static_cast<std::size_t>(value)];
 }
+const MusicalPattern *edit_pattern(const Timeline &timeline,
+                                   PatternId pattern_id, TrackId track_id) {
+    if (pattern_id == 0) {
+        const auto track = std::find_if(
+            timeline.tracks.begin(), timeline.tracks.end(),
+            [=](const auto &value) { return value.id == track_id; });
+        return track == timeline.tracks.end() ? nullptr : &track->pattern;
+    }
+    const auto definition = std::find_if(
+        timeline.arrangement.patterns.begin(),
+        timeline.arrangement.patterns.end(),
+        [=](const auto &value) { return value.id == pattern_id; });
+    if (definition == timeline.arrangement.patterns.end()) return nullptr;
+    const auto track = std::find_if(
+        definition->tracks.begin(), definition->tracks.end(),
+        [=](const auto &value) { return value.track == track_id; });
+    return track == definition->tracks.end() ? nullptr : &track->pattern;
+}
+MusicalTick edit_pattern_length(const Timeline &timeline, PatternId pattern_id,
+                                TrackId track_id) {
+    if (const auto *pattern = edit_pattern(timeline, pattern_id, track_id))
+        return pattern->length;
+    if (pattern_id != 0) {
+        const auto definition = std::find_if(
+            timeline.arrangement.patterns.begin(),
+            timeline.arrangement.patterns.end(),
+            [=](const auto &value) { return value.id == pattern_id; });
+        if (definition != timeline.arrangement.patterns.end())
+            return definition->length;
+    }
+    return 0;
+}
 } // namespace
 
 ActionRegistry::ActionRegistry() {
@@ -154,6 +186,8 @@ ActionRegistry::ActionRegistry() {
                 {"value", ValueType::real}}));
     add(action("pattern.select.v1", "Select pattern", "Sequencer",
                {{"pattern_id", ValueType::integer}}));
+    add(action("pattern.previous.v1", "Select previous pattern", "Sequencer"));
+    add(action("pattern.next.v1", "Select next pattern", "Sequencer"));
     add(action("pattern.create.v1", "Create pattern", "Arrangement",
                {{"id", ValueType::integer, false},
                 {"name", ValueType::text},
@@ -166,6 +200,9 @@ ActionRegistry::ActionRegistry() {
                {{"id", ValueType::integer}, {"name", ValueType::text}}));
     add(action("pattern.length-set.v1", "Set pattern length", "Arrangement",
                {{"id", ValueType::integer}, {"length", ValueType::integer}}));
+    add(action("pattern.clear.v1", "Clear pattern track", "Arrangement",
+               {{"id", ValueType::integer},
+                {"track_id", ValueType::integer, false}}));
     add(action("pattern.delete.v1", "Delete pattern", "Arrangement",
                {{"id", ValueType::integer}}));
     add(action(
@@ -235,6 +272,10 @@ ActionRegistry::ActionRegistry() {
                 {"velocity", ValueType::real, false}}));
     add(action("arrangement.clip-delete.v1", "Delete clip", "Arrangement",
                {{"id", ValueType::integer}}));
+    add(action("arrangement.clip-duplicate.v1", "Duplicate clip",
+               "Arrangement", {{"source", ValueType::integer},
+                {"id", ValueType::integer, false},
+                {"start", ValueType::integer, false}}));
     add(action("arrangement.clip-update.v1", "Move or resize clip",
                "Arrangement",
                {{"id", ValueType::integer},
@@ -271,6 +312,7 @@ ActionRegistry::ActionRegistry() {
     add(action("arrangement.audio-clip-update.v1", "Edit audio clip",
                "Arrangement",
                {{"id", ValueType::integer},
+                {"track", ValueType::integer, false},
                 {"start", ValueType::integer, false},
                 {"duration", ValueType::integer, false},
                 {"gain", ValueType::real, false},
@@ -5075,6 +5117,33 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             }
             if (error.empty()) {
                 state_.selected_pattern = static_cast<std::uint64_t>(id);
+                state_.selected_step = 0;
+                state_.step_page = 0;
+                selected_event_id_.reset();
+                changed_locked();
+            }
+        } else if (command.action_id == "pattern.previous.v1" ||
+                   command.action_id == "pattern.next.v1") {
+            const auto snapshot = timeline_.snapshot();
+            const auto &patterns = snapshot.timeline.arrangement.patterns;
+            if (patterns.empty())
+                error = "no reusable patterns are available";
+            else {
+                const auto found = std::find_if(
+                    patterns.begin(), patterns.end(), [&](const auto &pattern) {
+                        return pattern.id == state_.selected_pattern;
+                    });
+                auto index = found == patterns.end()
+                    ? std::size_t{}
+                    : static_cast<std::size_t>(found - patterns.begin());
+                if (command.action_id == "pattern.next.v1")
+                    index = (index + 1) % patterns.size();
+                else
+                    index = (index + patterns.size() - 1) % patterns.size();
+                state_.selected_pattern = patterns[index].id;
+                state_.selected_step = 0;
+                state_.step_page = 0;
+                selected_event_id_.reset();
                 changed_locked();
             }
         } else if (command.action_id == "arrangement.record-arm.v1" ||
@@ -5175,6 +5244,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    command.action_id == "pattern.duplicate.v1" ||
                    command.action_id == "pattern.rename.v1" ||
                    command.action_id == "pattern.length-set.v1" ||
+                   command.action_id == "pattern.clear.v1" ||
                    command.action_id == "pattern.delete.v1" ||
                    command.action_id == "pattern.launch.v1" ||
                    command.action_id == "pattern.chain-entry-set.v1" ||
@@ -5189,6 +5259,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    command.action_id == "arrangement.return.v1" ||
                    command.action_id == "arrangement.clip-create.v1" ||
                    command.action_id == "arrangement.clip-update.v1" ||
+                   command.action_id == "arrangement.clip-duplicate.v1" ||
                    command.action_id == "arrangement.clip-delete.v1" ||
                    command.action_id == "arrangement.audio-clip-create.v1" ||
                    command.action_id == "arrangement.audio-clip-update.v1" ||
@@ -5241,6 +5312,21 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 else
                     transaction.set_pattern_length(
                         static_cast<PatternId>(id), length, error);
+            } else if (command.action_id == "pattern.clear.v1") {
+                const auto id = *argument<std::int64_t>(command, "id");
+                const auto requested_track =
+                    argument<std::int64_t>(command, "track_id");
+                const auto track = requested_track
+                    ? static_cast<TrackId>(*requested_track)
+                    : state_.selected_track;
+                if (id <= 0 || (requested_track && *requested_track <= 0) ||
+                    track == 0)
+                    error = "pattern and track IDs must be positive";
+                else if (auto *pattern = transaction.find_edit_pattern(
+                             static_cast<PatternId>(id), track))
+                    pattern->events.clear();
+                else
+                    error = "pattern track does not exist";
             } else if (command.action_id == "pattern.delete.v1") {
                 const auto id = *argument<std::int64_t>(command, "id");
                 if (id <= 0)
@@ -5505,6 +5591,30 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 else
                     transaction.delete_clip(static_cast<ClipId>(id), error);
             } else if (command.action_id ==
+                       "arrangement.clip-duplicate.v1") {
+                const auto source = *argument<std::int64_t>(command, "source");
+                const auto requested = argument<std::int64_t>(command, "id");
+                const auto found = std::find_if(
+                    transaction.timeline().arrangement.clips.begin(),
+                    transaction.timeline().arrangement.clips.end(),
+                    [&](const auto &clip) {
+                        return clip.id == static_cast<ClipId>(source);
+                    });
+                if (source <= 0 || (requested && *requested <= 0) ||
+                    found == transaction.timeline().arrangement.clips.end())
+                    error = "clip duplication source or ID is invalid";
+                else {
+                    auto clip = *found;
+                    clip.id = requested ? static_cast<ClipId>(*requested)
+                                        : transaction.next_clip_id();
+                    if (const auto start =
+                            argument<std::int64_t>(command, "start"))
+                        clip.start = *start;
+                    else
+                        clip.start += clip.duration;
+                    transaction.create_clip(std::move(clip), error);
+                }
+            } else if (command.action_id ==
                        "arrangement.audio-clip-create.v1") {
                 AudioClip clip;
                 const auto requested = argument<std::int64_t>(command, "id");
@@ -5626,6 +5736,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     error = "audio clip does not exist";
                 else {
                     auto clip = *found;
+                    if (const auto value =
+                            argument<std::int64_t>(command, "track"))
+                        clip.track = static_cast<TrackId>(*value);
                     if (const auto value =
                             argument<std::int64_t>(command, "sample_slot")) {
                         if (*value < 0 ||
@@ -5892,15 +6005,22 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 snapshot.timeline.tracks.end(), [&](const Track &value) {
                     return value.id == state_.selected_track;
                 });
+            const auto *pattern = edit_pattern(
+                snapshot.timeline, state_.selected_pattern,
+                state_.selected_track);
+            const auto pattern_length = edit_pattern_length(
+                snapshot.timeline, state_.selected_pattern,
+                state_.selected_track);
             if (step < 0 || track == snapshot.timeline.tracks.end())
                 error = step < 0 ? "step must be nonnegative"
                                  : "selected track does not exist";
             else {
                 const auto begin = step * state_.step_ticks;
                 const auto end = std::min<MusicalTick>(
-                    begin + state_.step_ticks, track->pattern.length);
+                    begin + state_.step_ticks, pattern_length);
                 const MusicalEvent *selected = nullptr;
-                for (const auto &event : track->pattern.events)
+                if (pattern)
+                for (const auto &event : pattern->events)
                     if (event.type == MusicalEventType::note &&
                         event.tick >= begin && event.tick < end &&
                         (!event_arg ||
@@ -5964,9 +6084,11 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 auto transaction =
                     edit_group_ ? *edit_group_ : timeline_.edit();
                 auto *track = transaction.find_track(state_.selected_track);
+                auto *pattern = transaction.find_edit_pattern(
+                    state_.selected_pattern, state_.selected_track);
                 MusicalEvent *event = nullptr;
-                if (track)
-                    for (auto &candidate : track->pattern.events)
+                if (track && pattern)
+                    for (auto &candidate : pattern->events)
                         if (candidate.id == *selected_event_id_ &&
                             candidate.type == MusicalEventType::note) {
                             event = &candidate;
@@ -6047,15 +6169,23 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    command.action_id == "step.locks-clear.v1") {
             auto transaction = edit_group_ ? *edit_group_ : timeline_.edit();
             auto *track = transaction.find_track(state_.selected_track);
+            auto *pattern = transaction.find_edit_pattern(
+                state_.selected_pattern, state_.selected_track);
+            const auto pattern_length = pattern
+                ? pattern->length
+                : edit_pattern_length(transaction.timeline(),
+                                      state_.selected_pattern,
+                                      state_.selected_track);
             const auto tick = state_.selected_step * state_.step_ticks;
-            if (!track || tick < 0 || tick >= track->pattern.length)
+            if (!track || tick < 0 || tick >= pattern_length)
                 error = "selected step is outside the track";
             else {
                 std::vector<EventId> remove;
                 std::string id;
                 if (command.action_id != "step.locks-clear.v1")
                     id = *argument<std::string>(command, "parameter_id");
-                for (const auto &event : track->pattern.events)
+                if (pattern)
+                for (const auto &event : pattern->events)
                     if (event.type == MusicalEventType::parameter &&
                         event.tick == tick &&
                         (id.empty() || event.parameter_destination == id))
@@ -6077,18 +6207,20 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         error = "synth parameter lock requires a synth track";
                     else if (!remove.empty())
                         edited = transaction.modify_parameter_destination(
-                            track->id, remove.front(), tick, id,
+                            state_.selected_pattern, track->id, remove.front(), tick, id,
                             static_cast<float>(value), error);
                     else
                         edited = transaction.add_parameter_destination(
-                            track->id, transaction.next_event_id(), tick, id,
+                            state_.selected_pattern, track->id,
+                            transaction.next_event_id(), tick, id,
                             static_cast<float>(value), error);
                 } else {
                     if (command.action_id == "step.lock-remove.v1" &&
                         remove.empty())
                         error = "parameter lock does not exist";
                     for (const auto event_id : remove)
-                        if (!transaction.remove_event(track->id, event_id,
+                        if (!transaction.remove_event(state_.selected_pattern,
+                                                      track->id, event_id,
                                                       error)) {
                             edited = false;
                             break;
@@ -6159,9 +6291,11 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 auto transaction =
                     edit_group_ ? *edit_group_ : timeline_.edit();
                 auto *track = transaction.find_track(state_.selected_track);
+                auto *pattern = transaction.find_edit_pattern(
+                    state_.selected_pattern, state_.selected_track);
                 MusicalEvent *event = nullptr;
-                if (track)
-                    for (auto &candidate : track->pattern.events)
+                if (track && pattern)
+                    for (auto &candidate : pattern->events)
                         if (candidate.id == *selected_event_id_ &&
                             candidate.type == MusicalEventType::note) {
                             event = &candidate;
@@ -6202,7 +6336,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                             *argument<std::int64_t>(command, "offset_ticks");
                         if (value <= -state_.step_ticks ||
                             value >= state_.step_ticks || base + value < 0 ||
-                            base + value >= track->pattern.length)
+                            base + value >= pattern->length)
                             error = "timing offset must remain within one step "
                                     "and the pattern";
                         else
@@ -6224,6 +6358,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                             error = "unknown step property";
                     }
                     if (error.empty() && transaction.modify_note(
+                                             state_.selected_pattern,
                                              track->id, event->id, tick, pitch,
                                              velocity, duration, error)) {
                         if (edit_group_) {
@@ -6246,12 +6381,13 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 snapshot.timeline.tracks.end(), [&](const Track &track) {
                     return track.id == state_.selected_track;
                 });
-            const auto steps =
-                found == snapshot.timeline.tracks.end()
-                    ? 0
-                    : static_cast<std::uint64_t>(
-                          (found->pattern.length + state_.step_ticks - 1) /
-                          state_.step_ticks);
+            const auto length = found == snapshot.timeline.tracks.end()
+                ? MusicalTick{}
+                : edit_pattern_length(snapshot.timeline,
+                                      state_.selected_pattern,
+                                      state_.selected_track);
+            const auto steps = static_cast<std::uint64_t>(
+                (length + state_.step_ticks - 1) / state_.step_ticks);
             if (steps == 0)
                 error = "selected track has no editable steps";
             else {
@@ -6317,11 +6453,22 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                                 state_.step_ticks)
                 error = "step is outside its range";
             else {
+                if (!transaction.ensure_pattern_track(
+                        state_.selected_pattern, state_.selected_track,
+                        error)) {
+                    // The stable target disappeared after selection.
+                }
+                auto *pattern = error.empty()
+                    ? transaction.find_edit_pattern(state_.selected_pattern,
+                                                    state_.selected_track)
+                    : nullptr;
                 const auto tick = step * state_.step_ticks;
                 const auto count =
-                    (track->pattern.length + state_.step_ticks - 1) /
-                    state_.step_ticks;
-                if (step >= count || tick >= track->pattern.length)
+                    pattern ? (pattern->length + state_.step_ticks - 1) /
+                                  state_.step_ticks
+                            : 0;
+                if (!error.empty()) {
+                } else if (step >= count || tick >= pattern->length)
                     error = "step is outside the selected track";
                 else if (velocity && (!std::isfinite(*velocity) ||
                                       *velocity < 0 || *velocity > 1))
@@ -6337,7 +6484,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                             : static_cast<std::uint8_t>(
                                   std::min<std::size_t>(127, 36 + track_index));
                     std::vector<EventId> matching;
-                    for (const auto &event : track->pattern.events)
+                    for (const auto &event : pattern->events)
                         if (event.type == MusicalEventType::note &&
                             event.tick == tick && event.pitch == target)
                             matching.push_back(event.id);
@@ -6345,14 +6492,16 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     if (!matching.empty()) {
                         edited = true;
                         for (const auto id : matching)
-                            if (!transaction.remove_event(track->id, id,
-                                                          error)) {
+                            if (!transaction.remove_event(
+                                    state_.selected_pattern, track->id, id,
+                                    error)) {
                                 edited = false;
                                 break;
                             }
                     } else
                         edited = transaction.add_note(
-                            track->id, transaction.next_event_id(), tick,
+                            state_.selected_pattern, track->id,
+                            transaction.next_event_id(), tick,
                             target,
                             static_cast<float>(velocity ? *velocity
                                                         : state_.step_velocity),
@@ -8718,19 +8867,28 @@ void ApplicationService::synchronize_locked() const {
         const auto target = track_targets_.contains(track.id)
                                 ? track_targets_.at(track.id)
                                 : fallback;
-        state_.tracks.push_back({track.id, track.name, track.muted,
-                                 track.pattern.length, target,
-                                 track.instrument_id, track.pattern.events,
-                                 track.instrument_instance_id});
+        const auto *edited = edit_pattern(timeline.timeline,
+                                          state_.selected_pattern, track.id);
+        const auto edited_length = edit_pattern_length(
+            timeline.timeline, state_.selected_pattern, track.id);
+        state_.tracks.push_back(
+            {track.id, track.name, track.muted,
+             edited_length > 0 ? edited_length : track.pattern.length, target,
+             track.instrument_id,
+             edited ? edited->events : std::vector<MusicalEvent>{},
+             track.instrument_instance_id});
     }
     state_.selected_event.reset();
     state_.selected_step_locks.clear();
     const auto selected_track = std::find_if(
         timeline.timeline.tracks.begin(), timeline.timeline.tracks.end(),
         [&](const Track &value) { return value.id == state_.selected_track; });
+    const auto *selected_pattern = edit_pattern(
+        timeline.timeline, state_.selected_pattern, state_.selected_track);
     if (selected_track != timeline.timeline.tracks.end()) {
         const auto lock_tick = state_.selected_step * state_.step_ticks;
-        for (const auto &event : selected_track->pattern.events)
+        if (selected_pattern)
+        for (const auto &event : selected_pattern->events)
             if (event.type == MusicalEventType::parameter &&
                 event.tick == lock_tick && !event.parameter_destination.empty())
                 state_.selected_step_locks.push_back(
@@ -8743,22 +8901,22 @@ void ApplicationService::synchronize_locked() const {
     }
     if (selected_event_id_) {
         const auto track = selected_track;
-        if (track != timeline.timeline.tracks.end()) {
+        if (track != timeline.timeline.tracks.end() && selected_pattern) {
             const auto selected = std::find_if(
-                track->pattern.events.begin(), track->pattern.events.end(),
+                selected_pattern->events.begin(), selected_pattern->events.end(),
                 [&](const MusicalEvent &event) {
                     return event.id == *selected_event_id_ &&
                            event.type == MusicalEventType::note;
                 });
-            if (selected != track->pattern.events.end()) {
+            if (selected != selected_pattern->events.end()) {
                 const auto base = state_.selected_step * state_.step_ticks;
                 std::size_t index_at_step{}, events_at_step{};
-                for (const auto &event : track->pattern.events)
+                for (const auto &event : selected_pattern->events)
                     if (event.type == MusicalEventType::note &&
                         event.tick >= base &&
                         event.tick <
                             std::min<MusicalTick>(base + state_.step_ticks,
-                                                  track->pattern.length)) {
+                                                  selected_pattern->length)) {
                         if (event.id == selected->id)
                             index_at_step = events_at_step;
                         ++events_at_step;

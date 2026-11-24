@@ -435,6 +435,122 @@ void scenario_midi_performance_gui() {
             "external MIDI routing did not survive project round-trip");
 }
 
+void scenario_reusable_pattern_arrangement() {
+    TempDirectory temporary("reusable-patterns");
+    const auto project = temporary.path / "song.ngp";
+    Context context;
+    context.action("project.new.v1", {{"name", std::string("Reusable Song")}});
+    create_track(context, 9, "External Song",
+                 std::string(external_midi_instrument_id));
+    context.action("track.midi-destination-set.v1",
+                   {{"port", std::int64_t{3}}, {"channel", std::int64_t{1}}});
+    for (const auto [id, name] :
+         std::array<std::pair<std::int64_t, std::string_view>, 2>{
+             {{101, "A"}, {102, "B"}}})
+        context.action("pattern.create.v1",
+                       {{"id", id}, {"name", std::string(name)},
+                        {"length", std::int64_t{ticks_per_quarter}}});
+    const auto author = [&](std::int64_t pattern, std::int64_t pitch) {
+        context.action("pattern.select.v1", {{"pattern_id", pattern}});
+        context.action("track.note-target-set.v1", {{"note", pitch}});
+        context.action("step.toggle.v1",
+                       {{"step", std::int64_t{0}}, {"velocity", 0.8},
+                        {"duration_ticks", std::int64_t{120}}});
+        context.action("step.event-select.v1", {{"step", std::int64_t{0}}});
+    };
+    author(101, 60);
+    context.action("step.ratchet-set.v1", {{"count", std::int64_t{2}}});
+    context.action("step.timing-offset-set.v1",
+                   {{"offset_ticks", std::int64_t{12}}});
+    context.action("step.lock-set.v1",
+                   {{"parameter_id", std::string("sample.gain")},
+                    {"value", 0.75}});
+    author(102, 67);
+    context.action("edit.undo.v1");
+    require(context.application.snapshot().tracks[0].events.empty(),
+            "step undo targeted the wrong reusable pattern");
+    context.action("edit.redo.v1");
+
+    const auto find_pattern = [](const Timeline &timeline, PatternId id)
+        -> const PatternDefinition & {
+        const auto found = std::find_if(timeline.arrangement.patterns.begin(),
+            timeline.arrangement.patterns.end(),
+            [=](const auto &pattern) { return pattern.id == id; });
+        require(found != timeline.arrangement.patterns.end(),
+                "reusable pattern disappeared");
+        return *found;
+    };
+    auto timeline = context.timeline.snapshot().timeline;
+    require(find_pattern(timeline, 101).tracks[0].pattern.events.size() == 2 &&
+                find_pattern(timeline, 102).tracks[0].pattern.events.size() == 1,
+            "reusable pattern edit isolation failed");
+    context.action("pattern.launch-quantization.v1",
+                   {{"quantization", std::string("immediate")}});
+    const auto render = [&](std::int64_t pattern) {
+        context.action("transport.stop.v1");
+        context.application.midi_output().dispatch(
+            [](const MidiPacket &) { return true; });
+        context.action("pattern.launch.v1",
+                       {{"id", pattern}, {"queued", false}});
+        context.action("transport.restart.v1");
+        context.process(7000);
+        std::vector<std::uint8_t> notes;
+        context.application.midi_output().dispatch([&](const MidiPacket &packet) {
+            if (packet.port == 3 && (packet.bytes[0] & 0xF0U) == 0x90U &&
+                packet.bytes[2]) notes.push_back(packet.bytes[1]);
+            return true;
+        });
+        return notes;
+    };
+    require(render(101).front() == 60 && render(102).front() == 67,
+            "patterns did not render distinct MIDI");
+    context.action("transport.stop.v1");
+    for (const auto [id, pattern, start] :
+         std::array<std::array<std::int64_t, 3>, 2>{
+             {{{201, 101, 0}}, {{202, 102, ticks_per_quarter}}}})
+        context.action("arrangement.clip-create.v1",
+                       {{"id", id}, {"pattern", pattern}, {"start", start},
+                        {"duration", std::int64_t{ticks_per_quarter}}});
+    context.action("arrangement.clip-duplicate.v1",
+                   {{"source", std::int64_t{201}}, {"id", std::int64_t{203}},
+                    {"start", std::int64_t{ticks_per_quarter * 2}}});
+    context.action("arrangement.clip-update.v1",
+                   {{"id", std::int64_t{203}},
+                    {"duration", std::int64_t{ticks_per_quarter / 2}}});
+    context.action("edit.undo.v1");
+    context.action("edit.redo.v1");
+    context.action("arrangement.range-set.v1",
+                   {{"start", std::int64_t{0}},
+                    {"end", std::int64_t{ticks_per_quarter * 3}}});
+    context.action("arrangement.mode-set.v1", {{"mode", std::string("song")}});
+    context.application.midi_output().dispatch(
+        [](const MidiPacket &) { return true; });
+    context.action("transport.restart.v1");
+    context.process(132000);
+    std::vector<std::uint8_t> notes;
+    context.application.midi_output().dispatch([&](const MidiPacket &packet) {
+        if (packet.port == 3 && (packet.bytes[0] & 0xF0U) == 0x90U &&
+            packet.bytes[2] && (notes.empty() || notes.back() != packet.bytes[1]))
+            notes.push_back(packet.bytes[1]);
+        return true;
+    });
+    require(notes.size() >= 3 && notes[0] == 60 && notes[1] == 67 &&
+                notes[2] == 60,
+            "arrangement MIDI order was incorrect");
+    context.action("transport.stop.v1");
+    context.action("project.save-as.v1",
+                   {{"path", project.string()}, {"name", std::string("Song")}});
+    Context restored;
+    restored.open_project(project);
+    const auto reopened = restored.timeline.snapshot().timeline;
+    require(find_pattern(reopened, 101).tracks[0].pattern.events[0].pitch == 60 &&
+                reopened.arrangement.clips.size() == 3,
+            "pattern arrangement project round trip failed");
+    const auto rejected = restored.application.execute(
+        {"pattern.delete.v1", {{"id", std::int64_t{101}}}, "workflow", 0});
+    require(!rejected.accepted, "referenced pattern deletion was accepted");
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -443,7 +559,9 @@ int main(int argc, char **argv) {
         std::pair{"beat-project", scenario_beat_project},
         std::pair{"synth-modulation", scenario_synth_modulation},
         std::pair{"mixer-recording-external", scenario_mixer_recording_external},
-        std::pair{"midi-performance-gui", scenario_midi_performance_gui}};
+        std::pair{"midi-performance-gui", scenario_midi_performance_gui},
+        std::pair{"reusable-pattern-arrangement",
+                  scenario_reusable_pattern_arrangement}};
     try {
         std::size_t completed{};
         for (const auto &[name, scenario] : scenarios) {

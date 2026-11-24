@@ -32,8 +32,8 @@ bool valid_note_values(MusicalTick tick, std::uint8_t pitch, float velocity,
            duration > 0 &&
            duration <= std::numeric_limits<MusicalTick>::max() - tick;
 }
-MusicalEvent *find_event(Track &track, EventId id) noexcept {
-    for (auto &event : track.pattern.events)
+MusicalEvent *find_event(MusicalPattern &pattern, EventId id) noexcept {
+    for (auto &event : pattern.events)
         if (event.id == id)
             return &event;
     return nullptr;
@@ -73,6 +73,62 @@ const Track *TimelineTransaction::find_track(TrackId id) const noexcept {
             return &track;
     return nullptr;
 }
+MusicalPattern *TimelineTransaction::find_edit_pattern(PatternId pattern_id,
+                                                        TrackId track_id) noexcept {
+    if (pattern_id == 0) {
+        auto *track = find_track(track_id);
+        return track ? &track->pattern : nullptr;
+    }
+    const auto definition = std::find_if(
+        timeline_.arrangement.patterns.begin(),
+        timeline_.arrangement.patterns.end(),
+        [=](const auto &value) { return value.id == pattern_id; });
+    if (definition == timeline_.arrangement.patterns.end()) return nullptr;
+    const auto track = std::find_if(
+        definition->tracks.begin(), definition->tracks.end(),
+        [=](const auto &value) { return value.track == track_id; });
+    return track == definition->tracks.end() ? nullptr : &track->pattern;
+}
+const MusicalPattern *TimelineTransaction::find_edit_pattern(
+    PatternId pattern_id, TrackId track_id) const noexcept {
+    if (pattern_id == 0) {
+        const auto *track = find_track(track_id);
+        return track ? &track->pattern : nullptr;
+    }
+    const auto definition = std::find_if(
+        timeline_.arrangement.patterns.begin(),
+        timeline_.arrangement.patterns.end(),
+        [=](const auto &value) { return value.id == pattern_id; });
+    if (definition == timeline_.arrangement.patterns.end()) return nullptr;
+    const auto track = std::find_if(
+        definition->tracks.begin(), definition->tracks.end(),
+        [=](const auto &value) { return value.track == track_id; });
+    return track == definition->tracks.end() ? nullptr : &track->pattern;
+}
+bool TimelineTransaction::ensure_pattern_track(PatternId pattern_id,
+                                               TrackId track_id,
+                                               std::string &error) {
+    if (!find_track(track_id)) {
+        error = "track does not exist";
+        return false;
+    }
+    if (pattern_id == 0) {
+        error.clear();
+        return true;
+    }
+    auto definition = std::find_if(
+        timeline_.arrangement.patterns.begin(),
+        timeline_.arrangement.patterns.end(),
+        [=](const auto &value) { return value.id == pattern_id; });
+    if (definition == timeline_.arrangement.patterns.end()) {
+        error = "pattern does not exist";
+        return false;
+    }
+    if (!find_edit_pattern(pattern_id, track_id))
+        definition->tracks.push_back({track_id, {definition->length, {}}});
+    error.clear();
+    return true;
+}
 bool TimelineTransaction::create_track(TrackId id, std::string name,
                                        MusicalTick length, std::string &error) {
     if (id == 0 || length <= 0) {
@@ -99,6 +155,32 @@ bool TimelineTransaction::delete_track(TrackId id, std::string &error) {
         error = "track does not exist";
         return false;
     }
+    const auto &arrangement = timeline_.arrangement;
+    const bool referenced =
+        std::any_of(arrangement.patterns.begin(), arrangement.patterns.end(),
+                    [=](const auto &pattern) {
+                        return std::any_of(pattern.tracks.begin(),
+                            pattern.tracks.end(), [=](const auto &track) {
+                                return track.track == id &&
+                                       !track.pattern.events.empty();
+                            });
+                    }) ||
+        std::any_of(arrangement.audio_clips.begin(), arrangement.audio_clips.end(),
+                    [=](const auto &clip) { return clip.track == id; }) ||
+        std::any_of(arrangement.launch_slots.begin(), arrangement.launch_slots.end(),
+                    [=](const auto &slot) { return slot.track == id; }) ||
+        std::any_of(arrangement.performance_scenes.begin(),
+                    arrangement.performance_scenes.end(), [=](const auto &scene) {
+                        return std::any_of(scene.entries.begin(), scene.entries.end(),
+                            [=](const auto &entry) { return entry.track == id; });
+                    });
+    if (referenced) {
+        error = "track is referenced by reusable musical material";
+        return false;
+    }
+    for (auto &pattern : timeline_.arrangement.patterns)
+        std::erase_if(pattern.tracks,
+                      [=](const auto &track) { return track.track == id; });
     timeline_.tracks.erase(found);
     error.clear();
     return true;
@@ -190,28 +272,34 @@ bool TimelineTransaction::add_note(TrackId track_id, EventId id,
                                    MusicalTick tick, std::uint8_t pitch,
                                    float velocity, MusicalTick duration,
                                    std::string &error) {
-    auto *track = find_track(track_id);
-    if (!track) {
-        error = "track does not exist";
-        return false;
-    }
+    return add_note(0, track_id, id, tick, pitch, velocity, duration, error);
+}
+bool TimelineTransaction::add_note(PatternId pattern_id, TrackId track_id,
+                                   EventId id, MusicalTick tick,
+                                   std::uint8_t pitch, float velocity,
+                                   MusicalTick duration, std::string &error) {
+    if (!ensure_pattern_track(pattern_id, track_id, error)) return false;
+    auto *pattern = find_edit_pattern(pattern_id, track_id);
     std::size_t event_count{};
     for (const auto &item : timeline_.tracks)
         event_count += item.pattern.events.size();
+    for (const auto &definition : timeline_.arrangement.patterns)
+        for (const auto &item : definition.tracks)
+            event_count += item.pattern.events.size();
     if (event_count >= limits_.max_events) {
         error = "timeline event limit exceeded";
         return false;
     }
-    if (id == 0 || find_event(*track, id)) {
+    if (id == 0 || find_event(*pattern, id)) {
         error = "event ID must be nonzero and unique in its track";
         return false;
     }
     if (!valid_note_values(tick, pitch, velocity, duration,
-                           track->pattern.length)) {
+                           pattern->length)) {
         error = "invalid note values";
         return false;
     }
-    track->pattern.events.push_back({id,
+    pattern->events.push_back({id,
                                      tick,
                                      MusicalEventType::note,
                                      pitch,
@@ -228,14 +316,21 @@ bool TimelineTransaction::modify_note(TrackId track_id, EventId id,
                                       MusicalTick tick, std::uint8_t pitch,
                                       float velocity, MusicalTick duration,
                                       std::string &error) {
-    auto *track = find_track(track_id);
-    auto *event = track ? find_event(*track, id) : nullptr;
+    return modify_note(0, track_id, id, tick, pitch, velocity, duration, error);
+}
+bool TimelineTransaction::modify_note(PatternId pattern_id, TrackId track_id,
+                                      EventId id, MusicalTick tick,
+                                      std::uint8_t pitch, float velocity,
+                                      MusicalTick duration,
+                                      std::string &error) {
+    auto *pattern = find_edit_pattern(pattern_id, track_id);
+    auto *event = pattern ? find_event(*pattern, id) : nullptr;
     if (!event || event->type != MusicalEventType::note) {
         error = "note event does not exist";
         return false;
     }
     if (!valid_note_values(tick, pitch, velocity, duration,
-                           track->pattern.length)) {
+                           pattern->length)) {
         error = "invalid note values";
         return false;
     }
@@ -262,7 +357,7 @@ bool TimelineTransaction::add_parameter(TrackId track_id, EventId id,
         error = "timeline event limit exceeded";
         return false;
     }
-    if (id == 0 || find_event(*track, id)) {
+    if (id == 0 || find_event(track->pattern, id)) {
         error = "event ID must be nonzero and unique in its track";
         return false;
     }
@@ -285,7 +380,7 @@ bool TimelineTransaction::modify_parameter(TrackId track_id, EventId id,
                                            std::uint32_t parameter, float value,
                                            std::string &error) {
     auto *track = find_track(track_id);
-    auto *event = track ? find_event(*track, id) : nullptr;
+    auto *event = track ? find_event(track->pattern, id) : nullptr;
     if (!event || event->type != MusicalEventType::parameter) {
         error = "parameter event does not exist";
         return false;
@@ -303,30 +398,64 @@ bool TimelineTransaction::modify_parameter(TrackId track_id, EventId id,
 bool TimelineTransaction::add_parameter_destination(
     TrackId track_id, EventId id, MusicalTick tick, std::string destination,
     float value, std::string &error) {
+    return add_parameter_destination(0, track_id, id, tick,
+                                     std::move(destination), value, error);
+}
+bool TimelineTransaction::add_parameter_destination(
+    PatternId pattern_id, TrackId track_id, EventId id, MusicalTick tick,
+    std::string destination, float value, std::string &error) {
     if (destination.empty()) {
         error = "parameter destination is required";
         return false;
     }
-    if (!add_parameter(track_id, id, tick, 0, value, error))
+    if (!ensure_pattern_track(pattern_id, track_id, error)) return false;
+    auto *pattern = find_edit_pattern(pattern_id, track_id);
+    std::size_t event_count{};
+    for (const auto &item : timeline_.tracks)
+        event_count += item.pattern.events.size();
+    for (const auto &definition : timeline_.arrangement.patterns)
+        for (const auto &item : definition.tracks)
+            event_count += item.pattern.events.size();
+    if (event_count >= limits_.max_events) {
+        error = "timeline event limit exceeded";
         return false;
-    auto *event = find_event(*find_track(track_id), id);
+    }
+    if (id == 0 || find_event(*pattern, id) || tick < 0 ||
+        tick >= pattern->length || !std::isfinite(value)) {
+        error = "invalid parameter event values";
+        return false;
+    }
+    MusicalEvent parameter;
+    parameter.id = id;
+    parameter.tick = tick;
+    parameter.type = MusicalEventType::parameter;
+    parameter.value = value;
+    pattern->events.push_back(std::move(parameter));
+    auto *event = find_event(*pattern, id);
     event->parameter_destination = std::move(destination);
+    error.clear();
     return true;
 }
 bool TimelineTransaction::modify_parameter_destination(
     TrackId track_id, EventId id, MusicalTick tick, std::string destination,
     float value, std::string &error) {
+    return modify_parameter_destination(0, track_id, id, tick,
+                                        std::move(destination), value, error);
+}
+bool TimelineTransaction::modify_parameter_destination(
+    PatternId pattern_id, TrackId track_id, EventId id, MusicalTick tick,
+    std::string destination, float value, std::string &error) {
     if (destination.empty()) {
         error = "parameter destination is required";
         return false;
     }
-    auto *track = find_track(track_id);
-    auto *event = track ? find_event(*track, id) : nullptr;
+    auto *pattern = find_edit_pattern(pattern_id, track_id);
+    auto *event = pattern ? find_event(*pattern, id) : nullptr;
     if (!event || event->type != MusicalEventType::parameter) {
         error = "parameter event does not exist";
         return false;
     }
-    if (tick < 0 || tick >= track->pattern.length || !std::isfinite(value)) {
+    if (tick < 0 || tick >= pattern->length || !std::isfinite(value)) {
         error = "invalid parameter event values";
         return false;
     }
@@ -339,19 +468,24 @@ bool TimelineTransaction::modify_parameter_destination(
 }
 bool TimelineTransaction::remove_event(TrackId track_id, EventId id,
                                        std::string &error) {
-    auto *track = find_track(track_id);
-    if (!track) {
-        error = "track does not exist";
+    return remove_event(0, track_id, id, error);
+}
+bool TimelineTransaction::remove_event(PatternId pattern_id, TrackId track_id,
+                                       EventId id, std::string &error) {
+    auto *pattern = find_edit_pattern(pattern_id, track_id);
+    if (!pattern) {
+        error = pattern_id ? "pattern track does not exist"
+                           : "track does not exist";
         return false;
     }
     const auto found = std::find_if(
-        track->pattern.events.begin(), track->pattern.events.end(),
+        pattern->events.begin(), pattern->events.end(),
         [id](const MusicalEvent &event) { return event.id == id; });
-    if (found == track->pattern.events.end()) {
+    if (found == pattern->events.end()) {
         error = "event does not exist";
         return false;
     }
-    track->pattern.events.erase(found);
+    pattern->events.erase(found);
     error.clear();
     return true;
 }
@@ -469,7 +603,21 @@ bool TimelineTransaction::delete_pattern(PatternId id, std::string &error) {
                     [=](const auto &c) { return c.pattern == id; }) ||
         std::find(a.pattern_chain.begin(), a.pattern_chain.end(), id) !=
             a.pattern_chain.end() ||
-        a.active_pattern == id || a.queued_pattern == id) {
+        std::any_of(a.chain_entries.begin(), a.chain_entries.end(),
+                    [=](const auto &entry) { return entry.pattern == id; }) ||
+        std::any_of(a.launch_slots.begin(), a.launch_slots.end(),
+                    [=](const auto &slot) {
+                        return slot.source_type == LaunchSourceType::pattern &&
+                               slot.source_id == id;
+                    }) ||
+        std::any_of(a.patterns.begin(), a.patterns.end(),
+                    [=](const auto &pattern) {
+                        return pattern.follow.type ==
+                                   FollowActionType::specific &&
+                               pattern.follow.target == id;
+                    }) ||
+        a.active_pattern == id || a.queued_pattern == id ||
+        a.return_live_pattern == id) {
         error = "pattern is referenced by playback state";
         return false;
     }
@@ -854,6 +1002,12 @@ EventId TimelineTransaction::next_event_id() const noexcept {
             if (event.id >= next &&
                 event.id < std::numeric_limits<EventId>::max())
                 next = event.id + 1;
+    for (const auto &pattern : timeline_.arrangement.patterns)
+        for (const auto &track : pattern.tracks)
+            for (const auto &event : track.pattern.events)
+                if (event.id >= next &&
+                    event.id < std::numeric_limits<EventId>::max())
+                    next = event.id + 1;
     return next;
 }
 

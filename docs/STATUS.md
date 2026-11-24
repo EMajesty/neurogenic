@@ -1,5 +1,22 @@
 # Implementation status
 
+## Task 089 reusable patterns and arrangement authoring
+
+Reusable `PatternDefinition` content is now the explicit edit authority whenever
+a nonzero pattern is selected. Step notes, advanced trigger properties,
+microtiming and parameter locks resolve through the stable `(PatternId,
+TrackId)` target; pattern ID zero remains the isolated legacy `Track::pattern`
+compatibility path.
+
+The Slint Arrangement subview now places pattern and audio clips, selects,
+moves, resizes, duplicates and confirms deletion, edits loop boundaries, and
+seeks to a clip using existing timeline actions. The deterministic
+`reusable-pattern-arrangement` workflow authors two patterns on one external
+MIDI track, verifies isolated advanced edits and parameter locks, renders
+distinct MIDI, exercises arrangement Undo/Redo, saves/reopens, and rejects
+referenced-pattern deletion. AUD2-001 and AUD2-002 are resolved for this core
+workflow; full DAW gestures and physical validation remain out of scope.
+
 ## Task 088 consolidated audit
 
 The post-remediation evidence audit is published in

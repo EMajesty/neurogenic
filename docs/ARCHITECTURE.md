@@ -111,6 +111,13 @@ live pattern or song into a temporary legacy-shaped timeline before
 `compile_timeline` creates the immutable playback plan. The callback receives
 only that prepared plan and retains the deterministic scheduler.
 
+Pattern editing has one explicit address: `(PatternId, TrackId)`. A nonzero
+pattern ID names `SongArrangement::patterns`; its `PatternTrack` is created by
+the first explicit mutation and inherits the definition length. Pattern ID zero
+is reserved for the legacy per-track `Track::pattern` compatibility path.
+Selection never copies events between these stores, and prepared playback is
+derived from the reusable definition.
+
 Pattern chains and follow actions are likewise materialized control-side into
 a bounded prepared plan. Scheduled publication carries an absolute activation
 frame and voice policy through a bounded SPSC queue. The callback may split one

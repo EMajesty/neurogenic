@@ -48,6 +48,7 @@ export component PerformanceWindow inherits Window {
     in property <bool> can-page-next: false;
     in property <bool> confirm-delete-track: false;
     in property <bool> confirm-delete-pattern: false;
+    in property <bool> confirm-delete-clip: false;
     in property <[TrackItem]> sequencer-tracks;
     in property <string> arrangement-loop: "Off";
     in property <int> sample-slot: 0;
@@ -168,6 +169,7 @@ export component PerformanceWindow inherits Window {
     callback sequencer-step-invoked(int); callback pattern-invoked(int, bool);
     callback pattern-create(bool); callback resolution-invoked();
     callback arrangement-toggle(); callback arrangement-item-invoked(int);
+    callback arrangement-manage(string);
     callback step-edit(string);
     callback step-page(int); callback playhead-follow-changed(bool);
     callback advanced-step-edit(string, int); callback condition-cycle();
@@ -246,11 +248,13 @@ export component PerformanceWindow inherits Window {
             lock-available: root.step-lock-available; playhead-follow: root.playhead-follow;
             can-page-previous: root.can-page-previous; can-page-next: root.can-page-next;
             confirm-delete-track: root.confirm-delete-track; confirm-delete-pattern: root.confirm-delete-pattern;
+            confirm-delete-clip: root.confirm-delete-clip;
             steps: root.steps; tracks: root.sequencer-tracks; patterns: root.patterns; arrangement-items: root.arrangement-items;
             track-selected(direction) => { root.track-selected(direction); } arrangement-toggle => { root.arrangement-toggle(); }
             resolution-invoked => { root.resolution-invoked(); } step-invoked(index) => { root.sequencer-step-invoked(index); }
             pattern-invoked(index, launch) => { root.pattern-invoked(index, launch); } pattern-create(duplicate) => { root.pattern-create(duplicate); }
             step-edit(action) => { root.step-edit(action); } arrangement-item-invoked(index) => { root.arrangement-item-invoked(index); }
+            arrangement-manage(operation) => { root.arrangement-manage(operation); }
             step-page(direction) => { root.step-page(direction); } playhead-follow-changed(enabled) => { root.playhead-follow-changed(enabled); }
             advanced-step-edit(property, direction) => { root.advanced-step-edit(property, direction); }
             condition-cycle => { root.condition-cycle(); } lock-parameter-cycle(direction) => { root.lock-parameter-cycle(direction); }

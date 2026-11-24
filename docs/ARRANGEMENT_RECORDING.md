@@ -71,3 +71,9 @@ The shared Slint recording surface now arms, starts, stops, commits and discards
 arrangement and performance passes through the existing semantic actions. It
 shows actual captured-event and overflow counts and does not label these event
 passes as audio recording.
+
+Committed reusable-pattern and clip objects remain ordinary timeline material
+after Task 089 and are editable through the same stable pattern/track and clip
+identities. Capture timing semantics are unchanged. Capture does not implicitly
+redirect subsequent step edits: the user-selected reusable pattern remains the
+explicit editing target.

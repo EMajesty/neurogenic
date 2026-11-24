@@ -608,7 +608,8 @@ bool SlintFrontendAdapter::refresh() {
             const auto copy = [](const ContextControl &from) {
                 return SlintContextItem{from.label.empty() ? "Unavailable" : from.label,
                     from.value.empty() ? "--" : from.value, from.unit,
-                    from.parameter_id, from.action_id, from.active};
+                    from.parameter_id, from.action_id, from.arguments,
+                    from.active};
             };
             state_.context.encoders[i] = copy(context[i]);
             state_.context.functions[i] = copy(context[8 + i]);
@@ -745,6 +746,7 @@ bool SlintFrontendAdapter::refresh() {
                                     from.unit,
                                     from.parameter_id,
                                     from.action_id,
+                                    from.arguments,
                                     from.active};
         };
         next.context.encoders[i] = copy(context[i]);
@@ -789,14 +791,12 @@ bool SlintFrontendAdapter::refresh() {
     next.sequencer.selected_lock_index = state_.sequencer.selected_lock_index;
     next.sequencer.confirm_delete_track = state_.sequencer.confirm_delete_track;
     next.sequencer.confirm_delete_pattern = state_.sequencer.confirm_delete_pattern;
+    next.sequencer.confirm_delete_clip = state_.sequencer.confirm_delete_clip;
     next.sequencer.resolution = step_resolution_name(snapshot.step_resolution);
     next.sequencer.arrangement_view = state_.sequencer.arrangement_view;
     next.sequencer.selected_clip_id = state_.sequencer.selected_clip_id;
-    const auto displayed_pattern = snapshot.selected_pattern
-        ? snapshot.selected_pattern
-        : snapshot.active_pattern
-              ? snapshot.active_pattern
-              : snapshot.patterns.empty() ? PatternId{} : snapshot.patterns.front().id;
+    next.sequencer.selected_clip_kind = state_.sequencer.selected_clip_kind;
+    const auto displayed_pattern = snapshot.selected_pattern;
     next.sequencer.selected_pattern_id = displayed_pattern;
     for (const auto &pattern : snapshot.patterns) {
         next.sequencer.patterns.push_back(
@@ -891,13 +891,29 @@ bool SlintFrontendAdapter::refresh() {
         next.sequencer.arrangement.push_back(
             {clip.id, "Pattern " + std::to_string(clip.pattern),
              std::to_string(clip.start) + " + " + std::to_string(clip.duration),
-             "Pattern", clip.id == next.sequencer.selected_clip_id, clip.enabled});
+             "Pattern", 0, clip.pattern, clip.start, clip.duration,
+             clip.id == next.sequencer.selected_clip_id &&
+                 next.sequencer.selected_clip_kind == "Pattern",
+             clip.enabled});
     for (const auto &clip : snapshot.audio_clips)
         next.sequencer.arrangement.push_back(
             {clip.clip.id, "Audio " + std::to_string(clip.clip.id),
              std::to_string(clip.clip.start) + " + " + std::to_string(clip.clip.duration),
-             "Audio", clip.clip.id == next.sequencer.selected_clip_id,
+             "Audio", clip.clip.track, clip.clip.sample_slot,
+             clip.clip.start, clip.clip.duration,
+             clip.clip.id == next.sequencer.selected_clip_id &&
+                 next.sequencer.selected_clip_kind == "Audio",
              clip.clip.enabled});
+    if (next.sequencer.selected_clip_id != 0 &&
+        std::none_of(next.sequencer.arrangement.begin(),
+                     next.sequencer.arrangement.end(), [&](const auto &item) {
+                         return item.id == next.sequencer.selected_clip_id &&
+                                item.kind == next.sequencer.selected_clip_kind;
+                     })) {
+        next.sequencer.selected_clip_id = 0;
+        next.sequencer.selected_clip_kind.clear();
+        next.sequencer.confirm_delete_clip = false;
+    }
     next.sequencer.loop_range = snapshot.arrangement_loop_enabled
         ? std::to_string(snapshot.arrangement_loop_start) + " - " +
               std::to_string(snapshot.arrangement_loop_end)
@@ -1483,7 +1499,8 @@ bool SlintFrontendAdapter::invoke_function(std::size_t index) {
         state_.shell.notification = last_error_;
         return false;
     }
-    return invoke_action(state_.context.functions[index].action_id);
+    return execute({state_.context.functions[index].action_id,
+                    state_.context.functions[index].arguments, {}, 0});
 }
 
 bool SlintFrontendAdapter::press_pad(std::size_t index, bool pressed) {
@@ -2191,15 +2208,33 @@ bool SlintFrontendAdapter::create_pattern(bool duplicate) {
             state_.shell.notification = last_error_;
             return false;
         }
-        return execute({"pattern.duplicate.v1",
-                        {{"source", static_cast<std::int64_t>(snapshot.selected_pattern)},
-                         {"name", std::string(name)}}, {}, 0});
+        if (!execute({"pattern.duplicate.v1",
+                      {{"source", static_cast<std::int64_t>(snapshot.selected_pattern)},
+                       {"name", std::string(name)}}, {}, 0}))
+            return false;
+        const auto after = application_.snapshot();
+        const auto created = std::max_element(
+            after.patterns.begin(), after.patterns.end(),
+            [](const auto &a, const auto &b) { return a.id < b.id; });
+        return created != after.patterns.end() &&
+               execute({"pattern.select.v1",
+                        {{"pattern_id", static_cast<std::int64_t>(created->id)}},
+                        {}, 0});
     }
     const auto length = snapshot.step_ticks > 0 ? snapshot.step_ticks * 16
                                                  : ticks_per_quarter * 4;
-    return execute({"pattern.create.v1",
-                    {{"name", std::string(name)},
-                     {"length", static_cast<std::int64_t>(length)}}, {}, 0});
+    if (!execute({"pattern.create.v1",
+                  {{"name", std::string(name)},
+                   {"length", static_cast<std::int64_t>(length)}}, {}, 0}))
+        return false;
+    const auto after = application_.snapshot();
+    const auto created = std::max_element(
+        after.patterns.begin(), after.patterns.end(),
+        [](const auto &a, const auto &b) { return a.id < b.id; });
+    return created != after.patterns.end() &&
+           execute({"pattern.select.v1",
+                    {{"pattern_id", static_cast<std::int64_t>(created->id)}},
+                    {}, 0});
 }
 
 bool SlintFrontendAdapter::select_step(std::size_t index) {
@@ -2438,8 +2473,111 @@ bool SlintFrontendAdapter::select_arrangement_clip(std::size_t index) {
         return false;
     }
     state_.sequencer.selected_clip_id = state_.sequencer.arrangement[index].id;
+    state_.sequencer.selected_clip_kind = state_.sequencer.arrangement[index].kind;
     ++local_revision_;
     return refresh();
+}
+
+bool SlintFrontendAdapter::manage_arrangement(std::string operation) {
+    const auto snapshot = application_.snapshot();
+    const auto quantum = std::max<MusicalTick>(
+        1, snapshot.step_ticks > 0 ? snapshot.step_ticks : ticks_per_quarter / 4);
+    if (operation == "create-pattern") {
+        if (!snapshot.selected_pattern) {
+            last_error_ = "Select a reusable pattern before placing a clip";
+            state_.shell.notification = last_error_;
+            return false;
+        }
+        const auto pattern = std::find_if(snapshot.patterns.begin(),
+            snapshot.patterns.end(), [&](const auto &item) {
+                return item.id == snapshot.selected_pattern;
+            });
+        if (pattern == snapshot.patterns.end()) return false;
+        return execute({"arrangement.clip-create.v1",
+            {{"pattern", static_cast<std::int64_t>(pattern->id)},
+             {"start", static_cast<std::int64_t>(snapshot.transport_tick)},
+             {"duration", static_cast<std::int64_t>(pattern->length)}}, {}, 0});
+    }
+    if (operation == "create-audio")
+        return execute({"arrangement.audio-clip-create.v1",
+            {{"track", static_cast<std::int64_t>(snapshot.selected_track)},
+             {"sample_slot", static_cast<std::int64_t>(snapshot.selected_sample_slot.value)},
+             {"start", static_cast<std::int64_t>(snapshot.transport_tick)},
+             {"duration", static_cast<std::int64_t>(ticks_per_quarter * 4)}}, {}, 0});
+    if (operation == "loop-toggle" || operation == "loop-start" ||
+        operation == "loop-end") {
+        bool enabled = snapshot.arrangement_loop_enabled;
+        auto start = snapshot.arrangement_loop_start;
+        auto end = snapshot.arrangement_loop_end;
+        if (operation == "loop-toggle") enabled = !enabled;
+        else if (operation == "loop-start") {
+            start = snapshot.transport_tick;
+            if (end <= start) end = start + ticks_per_quarter * 4;
+            enabled = true;
+        } else {
+            end = snapshot.transport_tick;
+            if (end <= start) {
+                last_error_ = "Loop end must be after loop start";
+                state_.shell.notification = last_error_;
+                return false;
+            }
+            enabled = true;
+        }
+        return execute({"arrangement.loop-set.v1",
+                        {{"enabled", enabled},
+                         {"start", static_cast<std::int64_t>(start)},
+                         {"end", static_cast<std::int64_t>(end)}}, {}, 0});
+    }
+    const auto selected = std::find_if(state_.sequencer.arrangement.begin(),
+        state_.sequencer.arrangement.end(), [&](const auto &item) {
+            return item.id == state_.sequencer.selected_clip_id &&
+                   item.kind == state_.sequencer.selected_clip_kind;
+        });
+    if (selected == state_.sequencer.arrangement.end()) {
+        last_error_ = "Select an arrangement clip first";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto prefix = selected->kind == "Audio"
+        ? std::string("arrangement.audio-clip-")
+        : std::string("arrangement.clip-");
+    if (operation == "delete") {
+        state_.sequencer.confirm_delete_clip = true;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "cancel-delete") {
+        state_.sequencer.confirm_delete_clip = false;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "confirm-delete") {
+        state_.sequencer.confirm_delete_clip = false;
+        return execute({prefix + "delete.v1",
+                        {{"id", static_cast<std::int64_t>(selected->id)}}, {}, 0});
+    }
+    if (operation == "duplicate")
+        return execute({prefix + "duplicate.v1",
+            {{"source", static_cast<std::int64_t>(selected->id)},
+             {"start", static_cast<std::int64_t>(selected->start + selected->duration)}}, {}, 0});
+    if (operation == "seek")
+        return execute({"arrangement.seek.v1",
+                        {{"tick", static_cast<std::int64_t>(selected->start)}}, {}, 0});
+    auto start = selected->start;
+    auto duration = selected->duration;
+    if (operation == "move-left") start = std::max<MusicalTick>(0, start - quantum);
+    else if (operation == "move-right") start += quantum;
+    else if (operation == "shorter") duration = std::max<MusicalTick>(quantum, duration - quantum);
+    else if (operation == "longer") duration += quantum;
+    else {
+        last_error_ = "Arrangement operation is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    return execute({prefix + "update.v1",
+                    {{"id", static_cast<std::int64_t>(selected->id)},
+                     {"start", static_cast<std::int64_t>(start)},
+                     {"duration", static_cast<std::int64_t>(duration)}}, {}, 0});
 }
 
 bool SlintFrontendAdapter::select_sample_slot(int direction) {

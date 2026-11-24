@@ -5152,6 +5152,40 @@ void test_timeline_editing_and_generation() {
               service.snapshot().timeline.tracks[0].pattern.events.empty(),
           "deletion state");
 
+    Timeline reusable_timeline;
+    reusable_timeline.tracks.push_back({11, "one", false, {960, {}}});
+    reusable_timeline.tracks.push_back({12, "two", false, {960, {}}});
+    TimelineService reusable_service(
+        [](const Timeline &, std::string &) { return true; }, reusable_timeline);
+    auto reusable = reusable_service.edit();
+    check(reusable.create_pattern(101, "A", 960, error) &&
+              reusable.create_pattern(102, "B", 960, error) &&
+              reusable.add_note(101, 11, reusable.next_event_id(), 0, 60,
+                                1.0F, 120, error) &&
+              reusable.add_note(102, 11, reusable.next_event_id(), 0, 67,
+                                1.0F, 120, error) &&
+              reusable.add_note(101, 12, reusable.next_event_id(), 240, 72,
+                                0.5F, 120, error),
+          "reusable pattern-track editing");
+    const auto *pattern_a_track_one = reusable.find_edit_pattern(101, 11);
+    const auto *pattern_a_track_two = reusable.find_edit_pattern(101, 12);
+    const auto *pattern_b_track_one = reusable.find_edit_pattern(102, 11);
+    check(pattern_a_track_one && pattern_a_track_two && pattern_b_track_one &&
+              pattern_a_track_one->events[0].pitch == 60 &&
+              pattern_b_track_one->events[0].pitch == 67 &&
+              pattern_a_track_two->events[0].pitch == 72,
+          "pattern and track edit isolation");
+    check(reusable.duplicate_pattern(101, 103, "A Copy", error),
+          "reusable pattern duplication");
+    check(reusable.modify_note(103, 11,
+              reusable.find_edit_pattern(103, 11)->events[0].id,
+              0, 62, 1.0F, 120, error) &&
+              reusable.find_edit_pattern(101, 11)->events[0].pitch == 60,
+          "duplicated reusable pattern is independently mutable");
+    check(!reusable.delete_track(11, error) &&
+              error.find("referenced") != std::string::npos,
+          "track deletion ignored reusable pattern references");
+
     MusicalPattern pattern;
     pattern.length = 960;
     pattern.events = {{1, 13, MusicalEventType::note, 60, 0.5F, 120, 0, 0, 0},
@@ -5683,7 +5717,10 @@ void test_physical_controller_protocol() {
               sequencer_page_context[9].label == "PAGE+" &&
               sequencer_page_context[9].action_id == "step.page-next.v1" &&
               sequencer_page_context[10].action_id ==
-                  "step.trigger-reset.v1",
+                  "step.trigger-reset.v1" &&
+              sequencer_page_context[14].action_id ==
+                  "pattern.previous.v1" &&
+              sequencer_page_context[15].action_id == "pattern.next.v1",
           "controller sequencer paging and edit context");
     check(simulator.button(63, true),
           "controller shift press");

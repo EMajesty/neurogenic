@@ -17,6 +17,7 @@ export component SequencerPage inherits VerticalLayout {
     in property <bool> lock-available; in property <bool> playhead-follow;
     in property <bool> can-page-previous; in property <bool> can-page-next;
     in property <bool> confirm-delete-track; in property <bool> confirm-delete-pattern;
+    in property <bool> confirm-delete-clip;
     in property <string> arrangement-loop; in property <bool> arrangement-view;
     in property <[StepItem]> steps; in property <[PatternItem]> patterns;
     in property <[TrackItem]> tracks;
@@ -29,6 +30,7 @@ export component SequencerPage inherits VerticalLayout {
     callback lock-parameter-cycle(int); callback lock-edit(string, int);
     callback track-item-selected(int); callback track-manage(string);
     callback pattern-manage(string);
+    callback arrangement-manage(string);
     callback text-requested(string, string);
     spacing: 6px;
     HorizontalLayout { height: 44px; spacing: 5px;
@@ -56,8 +58,18 @@ export component SequencerPage inherits VerticalLayout {
         }
     }
     if root.arrangement-view: VerticalLayout { spacing: 5px;
-        Rectangle { height: 36px; background: Theme.panel; Text { text: "Loop: " + root.arrangement-loop; color: Theme.foreground; vertical-alignment: center; } }
+        Rectangle { height: 36px; background: Theme.panel; HorizontalLayout { padding: 3px; spacing: 4px; Text { text: "Loop: " + root.arrangement-loop; color: Theme.foreground; vertical-alignment: center; horizontal-stretch: 1; } PageButton { text: "+ Pattern"; implemented: root.patterns.length > 0; clicked => { root.arrangement-manage("create-pattern"); } } PageButton { text: "+ Audio"; implemented: root.tracks.length > 0; clicked => { root.arrangement-manage("create-audio"); } } PageButton { text: "Loop Start"; implemented: true; clicked => { root.arrangement-manage("loop-start"); } } PageButton { text: "Loop End"; implemented: true; clicked => { root.arrangement-manage("loop-end"); } } PageButton { text: "Loop On/Off"; implemented: true; clicked => { root.arrangement-manage("loop-toggle"); } } } }
         if root.arrangement-items.length == 0: EmptyState { title: "Arrangement"; message: "No pattern or audio clips are placed in the arrangement."; }
         for clip[i] in root.arrangement-items: PageButton { height: 38px; text: clip.kind + "  " + clip.label + "  " + clip.range; selected: clip.selected; implemented: clip.enabled; clicked => { root.arrangement-item-invoked(i); } }
+        HorizontalLayout { height: 38px; spacing: 4px;
+            PageButton { text: "Move -"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("move-left"); } }
+            PageButton { text: "Move +"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("move-right"); } }
+            PageButton { text: "Shorter"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("shorter"); } }
+            PageButton { text: "Longer"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("longer"); } }
+            PageButton { text: "Duplicate"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("duplicate"); } }
+            PageButton { text: "Play From"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage("seek"); } }
+            PageButton { text: root.confirm-delete-clip ? "Confirm Delete" : "Delete"; implemented: root.arrangement-items.length > 0; clicked => { root.arrangement-manage(root.confirm-delete-clip ? "confirm-delete" : "delete"); } }
+            if root.confirm-delete-clip: PageButton { text: "Cancel"; implemented: true; clicked => { root.arrangement-manage("cancel-delete"); } }
+        }
     }
 }

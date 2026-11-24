@@ -192,6 +192,12 @@ Legacy `.ngt` timelines and version 1-3 slice sidecars remain accepted by their
 existing loaders. They can be assembled into a project through the shared C++
 services; there is not yet a one-click GUI migration wizard.
 
+Timeline version 10 already persists both legacy per-track patterns and reusable
+`PatternDefinition` track content. Task 089 adds no schema: legacy projects load
+without destructive conversion, while reusable edits save under stable pattern
+and track IDs. Arrangement references, trigger fields, microtiming and parameter
+locks retain the existing generation-atomic project round trip.
+
 An audio-active recording without a filename is retained during Save as a
 float32 `recordings/slot-ID.wav` asset and then referenced relatively. Failure
 to write that asset aborts the new generation instead of silently dropping the

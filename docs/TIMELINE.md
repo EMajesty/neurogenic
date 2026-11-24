@@ -223,6 +223,24 @@ before retrying. Pattern deletion likewise fails while arrangement clips,
 chains, active playback or queued playback reference the pattern. These
 operations publish one validated timeline revision and participate in existing
 Undo/Redo history.
+
+## Pattern edit authority
+
+Step semantic actions resolve a stable selected pattern and selected track.
+For reusable patterns, notes, advanced trigger fields, microtiming and parameter
+locks live in `PatternDefinition::tracks`. A missing track entry means empty
+content and is created only by an explicit mutation. Selected, active and queued
+patterns remain separate state.
+
+Pattern ID zero explicitly selects the legacy `Track::pattern` path. Loading is
+nondestructive and does not rewrite legacy data. Timeline version 10 already
+stores both forms, so no schema change or eager migration is required. Deletion
+rejects reusable clip, launcher, chain, follow, audio-clip and scene references.
+
+Arrangement authoring uses stable clip IDs. Pattern clips retain source pattern,
+start, independent playback duration and loop state; audio clips retain track
+and immutable sample-region state. Move, resize, duplicate, delete and loop
+edits use existing timeline transactions and prepared publication.
 Decisions are a pure hash of the serialized timeline seed, track ID, event ID,
 and zero-based loop occurrence. They are therefore repeatable across callback
 sizes and x86-64/AArch64, and unrelated tracks do not consume shared RNG state.

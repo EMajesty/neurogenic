@@ -202,6 +202,7 @@ void publish(const SlintUiState &state,
     window->set_can_page_next(state.sequencer.can_page_next);
     window->set_confirm_delete_track(state.sequencer.confirm_delete_track);
     window->set_confirm_delete_pattern(state.sequencer.confirm_delete_pattern);
+    window->set_confirm_delete_clip(state.sequencer.confirm_delete_clip);
     window->set_arrangement_loop(text(state.sequencer.loop_range));
     window->set_sample_slot(static_cast<int>(state.sample.slot));
     window->set_sample_name(text(state.sample.name));
@@ -639,6 +640,10 @@ int run_slint_frontend(ApplicationService &application,
             (void)adapter.select_arrangement_clip(static_cast<std::size_t>(index));
             publish(adapter.state(), window);
         });
+        window->on_arrangement_manage([&](slint::SharedString operation) {
+            (void)adapter.manage_arrangement(operation.data());
+            publish(adapter.state(), window);
+        });
         window->on_step_edit([&](slint::SharedString operation) {
             const auto snapshot = application.snapshot();
             if (operation == "velocity-up")
@@ -1058,6 +1063,19 @@ int run_slint_frontend(ApplicationService &application,
                         "Page 2/2")
                         throw std::runtime_error("generated step paging did not publish");
                     window->invoke_advanced_step_edit("probability", -1);
+                    window->invoke_pattern_create(false);
+                    if (!window->get_patterns() ||
+                        window->get_patterns()->row_count() == 0)
+                        throw std::runtime_error(
+                            "generated reusable-pattern creation did not publish");
+                    window->invoke_arrangement_toggle();
+                    window->invoke_arrangement_manage("create-pattern");
+                    if (!window->get_arrangement_items() ||
+                        window->get_arrangement_items()->row_count() == 0)
+                        throw std::runtime_error(
+                            "generated arrangement creation did not publish");
+                    window->invoke_arrangement_item_invoked(0);
+                    window->invoke_arrangement_manage("move-right");
                     break;
                 case 2: window->invoke_sample_slot_selected(0); break;
                 case 3:

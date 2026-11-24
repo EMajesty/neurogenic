@@ -56,6 +56,13 @@ class TimelineTransaction {
     }
     [[nodiscard]] Track *find_track(TrackId) noexcept;
     [[nodiscard]] const Track *find_track(TrackId) const noexcept;
+    // Pattern ID zero names the legacy per-track pattern. Non-zero IDs name
+    // reusable arrangement patterns. Reusable track content is created only by
+    // an explicit mutating operation through ensure_pattern_track().
+    [[nodiscard]] MusicalPattern *find_edit_pattern(PatternId, TrackId) noexcept;
+    [[nodiscard]] const MusicalPattern *find_edit_pattern(PatternId,
+                                                           TrackId) const noexcept;
+    bool ensure_pattern_track(PatternId, TrackId, std::string &error);
     bool create_track(TrackId, std::string, MusicalTick, std::string &error);
     bool delete_track(TrackId, std::string &error);
     bool set_track_name(TrackId, std::string, std::string &error);
@@ -68,17 +75,26 @@ class TimelineTransaction {
                                     std::uint8_t channel, std::string &error);
     bool add_note(TrackId, EventId, MusicalTick, std::uint8_t, float,
                   MusicalTick, std::string &error);
+    bool add_note(PatternId, TrackId, EventId, MusicalTick, std::uint8_t,
+                  float, MusicalTick, std::string &error);
     bool modify_note(TrackId, EventId, MusicalTick, std::uint8_t, float,
                      MusicalTick, std::string &error);
+    bool modify_note(PatternId, TrackId, EventId, MusicalTick, std::uint8_t,
+                     float, MusicalTick, std::string &error);
     bool add_parameter(TrackId, EventId, MusicalTick, std::uint32_t, float,
                        std::string &error);
     bool modify_parameter(TrackId, EventId, MusicalTick, std::uint32_t, float,
                           std::string &error);
     bool add_parameter_destination(TrackId, EventId, MusicalTick, std::string,
                                    float, std::string &error);
+    bool add_parameter_destination(PatternId, TrackId, EventId, MusicalTick,
+                                   std::string, float, std::string &error);
     bool modify_parameter_destination(TrackId, EventId, MusicalTick,
                                       std::string, float, std::string &error);
+    bool modify_parameter_destination(PatternId, TrackId, EventId, MusicalTick,
+                                      std::string, float, std::string &error);
     bool remove_event(TrackId, EventId, std::string &error);
+    bool remove_event(PatternId, TrackId, EventId, std::string &error);
     bool set_tempo_bpm(double, std::string &error);
     bool set_time_signature(std::uint16_t, std::uint16_t, std::string &error);
     bool create_pattern(PatternId, std::string, MusicalTick,

@@ -124,10 +124,15 @@ instrument, MIDI destination, mute state and legacy pattern; project-wide
 routing, launcher assignments and modulation are not cloned.
 
 The same 2x8 positions remain the step-entry surface without making the engine
-depend on that layout. The Arrangement subview reads existing pattern and audio
-clips plus the loop range. It supports clip selection only; unavailable
-DAW-style edits are intentionally absent. Editing reusable pattern-track
-contents independently of the selected track is also deferred.
+depend on that layout. Selecting a reusable pattern changes the authoritative
+step edit target; switching tracks shows that track's content in the pattern,
+and the first explicit mutation creates empty track content predictably.
+
+The Arrangement subview places the selected pattern or active sample, selects
+stable pattern/audio clip identities, moves and resizes by the step quantum,
+duplicates, confirms deletion, edits loop start/end and seeks to a clip. These
+are discrete controls at both target resolutions. Pattern source length, clip
+duration and audio sample-region state remain distinct.
 
 Performance launch slots map to displayed positions by ascending stable slot
 ID, independent of collection order. Empty positions are unavailable.
