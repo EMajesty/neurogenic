@@ -30,16 +30,31 @@
       "cacheVariables": {
         "NEUROGENIC_ENABLE_SLINT": "ON"
       }
+    },
+    {
+      "name": "production",
+      "inherits": "slint",
+      "displayName": "NEUROGENIC production appliance build",
+      "binaryDir": "${sourceDir}/build/production",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build/appliance-stage",
+        "NEUROGENIC_BUILD_TESTS": "ON",
+        "NEUROGENIC_ENABLE_GUI": "ON",
+        "NEUROGENIC_ENABLE_SLINT": "ON"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "sanitize", "configurePreset": "sanitize" },
     { "name": "slint", "configurePreset": "slint" }
+    ,{ "name": "production", "configurePreset": "production" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
     { "name": "sanitize", "configurePreset": "sanitize", "output": { "outputOnFailure": true } },
     { "name": "slint", "configurePreset": "slint", "output": { "outputOnFailure": true } }
+    ,{ "name": "production", "configurePreset": "production", "output": { "outputOnFailure": true } }
   ]
 }

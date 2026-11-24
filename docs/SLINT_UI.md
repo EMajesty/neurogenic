@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+Production appliance builds use the `production` CMake preset and the launcher
+selects `--frontend slint`. Supervision belongs in the user's graphical session;
+see [REFERENCE_APPLIANCE.md](REFERENCE_APPLIANCE.md). Software-rendered target
+layouts are not evidence of physical touchscreen behavior.
+
 Task 086 adds stable-ID MIDI routes with port/channel descriptions, message
 filters, explicit enable and removal. Controllers shows mappings and
 capture/confirm/cancel learn; mapping removal and `.ngc` persistence use the

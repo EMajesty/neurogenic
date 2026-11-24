@@ -33,7 +33,7 @@ endif()
 include(cmake/Dependencies.cmake)
 find_package(Threads REQUIRED)
 
-add_library(neurogenic_engine
+add_library(neurogenic_engine STATIC
   src/application/control.cpp src/application/controller.cpp src/application/controller_coordinator.cpp src/application/controller_protocol.cpp src/application/controller_session.cpp src/application/discovery.cpp src/application/parameter_binding.cpp src/application/lifecycle.cpp src/application/performance_macros.cpp src/application/recording_workflow.cpp
   src/audio/engine.cpp src/audio/live_loop.cpp src/audio/mixer.cpp src/audio/recording.cpp src/audio/sample.cpp src/audio/sample_analysis.cpp src/audio/sample_manager.cpp src/audio/sample_processing.cpp src/audio/slicing.cpp src/core/command.cpp src/core/control_dispatcher.cpp
   src/dsp/effect_chain.cpp src/dsp/modulation.cpp src/dsp/voice_modulation.cpp src/dsp/purest_gain.cpp src/dsp/processor.cpp src/dsp/parameter_destination.cpp src/dsp/time_stretch.cpp src/instrument/subtractive_synth.cpp src/midi/mapping.cpp src/midi/routing.cpp src/project/project.cpp src/project/preset.cpp
@@ -47,7 +47,7 @@ target_compile_definitions(neurogenic_engine PRIVATE
   NEUROGENIC_COMMIT="${NEUROGENIC_BUILD_COMMIT}")
 target_link_libraries(neurogenic_engine PUBLIC Threads::Threads)
 
-add_library(neurogenic_gui src/ui/gui.cpp src/ui/sdl_backend.cpp)
+add_library(neurogenic_gui STATIC src/ui/gui.cpp src/ui/sdl_backend.cpp)
 target_include_directories(neurogenic_gui PUBLIC include)
 target_link_libraries(neurogenic_gui PUBLIC neurogenic_engine)
 target_compile_options(neurogenic_gui PRIVATE -Wall -Wextra -Wpedantic)
@@ -65,12 +65,17 @@ endif()
 # The renderer-independent adapter is always available so headless builds test
 # the same state/action bridge. Slint itself is resolved only when explicitly
 # requested, keeping graphical dependencies out of headless configurations.
-add_library(neurogenic_slint_adapter src/ui/slint_adapter.cpp)
+add_library(neurogenic_slint_adapter STATIC src/ui/slint_adapter.cpp)
 target_include_directories(neurogenic_slint_adapter PUBLIC include)
 target_link_libraries(neurogenic_slint_adapter PUBLIC neurogenic_engine)
 target_compile_options(neurogenic_slint_adapter PRIVATE -Wall -Wextra -Wpedantic)
 if(NEUROGENIC_ENABLE_SLINT)
-  find_package(Slint 1.19.0 QUIET CONFIG)
+  # Dependency-enabled builds deliberately use the pinned source declaration,
+  # even if a prior install tree is nearby. This prevents an installed compiler
+  # or config package from contaminating a subsequent reproducible build.
+  if(NOT NEUROGENIC_FETCH_DEPENDENCIES)
+    find_package(Slint 1.19.0 QUIET CONFIG)
+  endif()
   if(NOT Slint_FOUND)
     include(FetchContent)
     FetchContent_Declare(Slint
@@ -91,7 +96,7 @@ if(NEUROGENIC_ENABLE_SLINT)
       IMPORTED_LOCATION "${SLINT_COMPILER}")
     include("${slint_SOURCE_DIR}/api/cpp/cmake/SlintMacro.cmake")
   endif()
-  add_library(neurogenic_slint_frontend src/ui/slint_frontend.cpp)
+  add_library(neurogenic_slint_frontend STATIC src/ui/slint_frontend.cpp)
   target_include_directories(neurogenic_slint_frontend PUBLIC include)
   target_link_libraries(neurogenic_slint_frontend PUBLIC
     neurogenic_slint_adapter Slint::Slint)
@@ -109,7 +114,8 @@ if(NEUROGENIC_ENABLE_SLINT)
     EDITION 1.19)
   add_executable(neurogenic_slint apps/neurogenic_slint.cpp)
   target_link_libraries(neurogenic_slint PRIVATE neurogenic_slint_frontend)
-  set_target_properties(neurogenic_slint PROPERTIES OUTPUT_NAME neurogenic-slint)
+  set_target_properties(neurogenic_slint PROPERTIES OUTPUT_NAME neurogenic-slint
+    INSTALL_RPATH "$ORIGIN/../lib64;$ORIGIN/../lib")
   install(TARGETS neurogenic_slint RUNTIME DESTINATION bin)
   message(STATUS "NEUROGENIC: Slint 1.19 frontend enabled")
 else()
@@ -121,7 +127,7 @@ if(NEUROGENIC_FETCH_DEPENDENCIES)
   target_link_libraries(neurogenic_engine PRIVATE neurogenic_miniaudio sol2::sol2 lua_static)
 endif()
 
-add_library(neurogenic_live src/audio/device.cpp src/midi/input.cpp src/midi/output.cpp)
+add_library(neurogenic_live STATIC src/audio/device.cpp src/midi/input.cpp src/midi/output.cpp)
 target_include_directories(neurogenic_live PUBLIC include)
 target_link_libraries(neurogenic_live PUBLIC neurogenic_engine)
 if(NEUROGENIC_FETCH_DEPENDENCIES)
@@ -139,6 +145,8 @@ target_link_libraries(neurogenic PRIVATE neurogenic_engine neurogenic_live neuro
   neurogenic_slint_adapter)
 if(NEUROGENIC_ENABLE_SLINT)
   target_link_libraries(neurogenic PRIVATE neurogenic_slint_frontend)
+  set_target_properties(neurogenic PROPERTIES
+    INSTALL_RPATH "$ORIGIN/../lib64;$ORIGIN/../lib")
 endif()
 add_executable(neurogenic_diagnostics apps/neurogenic_diagnostics.cpp)
 target_link_libraries(neurogenic_diagnostics PRIVATE neurogenic_engine neurogenic_live neurogenic_gui)
@@ -150,7 +158,8 @@ install(TARGETS neurogenic neurogenic_diagnostics neurogenic_discovery RUNTIME D
 install(FILES examples/generate.lua examples/timeline_drums.lua examples/timeline_mutate.lua
   examples/timeline_polyrhythm.lua examples/timeline_variation.lua DESTINATION share/neurogenic/examples)
 install(DIRECTORY examples/controllers DESTINATION share/neurogenic/examples)
-install(PROGRAMS packaging/neurogenic-appliance DESTINATION share/neurogenic/appliance)
+install(PROGRAMS packaging/neurogenic-appliance packaging/neurogenic-preflight
+  DESTINATION share/neurogenic/appliance)
 install(FILES packaging/neurogenic-appliance.service DESTINATION share/neurogenic/appliance)
 
 if(NEUROGENIC_BUILD_TESTS)
@@ -168,6 +177,12 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_diagnostics_schema PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.hardware-diagnostics.v2" TIMEOUT 10
     ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+  add_test(NAME neurogenic_appliance_packaging
+    COMMAND ${CMAKE_COMMAND}
+      -DNEUROGENIC_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+      -DNEUROGENIC_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyAppliancePackaging.cmake)
+  set_tests_properties(neurogenic_appliance_packaging PROPERTIES TIMEOUT 15)
   add_test(NAME neurogenic_discovery_schema COMMAND neurogenic-discovery --json)
   set_tests_properties(neurogenic_discovery_schema PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.application-discovery.v1" TIMEOUT 10)

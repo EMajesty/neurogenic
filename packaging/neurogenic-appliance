@@ -3,11 +3,22 @@ set -euo pipefail
 
 neurogenic_bin="${NEUROGENIC_BIN:-neurogenic}"
 preferences_path="${NEUROGENIC_PREFERENCES:-${XDG_CONFIG_HOME:-$HOME/.config}/neurogenic/appliance.conf}"
-arguments=(--gui --fullscreen --shutdown-dirty save --preferences "$preferences_path")
+frontend="${NEUROGENIC_FRONTEND:-slint}"
+arguments=(--frontend "$frontend" --fullscreen --shutdown-dirty save --preferences "$preferences_path")
 
-if [[ -n "${NEUROGENIC_PROJECT:-}" ]]; then
+# Maintenance mode deliberately ignores the normal preferences and last project.
+# It gives an operator a known-safe, headless configuration recovery path without
+# modifying the normal configuration file.
+if [[ "${NEUROGENIC_MAINTENANCE:-0}" == "1" ]]; then
+  maintenance_root="${XDG_RUNTIME_DIR:-/tmp}/neurogenic-maintenance"
+  mkdir -p "$maintenance_root"
+  arguments=(--frontend headless --headless --no-reopen-last --preferences
+    "$maintenance_root/appliance.conf")
+fi
+
+if [[ "${NEUROGENIC_MAINTENANCE:-0}" != "1" && -n "${NEUROGENIC_PROJECT:-}" ]]; then
   arguments+=(--project "$NEUROGENIC_PROJECT")
-else
+elif [[ "${NEUROGENIC_MAINTENANCE:-0}" != "1" ]]; then
   arguments+=(--reopen-last)
 fi
 

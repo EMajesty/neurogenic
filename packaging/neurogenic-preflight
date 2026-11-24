@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+diagnostics_bin="${NEUROGENIC_DIAGNOSTICS_BIN:-neurogenic-diagnostics}"
+config_root="${XDG_CONFIG_HOME:-$HOME/.config}/neurogenic"
+data_root="${XDG_DATA_HOME:-$HOME/.local/share}/neurogenic"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/neurogenic"
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/neurogenic"
+quiet=0
+prepare=0
+
+usage() {
+  printf '%s\n' 'usage: neurogenic-preflight [--prepare] [--quiet]' \
+    '  --prepare  create the documented user-owned directory layout' \
+    '  --quiet    suppress the human summary (JSON diagnostics still run)'
+}
+for argument in "$@"; do
+  case "$argument" in
+    --prepare) prepare=1 ;;
+    --quiet) quiet=1 ;;
+    --help) usage; exit 0 ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+
+directories=(
+  "$config_root" "$data_root/projects" "$data_root/samples"
+  "$data_root/presets" "$data_root/controllers" "$data_root/recordings"
+  "$data_root/exports" "$state_root/logs" "$state_root/reports" "$cache_root/tmp"
+)
+if (( prepare )); then
+  mkdir -p "${directories[@]}"
+fi
+
+failures=0
+for directory in "${directories[@]}"; do
+  parent="$directory"
+  while [[ ! -e "$parent" && "$parent" != "/" ]]; do parent="${parent%/*}"; done
+  if [[ ! -d "$parent" || ! -r "$parent" || ! -w "$parent" ]]; then
+    printf 'preflight: storage path is not accessible: %s (nearest parent %s)\n' \
+      "$directory" "$parent" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+report="$($diagnostics_bin --json 2>/dev/null)" || {
+  printf '%s\n' 'preflight: diagnostic executable failed' >&2
+  exit 1
+}
+if [[ "$report" != *'"preferred_sample_rate":48000'* ]]; then
+  printf '%s\n' 'preflight: diagnostics did not report the fixed 48 kHz engine rate' >&2
+  failures=$((failures + 1))
+fi
+if (( ! quiet )); then
+  printf '%s\n' "$report"
+  printf 'storage: config=%s data=%s state=%s cache=%s\n' \
+    "$config_root" "$data_root" "$state_root" "$cache_root"
+  printf '%s\n' 'preflight: enumeration is not a low-latency hardware validation'
+fi
+(( failures == 0 ))

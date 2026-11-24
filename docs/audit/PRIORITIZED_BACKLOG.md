@@ -293,5 +293,11 @@ Task 080.
    the above workflows are usable: supervised startup, N150/RPi5 audio/MIDI,
    touchscreen, controller and storage testing.
 
+   **Software preparation:** production Slint preset/install checks, Slint-first
+   graphical-session supervision, bounded restart, maintenance mode,
+   storage/device preflight, reference-platform guidance and a NOT-RUN hardware
+   report template are implemented. Physical N150/Pi 5 tests remain NOT RUN. A
+   fully sandboxed Slint Nix derivation remains a packaging backlog item.
+
 This order prioritizes playable standalone workflows and evidence. It does not
 advance granular DSP before core appliance gaps are closed.

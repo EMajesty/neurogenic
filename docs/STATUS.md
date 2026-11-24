@@ -1,5 +1,14 @@
 # Implementation status
 
+Task 087 adds a Release `production` preset with Slint, an installable appliance
+tree, Slint-first launcher, storage/device preflight and a graphical-session
+user service with bounded restart. Maintenance mode uses Null audio and isolated
+preferences for configuration recovery. Reference x86_64/AArch64 deployment and
+the validation template are documented. All physical audio, MIDI, controller,
+touchscreen, storage and thermal tests remain **NOT RUN**. A fully sandboxed
+Slint flake package also remains outstanding; the pinned CMake/CI path is the
+current production frontend build.
+
 Task 086 completes the safe core of standalone MIDI/controller configuration.
 Registry locks are released before external work; reentrant shutdown and failed
 feedback are tested. Setup exposes bounded musical route editing, mapping

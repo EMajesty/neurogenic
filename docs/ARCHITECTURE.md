@@ -1,5 +1,13 @@
 # Architecture
 
+Deployment policy stays outside the musical engine. The installed launcher
+selects the frontend and explicit persistence paths; a graphical-session user
+service owns supervision. Preflight performs control-side storage checks and
+invokes copied diagnostics without changing devices, scheduling policy or user
+content. Maintenance runs the same application headlessly with Null audio and
+isolated preferences, not a second application-state authority. No deployment
+operation is callback reachable.
+
 Controller endpoint ownership uses two-phase dispatch: registries copy shared
 lifetime handles under lock, release the lock, then perform transport polling,
 feedback, learn or disconnect work. `MidiMapper` likewise snapshots surfaces

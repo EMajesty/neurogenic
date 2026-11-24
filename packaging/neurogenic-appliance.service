@@ -1,18 +1,25 @@
 [Unit]
 Description=NEUROGENIC standalone workstation
 After=graphical-session.target sound.target
+PartOf=graphical-session.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
 
 [Service]
 Type=simple
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+EnvironmentFile=-%h/.config/neurogenic/appliance.env
+ExecStartPre=%h/.local/bin/neurogenic-preflight --quiet
 ExecStart=%h/.local/bin/neurogenic-appliance
 Restart=on-failure
 RestartSec=10
+RestartPreventExitStatus=2
 TimeoutStopSec=20
 KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
 StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

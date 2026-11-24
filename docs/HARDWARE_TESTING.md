@@ -215,6 +215,11 @@ audible quality, or acceptable round-trip latency.
 
 ## NixOS and appliance notes
 
+The complete build, installation, supervised-startup, storage and recovery
+procedure is [REFERENCE_APPLIANCE.md](REFERENCE_APPLIANCE.md). Record physical
+results in [HARDWARE_VALIDATION_REPORT.md](HARDWARE_VALIDATION_REPORT.md);
+every row remains `NOT RUN` until measured on the named target.
+
 The package retains ALSA in ELF RUNPATH and does not need global
 `LD_LIBRARY_PATH`. Nix provides libraries; the host provides PipeWire/ALSA,
 `/dev/snd` access, display/DRM ownership, and USB HID. Investigate a systemd
@@ -237,17 +242,20 @@ explicit `discard`. Shutdown cancels recording, stops transport, sends MIDI
 panic, stops devices/dispatchers, joins workers, then persists preferences.
 `--run-for SECONDS` exists only for bounded diagnostic lifecycle runs.
 
-Optional examples are installed under `share/neurogenic/appliance/`:
+Deployment helpers are installed under `share/neurogenic/appliance/`:
 
-- `neurogenic-appliance` is configured with `NEUROGENIC_BIN`,
+- `neurogenic-appliance` selects Slint by default and is configured with `NEUROGENIC_BIN`,
   `NEUROGENIC_PREFERENCES`, `NEUROGENIC_PROJECT`, and optional
   `NEUROGENIC_EXTRA_ARGS`. It requests Save on shutdown; an untitled project
   without a Save-As path still refuses shutdown rather than being discarded.
 - `neurogenic-appliance.service` is a systemd **user** unit with bounded
   restart, journal logging, SIGTERM, and a 20-second stop timeout.
+- `neurogenic-preflight` checks the documented storage roots and emits the
+  existing machine-readable device/scheduling report. `--prepare` only creates
+  missing user-owned directories.
 
-Copy and edit these manually. The unit expects the launcher at
-`~/.local/bin/neurogenic-appliance`; nothing installs or enables it. The
+Copy and edit these manually. The unit expects launcher and preflight at
+`~/.local/bin`; nothing enables them. The
 launcher requires Bash and assumes `neurogenic` is on `PATH` (or
 `NEUROGENIC_BIN` is absolute) plus a working graphical session. It does not
 force Wayland, X11, or DRM/KMS. Verify display/audio permissions and project
