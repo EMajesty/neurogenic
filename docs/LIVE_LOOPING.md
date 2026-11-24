@@ -60,3 +60,8 @@ Discovery capability `live-looping` version 2 includes handoff diagnostics.
 Known limitations: one simultaneous capture, explicit WAV save for durable
 assets, no PCM-version Undo/Redo, fixed pass length after arming, and the
 overdub/replace path remains control-side.
+
+The Slint recording surface can create, arm, start, stop and cancel the initial
+session and start explicit overdub or replacement passes through this service.
+It presents waiting/finalizing/playing-derived states. Gapless
+reservation/handoff behavior is unchanged; destructive clear remains deferred.

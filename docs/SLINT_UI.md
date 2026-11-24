@@ -241,3 +241,17 @@ The eight pages now cover Performance, Sequencer, Sample, Sound, Mixer, FX,
 Browser and Setup. A touchscreen keyboard, native file picker, safe live audio
 device replacement, full MIDI route editing and graphical controller-layout
 editing remain deferred. Styling remains provisional.
+
+## Recording and processing workflows
+
+The global Record control opens explicit mode, source, destination and timing
+configuration. `RecordingWorkflowCoordinator` composes existing external,
+resampling, live-loop, arrangement and performance-capture actions; it does not
+own a recorder. The Sample page exposes processing progress, cancellation,
+explicit WAV save and explicit destination publication, and only offers the
+published result after immutable-version acknowledgement.
+
+The `slint-production-build-and-test` CI job configures pinned Slint 1.19,
+compiles generated components, links the production appliance and runs the
+Slint-enabled CTest suite. Headless builds remain independent. Rendered UI
+interaction testing remains Task 082.

@@ -43,6 +43,25 @@ void publish(const SlintUiState &state,
     window->set_sample_error(text(state.sample.error));
     window->set_analysis_status(text(state.sample.analysis_status));
     window->set_processing_status(text(state.sample.processing_status));
+    window->set_processing_progress(state.sample.processing_progress);
+    window->set_processing_can_cancel(state.sample.processing_can_cancel);
+    window->set_processing_can_publish(state.sample.processing_can_publish);
+    window->set_processing_audio_active(state.sample.processing_audio_active);
+    window->set_recording_visible(state.recording.visible);
+    window->set_recording_mode(text(state.recording.mode));
+    window->set_recording_phase(text(state.recording.phase));
+    window->set_recording_source(text(state.recording.source));
+    window->set_recording_destination(text(state.recording.destination));
+    window->set_recording_quantization(text(state.recording.quantization));
+    window->set_recording_error(text(state.recording.error));
+    window->set_recording_can_arm(state.recording.can_arm);
+    window->set_recording_can_start(state.recording.can_start);
+    window->set_recording_can_stop(state.recording.can_stop);
+    window->set_recording_can_cancel(state.recording.can_cancel);
+    window->set_recording_can_commit(state.recording.can_commit);
+    window->set_recording_progress(state.recording.progress);
+    window->set_recording_overflows(
+        static_cast<int>(state.recording.overflow_count));
     window->set_sample_ready(state.sample.ready);
     window->set_sample_stereo(state.sample.channels > 1);
     window->set_waveform_zoom(state.sample.zoom);
@@ -493,6 +512,37 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_sample_processing([&](slint::SharedString operation) {
             (void)adapter.start_processing(operation.data());
+            publish(adapter.state(), window);
+        });
+        window->on_processing_lifecycle(
+            [&](slint::SharedString operation, slint::SharedString value) {
+                (void)adapter.processing_action(operation.data(), value.data());
+                publish(adapter.state(), window);
+            });
+        window->on_recording_mode_selected([&](slint::SharedString mode) {
+            (void)adapter.set_recording_mode(mode.data());
+            publish(adapter.state(), window);
+        });
+        window->on_recording_source_selected([&](slint::SharedString source) {
+            const auto snapshot = application.snapshot();
+            std::uint64_t source_id{};
+            if (source == "track") source_id = snapshot.selected_track;
+            else if (source == "group-post-fader") source_id = snapshot.selected_group;
+            (void)adapter.set_recording_source(source.data(), source_id);
+            publish(adapter.state(), window);
+        });
+        window->on_recording_quantization_selected(
+            [&](slint::SharedString quantization) {
+                (void)adapter.set_recording_quantization(quantization.data());
+                publish(adapter.state(), window);
+            });
+        window->on_recording_action([&](slint::SharedString action) {
+            (void)adapter.recording_action(action.data());
+            publish(adapter.state(), window);
+        });
+        window->on_recording_closed([&] {
+            adapter.close_recording();
+            (void)adapter.refresh();
             publish(adapter.state(), window);
         });
         window->on_sound_subview_selected([&](slint::SharedString subview) {

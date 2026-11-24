@@ -6,6 +6,10 @@ No P0 defect was confirmed. IDs are stable references for follow-up work.
 
 ### AUD-001 — Unified recording workflow is inaccessible in Slint
 
+**Task 081 status: resolved for the initial workflow surface.** Record requires
+explicit mode/source/destination configuration and composes all five existing
+recording families. Detailed live-loop overdub/replace UX remains limited.
+
 - **Impact:** users cannot record external audio, resample, arrange-record,
   performance-capture or live-loop without another client.
 - **Evidence:** `SlintFrontendAdapter::transport_record()` always rejects;
@@ -30,6 +34,9 @@ No P0 defect was confirmed. IDs are stable references for follow-up work.
   probability, ratchet, condition and lock round trip.
 
 ### AUD-003 — Offline processing cannot complete from Slint
+
+**Task 081 status: resolved.** Slint exposes progress, cancellation, explicit
+save/publication, and waits for audio-active acknowledgement.
 
 - **Impact:** processing starts but result cannot be saved/published/used.
 - **Evidence:** Sample page calls create/add/start only; backend exposes result,
@@ -82,6 +89,10 @@ No P0 defect was confirmed. IDs are stable references for follow-up work.
 ## P2 — correctness, coverage and responsiveness
 
 ### AUD-007 — Production CI does not compile Slint
+
+**Task 081 status: compilation portion resolved.** CI configures pinned Slint,
+compiles generated UI and the production executable, and runs CTest. Rendered
+interaction remains AUD-011/Task 082.
 
 - **Impact:** generated UI/link regressions can reach main.
 - **Evidence:** `flake.nix` forces `NEUROGENIC_ENABLE_SLINT=OFF`; CI has no Slint

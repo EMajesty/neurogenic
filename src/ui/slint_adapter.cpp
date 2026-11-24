@@ -93,6 +93,7 @@ std::string slint_recording_label(RecordingState state, bool playing) {
 SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application,
                                            SlintSetupServices setup)
     : application_(application), bindings_(application),
+      recording_workflow_(application),
       setup_services_(std::move(setup)) {
     if (setup_services_.snapshot) {
         const auto runtime = setup_services_.snapshot();
@@ -115,9 +116,10 @@ bool SlintFrontendAdapter::refresh() {
             ++local_revision_;
         }
     }
-    if (snapshot.revision == state_.shell.revision &&
-        local_revision_ == published_local_revision_)
-        return false;
+    // Worker-owned recording/analysis/processing phases can advance without a
+    // musical ApplicationState revision. Rebuild on an explicit UI refresh so
+    // completion and publication acknowledgements never remain stale. Task
+    // 082 will split these telemetry revisions for incremental publication.
     SlintUiState next;
     next.shell.revision = snapshot.revision;
     next.shell.playing = snapshot.playing;
@@ -129,6 +131,33 @@ bool SlintFrontendAdapter::refresh() {
     next.shell.tempo_bpm = snapshot.tempo_bpm;
     next.shell.transport =
         slint_recording_label(snapshot.recording.state, snapshot.playing);
+    const auto recording = recording_workflow_.snapshot();
+    next.recording.visible = state_.recording.visible;
+    next.recording.mode = recording_workflow_mode_name(
+        recording.configuration.mode);
+    next.recording.phase = recording.status;
+    next.recording.source = recording.configuration.source;
+    next.recording.destination_slot = recording.configuration.destination.value;
+    next.recording.destination = "Sample slot " +
+                                 std::to_string(recording.configuration.destination.value);
+    next.recording.quantization = recording.configuration.quantization;
+    next.recording.captured_frames = recording.captured_frames;
+    next.recording.capacity_frames = recording.capacity_frames;
+    next.recording.overflow_count = recording.overflow_count;
+    next.recording.captured_events = recording.captured_events;
+    next.recording.progress = recording.progress;
+    next.recording.can_configure = recording.can_configure;
+    next.recording.can_arm = recording.can_arm;
+    next.recording.can_start = recording.can_start;
+    next.recording.can_stop = recording.can_stop;
+    next.recording.can_cancel = recording.can_cancel;
+    next.recording.can_commit = recording.phase == RecordingWorkflowPhase::finalizing;
+    next.recording.result_audio_active = recording.result_audio_active;
+    next.recording.result_pending = recording.result_pending;
+    next.recording.error = recording.error;
+    if (recording.phase != RecordingWorkflowPhase::idle &&
+        recording.phase != RecordingWorkflowPhase::configuring)
+        next.shell.transport = recording.status;
     next.shell.time_signature =
         std::to_string(snapshot.time_signature_numerator) + "/" +
         std::to_string(snapshot.time_signature_denominator);
@@ -405,6 +434,16 @@ bool SlintFrontendAdapter::refresh() {
         processing != snapshot.sample_processing_jobs.end()) {
         next.sample.processing_status =
             sample_processing_status_name(processing->status);
+        next.sample.processing_job = processing->id;
+        next.sample.processing_progress = processing->progress;
+        next.sample.processing_destination = processing->result.destination.value;
+        next.sample.processing_can_cancel =
+            processing->status == SampleProcessingStatus::draft ||
+            processing->status == SampleProcessingStatus::running;
+        next.sample.processing_can_publish =
+            processing->status == SampleProcessingStatus::complete;
+        next.sample.processing_audio_active =
+            processing->status == SampleProcessingStatus::audio_active;
         if (!processing->error.empty())
             next.sample.error = processing->error;
     }
@@ -1173,9 +1212,124 @@ bool SlintFrontendAdapter::cycle_launch_quantization() {
 }
 
 bool SlintFrontendAdapter::transport_record() {
-    last_error_ = "Transport record has no single semantic action";
-    state_.shell.notification = last_error_;
-    return false;
+    state_.recording.visible = true;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_recording_mode(std::string mode) {
+    auto configuration = recording_workflow_.configuration();
+    if (mode == "audio") {
+        configuration.mode = RecordingWorkflowMode::audio;
+        configuration.source = "external-stereo";
+    } else if (mode == "resample") {
+        configuration.mode = RecordingWorkflowMode::resample;
+        configuration.source = "master-post";
+    } else if (mode == "live-loop") {
+        configuration.mode = RecordingWorkflowMode::live_loop;
+        configuration.source = "master-post";
+        configuration.destination_track = application_.snapshot().selected_track;
+    } else if (mode == "arrangement")
+        configuration.mode = RecordingWorkflowMode::arrangement;
+    else if (mode == "performance")
+        configuration.mode = RecordingWorkflowMode::performance;
+    else {
+        last_error_ = "Recording mode is unavailable";
+        return false;
+    }
+    configuration.destination = application_.snapshot().selected_sample_slot;
+    std::string error;
+    if (!recording_workflow_.configure(std::move(configuration), error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_recording_source(std::string source,
+                                                 std::uint64_t source_id) {
+    auto configuration = recording_workflow_.configuration();
+    configuration.source = std::move(source);
+    configuration.source_id = source_id;
+    std::string error;
+    if (!recording_workflow_.configure(std::move(configuration), error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_recording_destination(std::uint32_t slot) {
+    auto configuration = recording_workflow_.configuration();
+    configuration.destination = SampleSlotId{slot};
+    std::string error;
+    if (!recording_workflow_.configure(std::move(configuration), error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::set_recording_quantization(std::string value) {
+    if (value != "immediate" && value != "beat" && value != "bar") {
+        last_error_ = "Recording quantization is unavailable";
+        return false;
+    }
+    auto configuration = recording_workflow_.configuration();
+    configuration.quantization = std::move(value);
+    std::string error;
+    if (!recording_workflow_.configure(std::move(configuration), error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::recording_action(std::string action) {
+    std::string error;
+    bool accepted{};
+    if (action == "arm" &&
+        recording_workflow_.configuration().mode == RecordingWorkflowMode::audio &&
+        setup_services_.snapshot) {
+        const auto available = setup_services_.snapshot().active_input_channels;
+        const auto needed = recording_workflow_.configuration().source ==
+                                    "external-mono"
+                                ? 1U
+                                : 2U;
+        if (available < needed)
+            error = "Selected external input channels are unavailable";
+        else
+            accepted = recording_workflow_.arm(error);
+    } else if (action == "arm") accepted = recording_workflow_.arm(error);
+    else if (action == "start") accepted = recording_workflow_.start(error);
+    else if (action == "stop") accepted = recording_workflow_.stop(error);
+    else if (action == "overdub") accepted = recording_workflow_.overdub(false, error);
+    else if (action == "replace") accepted = recording_workflow_.overdub(true, error);
+    else if (action == "cancel") accepted = recording_workflow_.cancel(error);
+    else if (action == "commit") accepted = recording_workflow_.commit(error);
+    else {
+        error = "Recording operation is unavailable";
+    }
+    if (!accepted) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+    }
+    ++local_revision_;
+    (void)refresh();
+    return accepted;
+}
+
+void SlintFrontendAdapter::close_recording() noexcept {
+    state_.recording.visible = false;
+    ++local_revision_;
 }
 
 bool SlintFrontendAdapter::select_pattern(std::size_t index, bool launch) {
@@ -1427,6 +1581,44 @@ bool SlintFrontendAdapter::start_processing(std::string operation) {
     }
     return execute({"sample-processing.operation-add.v1", std::move(arguments), {}, 0}) &&
            invoke_action("sample-processing.start.v1");
+}
+
+bool SlintFrontendAdapter::processing_action(std::string action,
+                                              std::string value) {
+    if (action == "cancel")
+        return invoke_action("sample-processing.cancel.v1");
+    if (action == "discard")
+        return invoke_action("sample-processing.discard.v1");
+    if (action == "publish") {
+        auto slot = state_.sample.slot;
+        if (!value.empty()) {
+            try {
+                const auto parsed = std::stoull(value);
+                if (parsed >= invalid_sample_slot.value)
+                    throw std::out_of_range("slot");
+                slot = static_cast<std::uint32_t>(parsed);
+            } catch (const std::exception &) {
+                last_error_ = "Processing destination slot is invalid";
+                state_.shell.notification = last_error_;
+                return false;
+            }
+        }
+        return execute({"sample-processing.publish.v1",
+                        {{"slot_id", static_cast<std::int64_t>(slot)}}, {}, 0});
+    }
+    if (action == "save") {
+        if (value.empty()) {
+            last_error_ = "A result WAV path is required";
+            state_.shell.notification = last_error_;
+            return false;
+        }
+        return execute({"sample-processing.save.v1",
+                        {{"path", std::move(value)},
+                         {"format", std::string("float32")},
+                         {"overwrite", false}}, {}, 0});
+    }
+    last_error_ = "Processing operation is unavailable";
+    return false;
 }
 
 bool SlintFrontendAdapter::set_waveform_view(float zoom, float offset) {

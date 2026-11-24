@@ -77,3 +77,9 @@ shift are deferred rather than adding a second algorithm in this task.
 Capability `sample-processing` version 1 exposes operation-type and job objects,
 typed semantic actions, status/progress state, and the job budget. It contains
 no waveform buffers or physical-controller layout assumptions.
+
+The production Sample page now completes the lifecycle: progress, cancel,
+explicit atomic WAV save, explicit destination-slot publication,
+acknowledgement and preview of the audio-active result. A job retains its
+immutable source version and is not retargeted by later UI selection. Worker
+completion never silently replaces an active sample.

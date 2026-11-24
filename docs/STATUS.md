@@ -617,3 +617,10 @@ operations preserve dirty-session confirmation, WAV loads target the selected
 immutable sample slot, and preset activation remains transactional. Recursive
 indexing, background pagination, native file picking and preset mutation remain
 deferred.
+
+Task 081 adds a presentation-neutral recording coordinator and compact Slint
+surface for external capture, resampling, live loops, arrangement recording
+and performance capture. Sample processing now exposes progress, cancellation,
+explicit save and callback-acknowledged publication. Tests assert captured
+stereo PCM and normalized processed PCM. CI compiles generated Slint components
+and runs the Slint-enabled suite.

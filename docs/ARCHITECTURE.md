@@ -1,5 +1,11 @@
 # Architecture
 
+Recording presentation composition lives in `RecordingWorkflowCoordinator`.
+It owns pending stable configuration only; `RecordingService`,
+`LiveLoopService` and `ArrangementRecordingService` remain the state
+authorities. Sample-processing source/result ownership remains in
+`SampleProcessingService`; frontend models never hold PCM.
+
 Integrated performance validation drives the production prepared-timeline,
 immutable-sample, mixer/FX/modulation, MIDI, live-loop, launcher, and capture
 paths. Simulated devices provide deterministic input and timestamps; there is no

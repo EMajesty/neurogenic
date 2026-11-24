@@ -1,4 +1,4 @@
-import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog } from "components.slint";
+import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay } from "components.slint";
 import { Theme } from "theme.slint";
 import { PerformancePage, PadItem, SceneItem } from "performance_page.slint";
 import { SequencerPage, StepItem, PatternItem, ArrangementItem } from "sequencer_page.slint";
@@ -42,6 +42,11 @@ export component PerformanceWindow inherits Window {
     in property <string> sample-error: "";
     in property <string> analysis-status: "Idle";
     in property <string> processing-status: "Idle";
+    in property <float> processing-progress: 0;
+    in property <bool> processing-can-cancel: false;
+    in property <bool> processing-can-publish: false;
+    in property <bool> processing-audio-active: false;
+    in-out property <string> processing-result-path: "";
     in property <bool> sample-ready: false;
     in property <bool> sample-stereo: false;
     in property <float> waveform-zoom: 1;
@@ -116,6 +121,20 @@ export component PerformanceWindow inherits Window {
     in-out property <string> setup-learn-control: "encoder.1"; in-out property <string> setup-learn-mode: "cc-absolute";
     in-out property <string> setup-profile-path: "";
     in-out property <bool> modal-visible: false;
+    in property <bool> recording-visible: false;
+    in property <string> recording-mode: "External audio";
+    in property <string> recording-phase: "Idle";
+    in property <string> recording-source: "external-stereo";
+    in property <string> recording-destination: "Sample slot 0";
+    in property <string> recording-quantization: "immediate";
+    in property <string> recording-error: "";
+    in property <bool> recording-can-arm: false;
+    in property <bool> recording-can-start: false;
+    in property <bool> recording-can-stop: false;
+    in property <bool> recording-can-cancel: false;
+    in property <bool> recording-can-commit: false;
+    in property <float> recording-progress: 0;
+    in property <int> recording-overflows: 0;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
     callback page-selected(int); callback transport-invoked(string);
@@ -132,6 +151,12 @@ export component PerformanceWindow inherits Window {
     callback region-selected(int); callback region-action(string);
     callback sample-preview(string); callback sample-analysis(string);
     callback sample-processing(string);
+    callback processing-lifecycle(string, string);
+    callback recording-action(string);
+    callback recording-mode-selected(string);
+    callback recording-source-selected(string);
+    callback recording-quantization-selected(string);
+    callback recording-closed();
     callback sound-subview-selected(string); callback sound-instrument-selected(string);
     callback sound-parameter-selected(int); callback sound-parameter-adjusted(int, int);
     callback sound-sample-action(string); callback sound-modulation-selected(int);
@@ -190,6 +215,9 @@ export component PerformanceWindow inherits Window {
             vertical-stretch: 1; sample-slot: root.sample-slot; sample-name: root.sample-name; sample-status: root.sample-status;
             sample-metadata: root.sample-metadata; sample-error: root.sample-error; analysis-status: root.analysis-status;
             processing-status: root.processing-status; sample-ready: root.sample-ready; sample-stereo: root.sample-stereo;
+            processing-progress: root.processing-progress; processing-can-cancel: root.processing-can-cancel;
+            processing-can-publish: root.processing-can-publish; processing-audio-active: root.processing-audio-active;
+            processing-result-path <=> root.processing-result-path;
             waveform-zoom: root.waveform-zoom; waveform-left: root.waveform-left; waveform-right: root.waveform-right;
             slice-markers: root.slice-markers; region-start: root.region-start; region-end: root.region-end;
             sample-slices: root.sample-slices; sample-regions: root.sample-regions; sample-path <=> root.sample-path;
@@ -199,6 +227,7 @@ export component PerformanceWindow inherits Window {
             region-selected(index) => { root.region-selected(index); } region-action(action) => { root.region-action(action); }
             sample-preview(target) => { root.sample-preview(target); } sample-analysis(action) => { root.sample-analysis(action); }
             sample-processing(action) => { root.sample-processing(action); }
+            processing-lifecycle(action, value) => { root.processing-lifecycle(action, value); }
         }
         if root.page-id == "sound": SoundPage {
             vertical-stretch: 1; track: root.sound-track; instrument: root.sound-instrument; instrument-id: root.sound-instrument-id;
@@ -262,6 +291,44 @@ export component PerformanceWindow inherits Window {
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
+    }
+    if root.recording-visible: Rectangle { x: 0; y: 0; background: #aa111111;
+        Rectangle { width: min(760px, parent.width - 40px); height: min(520px, parent.height - 40px); x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; background: Theme.panel; border-width: 1px; border-color: Theme.accent; border-radius: Theme.radius;
+            VerticalLayout { padding: 16px; spacing: 10px;
+                Text { text: "Recording & Capture"; color: Theme.foreground; font-size: 22px; }
+                HorizontalLayout { spacing: 4px;
+                    PageButton { text: "Audio"; selected: root.recording-mode == "External audio"; clicked => { root.recording-mode-selected("audio"); } }
+                    PageButton { text: "Resample"; selected: root.recording-mode == "Internal resampling"; clicked => { root.recording-mode-selected("resample"); } }
+                    PageButton { text: "Live Loop"; selected: root.recording-mode == "Live loop"; clicked => { root.recording-mode-selected("live-loop"); } }
+                    PageButton { text: "Arrangement"; selected: root.recording-mode == "Arrangement capture"; clicked => { root.recording-mode-selected("arrangement"); } }
+                    PageButton { text: "Performance"; selected: root.recording-mode == "Performance capture"; clicked => { root.recording-mode-selected("performance"); } }
+                }
+                HorizontalLayout { ParameterDisplay { name: "State"; value: root.recording-phase; } ParameterDisplay { name: "Source"; value: root.recording-source; } ParameterDisplay { name: "Destination"; value: root.recording-destination; } ParameterDisplay { name: "Quantization"; value: root.recording-quantization; } }
+                HorizontalLayout { spacing: 4px;
+                    PageButton { text: "External stereo"; implemented: root.recording-mode == "External audio" || root.recording-mode == "Live loop"; clicked => { root.recording-source-selected("external-stereo"); } }
+                    PageButton { text: "Track"; implemented: root.recording-mode != "External audio"; clicked => { root.recording-source-selected("track"); } }
+                    PageButton { text: "Group"; implemented: root.recording-mode != "External audio"; clicked => { root.recording-source-selected("group-post-fader"); } }
+                    PageButton { text: "Master"; implemented: root.recording-mode != "External audio"; clicked => { root.recording-source-selected("master-post"); } }
+                }
+                HorizontalLayout { spacing: 4px;
+                    PageButton { text: "Immediate"; selected: root.recording-quantization == "immediate"; clicked => { root.recording-quantization-selected("immediate"); } }
+                    PageButton { text: "Beat"; selected: root.recording-quantization == "beat"; clicked => { root.recording-quantization-selected("beat"); } }
+                    PageButton { text: "Bar"; selected: root.recording-quantization == "bar"; clicked => { root.recording-quantization-selected("bar"); } }
+                }
+                Rectangle { height: 10px; background: Theme.muted; Rectangle { width: parent.width * max(0, min(1, root.recording-progress)); height: parent.height; background: Theme.accent; } }
+                if root.recording-error != "": Text { text: root.recording-error; color: Theme.warning; wrap: word-wrap; }
+                HorizontalLayout { spacing: 5px;
+                    PageButton { text: "Arm"; implemented: root.recording-can-arm; clicked => { root.recording-action("arm"); } }
+                    PageButton { text: "Start"; implemented: root.recording-can-start; clicked => { root.recording-action("start"); } }
+                    PageButton { text: "Stop"; implemented: root.recording-can-stop; clicked => { root.recording-action("stop"); } }
+                    PageButton { text: "Commit"; implemented: root.recording-can-commit; clicked => { root.recording-action("commit"); } }
+                    PageButton { text: "Overdub"; implemented: root.recording-mode == "Live loop" && root.recording-phase == "Completed"; clicked => { root.recording-action("overdub"); } }
+                    PageButton { text: "Replace"; implemented: root.recording-mode == "Live loop" && root.recording-phase == "Completed"; clicked => { root.recording-action("replace"); } }
+                    PageButton { text: "Cancel"; implemented: root.recording-can-cancel; clicked => { root.recording-action("cancel"); } }
+                    PageButton { text: "Close"; implemented: true; clicked => { root.recording-closed(); } }
+                }
+            }
+        }
     }
     if root.modal-visible || root.browser-confirmation-pending: Rectangle { x: 0; y: 0; background: #88111111; ModalDialog { width: min(520px, parent.width - 48px); height: 210px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: "Confirm"; message: root.browser-confirmation-pending ? root.browser-confirmation-message : "Confirm this operation."; accepted => { if (root.browser-confirmation-pending) { root.browser-confirm(true); } root.modal-visible = false; } rejected => { if (root.browser-confirmation-pending) { root.browser-confirm(false); } root.modal-visible = false; } } }
 }

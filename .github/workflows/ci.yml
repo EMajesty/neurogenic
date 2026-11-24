@@ -8,6 +8,28 @@ permissions:
   contents: read
 
 jobs:
+  slint-production-build-and-test:
+    # Compiles generated .slint C++, links the production appliance frontend,
+    # and runs the renderer-independent Slint adapter suite. Rendering tests
+    # remain intentionally separate from this dependency/build gate.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: DeterminateSystems/magic-nix-cache-action@v9
+      - name: Cache pinned Slint FetchContent checkout and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/slint/_deps
+          key: slint-1.19.0-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'cmake/Dependencies.cmake', 'ui/slint/**') }}
+      - name: Configure production Slint build
+        run: nix develop --no-update-lock-file --command cmake --preset slint
+      - name: Compile generated components and production executable
+        run: nix develop --no-update-lock-file --command cmake --build --preset slint
+      - name: Run Slint-enabled CTest suite
+        run: nix develop --no-update-lock-file --command ctest --preset slint
+
   nix-build-and-test:
     runs-on: ubuntu-24.04
     steps:

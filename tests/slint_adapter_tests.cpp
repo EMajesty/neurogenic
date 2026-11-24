@@ -5,10 +5,12 @@
 #include "neurogenic/project/preset.hpp"
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <thread>
 
 namespace {
 void require(bool value, const char *message) {
@@ -226,6 +228,28 @@ int main() {
                 "analysis proposals can be rejected");
         require(adapter.start_processing("normalize-peak"),
                 "offline processing lifecycle uses semantic actions");
+        for (int attempt = 0; attempt < 200; ++attempt) {
+            (void)adapter.refresh();
+            if (adapter.state().sample.processing_can_publish)
+                break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        require(adapter.state().sample.processing_can_publish &&
+                    adapter.processing_action("publish", "1"),
+                "completed processing result requires explicit destination publication");
+        for (int attempt = 0; attempt < 16; ++attempt) {
+            engine.process(ack_left, ack_right);
+            (void)application.snapshot();
+            (void)adapter.refresh();
+            if (adapter.state().sample.processing_audio_active)
+                break;
+        }
+        const auto processed = samples.active_sample(SampleSlotId{1});
+        require(adapter.state().sample.processing_audio_active && processed &&
+                    processed->frames() == 890 &&
+                    *std::max_element(processed->interleaved.begin(),
+                                      processed->interleaved.end()) > 0.99F,
+                "processed result became audio-active with normalized PCM");
         Sample replacement{48'000, 1, std::vector<float>(2'400, 0.25F)};
         require(samples.publish_prepared(
                     SampleSlotId{0},
@@ -238,10 +262,44 @@ int main() {
                     !adapter.state().sample.waveform.empty(),
                 "acknowledged replacement refreshes mono waveform state");
         require(adapter.select_page(0), "sample page returns through navigation");
-        require(!adapter.transport_record() &&
-                    adapter.last_error().find("semantic action") !=
-                        std::string::npos,
-                "unsupported record action is honest");
+        require(adapter.transport_record() && adapter.state().recording.visible &&
+                    adapter.set_recording_mode("audio") &&
+                    adapter.set_recording_destination(2),
+                "record control opens an explicitly configured workflow");
+        setup_runtime.active_input_channels = 0;
+        ++setup_runtime.revision;
+        require(!adapter.recording_action("arm") &&
+                    samples.active_sample(SampleSlotId{2}) == nullptr,
+                "unavailable hardware input rejects arm without replacing destination");
+        setup_runtime.active_input_channels = 2;
+        ++setup_runtime.revision;
+        require(adapter.recording_action("arm") &&
+                    adapter.recording_action("start"),
+                "configured external workflow arms and starts");
+        std::array<float, 256> capture_input{}, capture_output{};
+        for (std::size_t frame = 0; frame < 128; ++frame) {
+            capture_input[frame * 2] = 0.25F;
+            capture_input[frame * 2 + 1] = -0.5F;
+        }
+        engine.process_io(capture_output, 2, capture_input, 2);
+        require(adapter.recording_action("stop"),
+                "recording workflow stops through the existing recorder");
+        std::array<float, 2> stop_input{}, stop_output{};
+        engine.process_io(stop_output, 2, stop_input, 2);
+        for (int attempt = 0; attempt < 16; ++attempt) {
+            (void)application.snapshot();
+            engine.process(ack_left, ack_right);
+            (void)adapter.refresh();
+            if (adapter.state().recording.result_audio_active)
+                break;
+        }
+        const auto captured = samples.active_sample(SampleSlotId{2});
+        require(adapter.state().recording.result_audio_active && captured &&
+                    captured->channels == 2 && captured->frames() == 128 &&
+                    std::fabs(captured->interleaved[0] - 0.25F) < 0.0001F &&
+                    std::fabs(captured->interleaved[1] + 0.5F) < 0.0001F,
+                "external capture publishes acknowledged frame-accurate PCM");
+        adapter.close_recording();
         adapter.dismiss_notification();
         require(adapter.state().shell.notification.empty(),
                 "notifications can be dismissed without application mutation");

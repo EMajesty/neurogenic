@@ -1,5 +1,6 @@
 #include "neurogenic/application/control.hpp"
 #include "neurogenic/application/controller.hpp"
+#include "neurogenic/application/recording_workflow.hpp"
 #include "neurogenic/audio/engine.hpp"
 #include "neurogenic/audio/sample_manager.hpp"
 #include "neurogenic/project/project.hpp"
@@ -296,15 +297,19 @@ void scenario_mixer_recording_external() {
                     {"wet", 0.6}});
     context.action("mixer.scene-save.v1",
                    {{"name", std::string("External loop")}});
-    context.action("recording.source-select.v1",
-                   {{"source", std::string("master-post")}});
-    context.action("recording.destination-select.v1",
-                   {{"slot_id", std::int64_t{8}}});
-    context.action("recording.arm.v1");
-    context.action("recording.start.v1");
+    RecordingWorkflowCoordinator recording(context.application);
+    RecordingWorkflowConfiguration recording_configuration;
+    recording_configuration.mode = RecordingWorkflowMode::resample;
+    recording_configuration.source = "master-post";
+    recording_configuration.destination = SampleSlotId{8};
+    std::string recording_error;
+    require(recording.configure(recording_configuration, recording_error) &&
+                recording.arm(recording_error) && recording.start(recording_error),
+            "resampling workflow coordinator failed: " + recording_error);
     context.action("transport.restart.v1");
     require(context.process(4096) > 0.1, "resampling source was silent");
-    context.action("recording.stop.v1");
+    require(recording.stop(recording_error),
+            "resampling workflow stop failed: " + recording_error);
     context.process(128);
     (void)context.application.snapshot();
     context.process(128);

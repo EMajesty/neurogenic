@@ -3,6 +3,7 @@
 #include "neurogenic/application/controller_protocol.hpp"
 #include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/application/parameter_binding.hpp"
+#include "neurogenic/application/recording_workflow.hpp"
 #include <array>
 #include <cstdint>
 #include <functional>
@@ -116,12 +117,30 @@ struct SlintSamplePageState {
     std::uint32_t sample_rate{};
     std::uint16_t channels{};
     double duration_seconds{};
-    float zoom{1.0F}, offset{};
+    float zoom{1.0F}, offset{}, processing_progress{};
     bool ready{}, loading{}, missing{}, previewing{}, loop_enabled{};
+    bool processing_can_cancel{}, processing_can_publish{},
+        processing_audio_active{};
+    std::uint64_t processing_job{};
+    std::uint32_t processing_destination{};
     std::uint64_t fade_in{}, fade_out{}, loop_start{}, loop_end{};
     std::vector<SlintWaveformPeak> waveform;
     std::vector<SlintSliceMarker> slices;
     std::vector<SlintRegionItem> regions;
+};
+
+struct SlintRecordingWorkflowState {
+    bool visible{};
+    std::string mode{"External audio"}, phase{"Idle"},
+        source{"external-stereo"}, destination{"Sample slot 0"},
+        quantization{"immediate"}, error;
+    std::uint32_t destination_slot{};
+    std::uint64_t source_id{}, captured_frames{}, capacity_frames{},
+        overflow_count{};
+    std::size_t captured_events{};
+    float progress{};
+    bool can_configure{true}, can_arm{}, can_start{}, can_stop{}, can_cancel{},
+        can_commit{}, result_audio_active{}, result_pending{};
 };
 
 struct SlintSoundParameterItem {
@@ -323,6 +342,7 @@ struct SlintUiState {
     SlintFxPageState fx;
     SlintBrowserPageState browser;
     SlintSetupPageState setup;
+    SlintRecordingWorkflowState recording;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -348,6 +368,13 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool set_launch_quantization(std::string value);
     [[nodiscard]] bool cycle_launch_quantization();
     [[nodiscard]] bool transport_record();
+    [[nodiscard]] bool recording_action(std::string action);
+    [[nodiscard]] bool set_recording_mode(std::string mode);
+    [[nodiscard]] bool set_recording_source(std::string source,
+                                            std::uint64_t source_id = 0);
+    [[nodiscard]] bool set_recording_destination(std::uint32_t slot);
+    [[nodiscard]] bool set_recording_quantization(std::string quantization);
+    void close_recording() noexcept;
     [[nodiscard]] bool select_pattern(std::size_t index, bool launch = false);
     [[nodiscard]] bool create_pattern(bool duplicate = false);
     [[nodiscard]] bool select_step(std::size_t index);
@@ -375,6 +402,8 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool set_region_fades(std::uint64_t fade_in,
                                         std::uint64_t fade_out);
     [[nodiscard]] bool start_processing(std::string operation);
+    [[nodiscard]] bool processing_action(std::string action,
+                                         std::string value = {});
     [[nodiscard]] bool set_waveform_view(float zoom, float offset);
     [[nodiscard]] bool select_sound_subview(std::string subview);
     [[nodiscard]] bool set_track_instrument(std::string instrument_id);
@@ -446,6 +475,7 @@ class SlintFrontendAdapter {
     bool execute(ApplicationCommand command);
     ApplicationService &application_;
     ParameterBindingService bindings_;
+    RecordingWorkflowCoordinator recording_workflow_;
     SlintSetupServices setup_services_;
     AppliancePreferences staged_preferences_;
     std::uint64_t setup_runtime_revision_{};

@@ -111,3 +111,14 @@ Only mono/stereo, one recorder, and one duplex device are implemented.
 Separate-device clock
 correction, streamed waveform display, input pair selection, overdub/looping,
 and physical latency validation remain future work.
+
+## Presentation-neutral workflow
+
+`RecordingWorkflowCoordinator` captures an explicit mode, stable source
+identity and destination, then invokes the existing semantic actions. Its
+configuring, armed, boundary-wait, recording, finalizing, publication and
+terminal phases derive from authoritative recorder/live-loop/arrangement
+snapshots. Configuration is locked during active work so later UI selection
+cannot redirect a result. Slint uses this contract and never guesses a Record
+destination. Audio is reported complete only after `SampleManager`
+acknowledges the immutable version.

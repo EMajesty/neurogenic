@@ -10,6 +10,9 @@ export component SamplePage inherits VerticalLayout {
     in property <string> sample-status; in property <string> sample-metadata;
     in property <string> sample-error; in property <string> analysis-status;
     in property <string> processing-status; in property <bool> sample-ready;
+    in property <float> processing-progress; in property <bool> processing-can-cancel;
+    in property <bool> processing-can-publish; in property <bool> processing-audio-active;
+    in-out property <string> processing-result-path;
     in property <bool> sample-stereo; in property <float> waveform-zoom;
     in property <[float]> waveform-left; in property <[float]> waveform-right;
     in property <[float]> slice-markers; in property <float> region-start;
@@ -21,6 +24,7 @@ export component SamplePage inherits VerticalLayout {
     callback region-selected(int); callback region-action(string);
     callback sample-preview(string); callback sample-analysis(string);
     callback sample-processing(string);
+    callback processing-lifecycle(string, string);
     spacing: 6px;
     HorizontalLayout { height: 42px; spacing: 5px;
         PageButton { text: "<"; implemented: true; clicked => { root.sample-slot-selected(-1); } }
@@ -49,6 +53,8 @@ export component SamplePage inherits VerticalLayout {
             HorizontalLayout { PageButton { text: "Fade In +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-in"); } } PageButton { text: "Fade Out +"; implemented: root.sample-regions.length > 0; clicked => { root.region-action("fade-out"); } } }
             HorizontalLayout { PageButton { text: "Detect"; implemented: root.sample-ready; clicked => { root.sample-analysis("start"); } } PageButton { text: "Accept"; implemented: root.analysis-status == "completed"; clicked => { root.sample-analysis("accept"); } } PageButton { text: "Reject"; implemented: root.analysis-status != "Idle"; clicked => { root.sample-analysis("reject"); } } }
             HorizontalLayout { PageButton { text: "Normalize"; implemented: root.sample-ready; clicked => { root.sample-processing("normalize-peak"); } } PageButton { text: "Reverse"; implemented: root.sample-ready; clicked => { root.sample-processing("reverse"); } } PageButton { text: "Trim"; implemented: root.sample-regions.length > 0; clicked => { root.sample-processing("trim"); } } }
+            HorizontalLayout { PageButton { text: "Cancel Job"; implemented: root.processing-can-cancel; clicked => { root.processing-lifecycle("cancel", ""); } } PageButton { text: "Publish to Slot"; implemented: root.processing-can-publish; clicked => { root.processing-lifecycle("publish", ""); } } PageButton { text: "Preview Result"; implemented: root.processing-audio-active; clicked => { root.sample-preview("sample"); } } }
+            HorizontalLayout { LineEdit { horizontal-stretch: 2; text <=> root.processing-result-path; placeholder-text: "/path/to/result.wav"; } PageButton { text: "Save Result"; implemented: root.processing-can-publish && root.processing-result-path != ""; clicked => { root.processing-lifecycle("save", root.processing-result-path); } } }
         }
     }
 }

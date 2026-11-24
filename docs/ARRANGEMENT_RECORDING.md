@@ -66,3 +66,8 @@ represented by resulting song material, not a special persisted event. An
 implicit backwards loop discontinuity must be split into explicit passes.
 Modulator parameters are eligible only when they expose a callback-safe DSP
 destination.
+
+The shared Slint recording surface now arms, starts, stops, commits and discards
+arrangement and performance passes through the existing semantic actions. It
+shows actual captured-event and overflow counts and does not label these event
+passes as audio recording.

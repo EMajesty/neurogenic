@@ -1,5 +1,11 @@
 # Hardware bring-up and diagnostic reports
 
+The recording workflow is software-tested with simulated duplex input. On
+hardware, verify the selected physical pair, monitoring policy, overflow count,
+latency and audio-active destination independently at each supported buffer
+size. Repeat track/group/master resampling and live-loop handoff; deterministic
+fixture results are not physical latency measurements.
+
 For the dedicated controller, first run
 `neurogenic-diagnostics --controller-protocol-test`, then launch with
 `neurogenic --gui --controller /dev/serial/by-id/...`. Verify every transition,
