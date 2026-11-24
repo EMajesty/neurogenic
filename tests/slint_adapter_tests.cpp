@@ -508,10 +508,12 @@ int main() {
                     adapter.edit_sound_modulation("depth-up"),
                 "Sound modulation inspector edits local assignments");
         require(adapter.select_sound_subview("presets") &&
-                    !adapter.preset_action("save", "", "") &&
-                    adapter.last_error().find("semantic action") !=
-                        std::string::npos,
-                "unavailable preset save remains explicit");
+                    adapter.preset_action("save", "", "") &&
+                    adapter.state().text_entry.visible &&
+                    adapter.state().text_entry.operation ==
+                        "preset-capture-sound" &&
+                    adapter.text_entry_action("cancel"),
+                "Sound preset save opens the shared naming workflow");
         require(application.snapshot().project_dirty,
                 "instrument and sample edits preserve project dirty state");
         require(adapter.select_page(4) &&
@@ -754,6 +756,54 @@ int main() {
                     adapter.state().browser.entries[0].id == "browser-synth" &&
                     adapter.browser_preset_action("validate"),
                 "preset library enumeration and validation use production services");
+        require(adapter.request_text_entry("preset-capture-sound", "UI Kit") &&
+                    adapter.text_entry_action("confirm") &&
+                    await_browser(adapter) &&
+                    std::filesystem::exists(browser_root / "presets" / "ui-kit"),
+                "Sound preset capture uses stable touch-entry context and semantic persistence");
+        const auto authored_entry = std::find_if(
+            adapter.state().browser.entries.begin(),
+            adapter.state().browser.entries.end(), [](const auto &entry) {
+                return entry.id == "ui-kit";
+            });
+        require(authored_entry != adapter.state().browser.entries.end() &&
+                    adapter.select_browser_entry(static_cast<std::size_t>(
+                        std::distance(adapter.state().browser.entries.begin(),
+                                      authored_entry))) &&
+                    adapter.browser_preset_action("duplicate") &&
+                    adapter.text_entry_action("clear") &&
+                    adapter.text_entry_insert("UI Kit Copy") &&
+                    adapter.text_entry_action("confirm") && await_browser(adapter) &&
+                    std::filesystem::exists(browser_root / "presets" / "ui-kit-copy"),
+                "Browser duplicates authored presets without raw identifiers");
+        const auto export_entry = std::find_if(
+            adapter.state().browser.entries.begin(),
+            adapter.state().browser.entries.end(), [](const auto &entry) {
+                return entry.id == "ui-kit";
+            });
+        require(export_entry != adapter.state().browser.entries.end() &&
+                    adapter.select_browser_entry(static_cast<std::size_t>(
+                        std::distance(adapter.state().browser.entries.begin(),
+                                      export_entry))) &&
+                    adapter.browser_preset_action("export-portable") &&
+                    adapter.state().text_entry.visible &&
+                    adapter.text_entry_action("confirm") &&
+                    std::filesystem::exists(browser_root / "ui-kit-portable"),
+                "Browser exports a selected portable preset package");
+        const auto copy_entry = std::find_if(
+            adapter.state().browser.entries.begin(),
+            adapter.state().browser.entries.end(), [](const auto &entry) {
+                return entry.id == "ui-kit-copy";
+            });
+        require(copy_entry != adapter.state().browser.entries.end() &&
+                    adapter.select_browser_entry(static_cast<std::size_t>(
+                        std::distance(adapter.state().browser.entries.begin(),
+                                      copy_entry))) &&
+                    adapter.browser_preset_action("delete") &&
+                    adapter.state().browser.confirmation_pending &&
+                    adapter.confirm_browser_action(true) && await_browser(adapter) &&
+                    !std::filesystem::exists(browser_root / "presets" / "ui-kit-copy"),
+                "Browser deletion requires confirmation and refreshes the library");
         require(adapter.browser_project_action("new") &&
                     adapter.state().browser.confirmation_pending &&
                     adapter.confirm_browser_action(false) &&

@@ -57,6 +57,12 @@ serializers, validates and remaps template IDs on the control thread, then
 hands bounded configurations to existing publication paths. See
 [PRESETS.md](PRESETS.md).
 
+Preset authoring is likewise application-owned. `preset.capture.v1` freezes an
+explicit source track, copies only format-owned authoritative state under the
+control lock, then validates and persists after releasing that lock. Library
+rename, duplication, update and deletion remain semantic operations; Slint is
+only a client and never serializes mixer or instrument objects itself.
+
 Preset application uses a fixed, control-prepared activation pool. Records
 contain mixer/modulation/synth state and reserved sample-version indices. The
 callback performs bounded activation and acknowledgement without allocation,
@@ -353,6 +359,10 @@ monotonic IDs; only the current request can publish a 128-row page, and worker
 shutdown is joined before adapter destruction. Filesystem work never holds an
 application lock or enters the audio callback. Project replacement, sample
 publication and preset activation retain their transactional semantic services.
+Preset mutation uses the same control-side `PresetLibrary`; a successful
+mutation starts a new Browser generation so late enumeration cannot resurrect
+renamed or deleted entries. Stable activation destinations and naming context
+are captured before modal confirmation.
 The shared text-entry modal is presentation-local until confirmation; UTF-8
 edits cannot alter application state, and confirmation invokes the same typed
 semantic actions used by controllers and other clients.

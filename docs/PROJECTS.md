@@ -33,6 +33,13 @@ Projects restore complete sessions; presets are smaller reusable sound
 configurations. Applying a preset does not implicitly change project routing,
 group or master ownership. See [PRESETS.md](PRESETS.md).
 
+Capturing a preset does not dirty or mutate the current project. It copies the
+supported instrument, local modulation and/or track FX state identified by a
+stable source track into the separate preset library. Timeline events, track
+identity, arrangement placement, launcher state and controller profiles remain
+project-owned. Applying an acknowledged preset does dirty the destination
+project as described below.
+
 Acknowledged preset application marks the project dirty. Later saves include
 the activated sample/slice state, mixer/FX, modulation and synth bases. Pending
 jobs and callback activation records are transient. Preset application is not

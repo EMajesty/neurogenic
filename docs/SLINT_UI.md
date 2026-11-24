@@ -161,8 +161,10 @@ For sample instruments, the page displays the selected pad's playback mode,
 tuning and ADSR settings and dispatches existing pad semantic actions. Detailed
 waveform, region and slice editing stays on the Sample page. The Modulation
 subview lists track-owned assignments and supports bounded depth, enable and
-remove actions. The Presets subview supports transactional validate, prepare,
-apply and cancel with an explicit library path and preset ID.
+remove actions. The Presets subview opens the shared preset Browser, captures
+the current instrument under a touch-entered name, and supports transactional
+validate, prepare, apply and cancel. Capture freezes the stable source track
+before the naming dialog opens.
 
 ## Mixer
 
@@ -195,9 +197,10 @@ depth, enable state and lifetime through graph actions. Macro values use the
 performance-macro action, while External FX deliberately reuses the Mixer's
 validated loop state and actions.
 
-The page does not yet provide effect-preset browsing, modulator creation or
-all macro-assignment fields. Those operations remain explicit unavailable
-states rather than UI-side mutations. External loop pair and latency editing
+The Presets subview browses FX-chain presets and captures the selected track's
+native chain. Group/aux/master FX capture, modulator creation and all
+macro-assignment fields remain explicit unavailable states rather than UI-side
+mutations. External loop pair and latency editing
 remain semantic-API/Setup workflows; the page exposes availability and never
 invents absent hardware channels.
 
@@ -215,13 +218,21 @@ state.
 Project open/save uses the project lifecycle service and dirty replacement
 requires explicit confirmation. Loading a WAV targets the selected sample slot
 and opens Sample only after dispatch through the immutable publication path.
-Preset rows come from `PresetLibrary`; validation and prepared activation use
-the existing semantic actions and show their destination before activation.
+Preset rows come from `PresetLibrary`; metadata includes type, compatibility
+and missing-dependency count. Validation and prepared activation use the same
+semantic actions and show their stable destination before activation. Save,
+rename, duplicate, explicit update and confirmed delete use semantic operations
+and the shared touch keyboard. **Export Portable** uses the existing
+self-contained packaging action, writes adjacent to the current library and
+rejects existing destinations. Arbitrary package-directory selection remains
+deferred. Missing
+assets can be relinked explicitly for
+the prepared activation; stored package paths are not silently rewritten.
 
 Directory and preset enumeration run away from both the UI and audio threads.
 The single bounded worker accepts a superseding request, drops stale results,
 and is joined on frontend shutdown. Recursive indexing, removable-media
-watching and preset rename/delete/save actions remain deferred.
+watching and persistent multi-dependency preset-package repair remain deferred.
 
 ## Standalone text and file selection
 
@@ -247,13 +258,13 @@ perform an atomic multi-asset prefix rewrite.
 
 This is a functional shell, not a replacement-complete frontend. Macro services
 are represented by contextual mappings but do not yet have dedicated widgets.
-Pattern-length editing is not exposed because the semantic API has no matching
-action; arrangement clip movement and resizing are also deferred. The Sample
+Full arrangement clip movement and resizing remain deferred. The Sample
 page uses the shared Browser instead of raw path entry, and processing-job
 results use the explicit keyboard-named save/publish workflow.
-Preset rename, delete and save remain unavailable until those operations have
-semantic application actions. Modulation creation and
-detailed graph editing remain deferred to the FX page.
+Preset authoring and library mutation are available for existing version-1
+scopes; group/aux/master capture, persistent repair of relinked packages and
+arbitrary portable-export destinations remain deferred. Modulator-instance
+creation and detailed graph editing remain incomplete.
 Browser confirmation covers dirty project replacement, while a portable native
 file picker remains deferred. Some arrangement activity
 lacks a single authoritative active-object field and is shown as `Unavailable`

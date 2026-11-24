@@ -632,6 +632,20 @@ ActionRegistry::ActionRegistry() {
     add(action("preset.apply.v1", "Activate prepared preset", "Presets"));
     add(action("preset.cancel.v1", "Cancel prepared preset", "Presets"));
     add(action("preset.query.v1", "Query preset application", "Presets"));
+    add(action("preset.capture.v1", "Save current configuration as preset",
+               "Presets",
+               {{"library", ValueType::text}, {"preset_id", ValueType::text},
+                {"name", ValueType::text}, {"type", ValueType::text},
+                {"track_id", ValueType::integer, false},
+                {"overwrite", ValueType::boolean, false}}));
+    add(action("preset.rename.v1", "Rename preset", "Presets",
+               {{"library", ValueType::text}, {"preset_id", ValueType::text},
+                {"new_id", ValueType::text}, {"new_name", ValueType::text}}));
+    add(action("preset.duplicate.v1", "Duplicate preset", "Presets",
+               {{"library", ValueType::text}, {"preset_id", ValueType::text},
+                {"new_id", ValueType::text}, {"new_name", ValueType::text}}));
+    add(action("preset.delete.v1", "Delete preset", "Presets",
+               {{"library", ValueType::text}, {"preset_id", ValueType::text}}));
     add(action("preset.relink-asset.v1", "Relink preset asset", "Presets",
                {{"missing", ValueType::text},
                 {"replacement", ValueType::text}}));
@@ -3206,6 +3220,225 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         return {error.empty(), sequence, snapshot().revision, std::move(error)};
     }
     if (command.action_id.rfind("preset.", 0) == 0) {
+        if (command.action_id == "preset.capture.v1") {
+            const auto library_path =
+                std::filesystem::path(*argument<std::string>(command, "library"));
+            const auto preset_id = *argument<std::string>(command, "preset_id");
+            const auto name = *argument<std::string>(command, "name");
+            const auto type = parse_preset_type(
+                *argument<std::string>(command, "type"));
+            if (!type)
+                return {false, sequence, before.revision,
+                        "unknown preset capture type"};
+            auto target = before.selected_track;
+            if (const auto specified = argument<std::int64_t>(command, "track_id"))
+                target = static_cast<TrackId>(*specified);
+            const auto overwrite_value = argument<bool>(command, "overwrite");
+            const bool overwrite = overwrite_value && *overwrite_value;
+            const auto timeline = timeline_.snapshot().timeline;
+            const auto track = std::find_if(timeline.tracks.begin(),
+                timeline.tracks.end(), [&](const auto &item) {
+                    return item.id == target;
+                });
+            if (track == timeline.tracks.end())
+                return {false, sequence, before.revision,
+                        "preset source track does not exist"};
+            SoundPreset preset;
+            preset.metadata.id = preset_id;
+            preset.metadata.name = name;
+            preset.metadata.type = *type;
+            std::string capture_error;
+            const bool capture_samples =
+                *type == PresetType::sample_instrument ||
+                (*type == PresetType::track_sound &&
+                 track->instrument_id == sample_instrument_id);
+            std::map<std::uint32_t, std::filesystem::path> sample_paths;
+            if (capture_samples)
+                for (const auto &slot : samples_.states())
+                    if (slot.has_sample)
+                        sample_paths[slot.id.value] = slot.source_path;
+            {
+                std::lock_guard lock(mutex_);
+                const auto mixer_track = std::find_if(
+                    mixer_configuration_.tracks.begin(),
+                    mixer_configuration_.tracks.begin() +
+                        mixer_configuration_.track_count,
+                    [&](const auto &channel) { return channel.track == target; });
+                if (mixer_track == mixer_configuration_.tracks.begin() +
+                                       mixer_configuration_.track_count)
+                    capture_error = "preset source mixer track does not exist";
+                else {
+                    const auto mixer_index = static_cast<std::size_t>(
+                        mixer_track - mixer_configuration_.tracks.begin());
+                    preset.track_gain = mixer_track->gain;
+                    preset.track_pan = mixer_track->pan;
+                    if (*type == PresetType::synth_patch ||
+                        (*type == PresetType::track_sound &&
+                         track->instrument_id == subtractive_instrument_id)) {
+                        if (track->instrument_id != subtractive_instrument_id)
+                            capture_error = "source track is not a subtractive synth";
+                        else {
+                            preset.metadata.required_capabilities.push_back(
+                                "native-synth");
+                            const auto found = synth_instance_parameters_.find(
+                                track->instrument_instance_id);
+                            for (const auto &parameter : parameters_.parameters()) {
+                                const auto destination =
+                                    resolve_parameter_destination(parameter.id);
+                                if (!destination ||
+                                    destination->target !=
+                                        ParameterTarget::subtractive_synth ||
+                                    !is_numeric(parameter.current_value))
+                                    continue;
+                                auto value = number(parameter.current_value);
+                                if (found != synth_instance_parameters_.end())
+                                    if (const auto instance_value =
+                                            found->second.find(parameter.id);
+                                        instance_value != found->second.end())
+                                        value = instance_value->second;
+                                preset.synth_parameters[parameter.id] = value;
+                            }
+                        }
+                    }
+                    if (capture_error.empty() &&
+                        (*type == PresetType::sample_instrument ||
+                         (*type == PresetType::track_sound &&
+                          track->instrument_id == sample_instrument_id))) {
+                        if (track->instrument_id != sample_instrument_id)
+                            capture_error = "source track is not a sample instrument";
+                        else {
+                            preset.metadata.required_capabilities.push_back(
+                                "sample-instrument");
+                            for (const auto &[slot, path] :
+                                 project_.samples.sample_paths)
+                                if (!sample_paths.contains(slot))
+                                    sample_paths[slot] = path;
+                        }
+                    }
+                    if (capture_error.empty() &&
+                        (*type == PresetType::fx_chain ||
+                         *type == PresetType::track_sound)) {
+                        PresetEffectChain captured;
+                        captured.chain =
+                            mixer_configuration_.effects.tracks[mixer_index];
+                        for (std::size_t chain_index = 0;
+                             chain_index < captured.chain.count; ++chain_index) {
+                            const auto id = captured.chain.instances[chain_index];
+                            const auto instance = std::find_if(
+                                mixer_configuration_.effects.instances.begin(),
+                                mixer_configuration_.effects.instances.begin() +
+                                    mixer_configuration_.effects.instance_count,
+                                [&](const auto &candidate) {
+                                    return candidate.id == id;
+                                });
+                            if (instance == mixer_configuration_.effects.instances.begin() +
+                                                mixer_configuration_.effects.instance_count) {
+                                capture_error =
+                                    "effect chain references a missing instance";
+                                break;
+                            }
+                            captured.instances.push_back(*instance);
+                            preset.metadata.processor_types.emplace_back(
+                                effect_processor_type_id(instance->type));
+                        }
+                        if (capture_error.empty()) {
+                            preset.effects = std::move(captured);
+                            preset.metadata.required_capabilities.push_back(
+                                "native-fx");
+                        }
+                    }
+                    if (capture_error.empty()) {
+                        std::array<ModulatorInstanceId,
+                                   ModulationConfiguration::maximum_modulators>
+                            local_ids{};
+                        std::size_t local_count{};
+                        for (std::size_t i = 0;
+                             i < modulation_configuration_.modulator_count; ++i) {
+                            const auto &source = modulation_configuration_.modulators[i];
+                            if (source.owner_kind != ModulatorOwnerKind::track ||
+                                source.owner_id != target)
+                                continue;
+                            preset.modulation.modulators
+                                [preset.modulation.modulator_count++] = source;
+                            local_ids[local_count++] = source.id;
+                            if (const auto descriptor = find_modulator_type(source.type))
+                                preset.metadata.modulator_types.emplace_back(
+                                    descriptor->id);
+                        }
+                        const auto local = [&](ModulatorInstanceId id) {
+                            return id && std::find(local_ids.begin(),
+                                local_ids.begin() + local_count, id) !=
+                                local_ids.begin() + local_count;
+                        };
+                        for (std::size_t i = 0;
+                             i < modulation_configuration_.route_count; ++i) {
+                            const auto &route = modulation_configuration_.routes[i];
+                            const auto owned_scope =
+                                (route.scope == ModulationScope::track ||
+                                 route.scope == ModulationScope::voice) &&
+                                route.track_id == target;
+                            if (!owned_scope && !local(route.source_instance) &&
+                                !local(route.destination_modulator))
+                                continue;
+                            if ((route.source_instance &&
+                                 !local(route.source_instance)) ||
+                                (route.destination_modulator &&
+                                 !local(route.destination_modulator)))
+                                continue;
+                            if (preset.modulation.route_count ==
+                                preset.modulation.routes.size()) {
+                                capture_error = "local modulation capacity exceeded";
+                                break;
+                            }
+                            preset.modulation.routes
+                                [preset.modulation.route_count++] = route;
+                        }
+                        if (preset.modulation.modulator_count)
+                            preset.metadata.required_capabilities.push_back(
+                                "modulation-graph");
+                    }
+                }
+            }
+            if (!capture_error.empty())
+                return {false, sequence, before.revision, capture_error};
+            if (capture_samples)
+                preset.samples =
+                    slices_.project_snapshot(std::move(sample_paths));
+            try {
+                PresetLibrary library(library_path);
+                if (library.contains(preset_id) && !overwrite)
+                    return {false, sequence, before.revision,
+                            "preset already exists; explicit overwrite required"};
+                library.save(preset);
+                return {true, sequence, before.revision, {}};
+            } catch (const std::exception &exception) {
+                return {false, sequence, before.revision, exception.what()};
+            }
+        }
+        if (command.action_id == "preset.rename.v1" ||
+            command.action_id == "preset.duplicate.v1" ||
+            command.action_id == "preset.delete.v1") {
+            try {
+                PresetLibrary library(
+                    *argument<std::string>(command, "library"));
+                const auto source = *argument<std::string>(command, "preset_id");
+                if (command.action_id == "preset.delete.v1")
+                    library.erase(source);
+                else {
+                    const auto target = *argument<std::string>(command, "new_id");
+                    if (library.contains(target))
+                        return {false, sequence, before.revision,
+                                "preset destination already exists"};
+                    library.duplicate(source, target,
+                        *argument<std::string>(command, "new_name"));
+                    if (command.action_id == "preset.rename.v1")
+                        library.erase(source);
+                }
+                return {true, sequence, before.revision, {}};
+            } catch (const std::exception &exception) {
+                return {false, sequence, before.revision, exception.what()};
+            }
+        }
         const auto prepare_plan = [&](SoundPreset preset,
                                       PresetImportMode mode, TrackId target,
                                       bool release_voices,

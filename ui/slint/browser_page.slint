@@ -37,7 +37,7 @@ export component BrowserPage inherits Rectangle {
         HorizontalLayout { vertical-stretch: 1; spacing: 6px;
             Rectangle { horizontal-stretch: 2; background: Theme.panel; border-radius: Theme.radius;
                 ScrollView { VerticalLayout { padding: 5px; spacing: 3px;
-                    for entry[i] in root.entries: PageButton { height: 42px; text: (entry.directory ? "▸ " : "") + entry.name + "  —  " + entry.kind; selected: entry.selected; implemented: entry.compatible; clicked => { root.entry-selected(i); } }
+                    for entry[i] in root.entries: PageButton { height: 42px; text: (entry.directory ? "▸ " : "") + entry.name + "  —  " + entry.kind + (entry.metadata == "" ? "" : " — " + entry.metadata); selected: entry.selected; implemented: entry.compatible; clicked => { root.entry-selected(i); } }
                     if root.entries.length == 0: EmptyState { title: "No compatible content"; message: "Choose another category or location."; }
                 } }
             }
@@ -50,6 +50,10 @@ export component BrowserPage inherits Rectangle {
                     if root.category == "projects": PageButton { text: "Save As…"; clicked => { root.text-requested("project-save-as", ""); } }
                     if root.category == "projects": PageButton { text: "New Project…"; clicked => { root.text-requested("project-new", "Untitled"); } }
                     if root.category == "instrument-presets" || root.category == "fx-presets": PageButton { text: "Validate"; implemented: root.entries.length > 0; clicked => { root.preset-action("validate"); } }
+                    if root.category == "instrument-presets" || root.category == "fx-presets": PageButton { text: "Save Current…"; clicked => { root.text-requested(root.category == "fx-presets" ? "preset-capture-fx" : "preset-capture-sound", "New Preset"); } }
+                    if root.category == "instrument-presets" || root.category == "fx-presets": HorizontalLayout { height: 36px; PageButton { text: "Rename…"; implemented: root.entries.length > 0; clicked => { root.preset-action("rename"); } } PageButton { text: "Duplicate…"; implemented: root.entries.length > 0; clicked => { root.preset-action("duplicate"); } } }
+                    if root.category == "instrument-presets" || root.category == "fx-presets": HorizontalLayout { height: 36px; PageButton { text: "Update"; implemented: root.entries.length > 0; clicked => { root.preset-action("update"); } } PageButton { text: "Delete"; implemented: root.entries.length > 0; clicked => { root.preset-action("delete"); } } }
+                    if root.category == "instrument-presets" || root.category == "fx-presets": PageButton { text: "Export Portable…"; implemented: root.entries.length > 0; clicked => { root.preset-action("export-portable"); } }
                     HorizontalLayout { height: 34px; PageButton { text: "Previous"; implemented: root.can-previous-page; clicked => { root.page-requested(-1); } } Text { text: root.page-label; color: Theme.foreground; vertical-alignment: center; horizontal-alignment: center; } PageButton { text: "Next"; implemented: root.can-next-page; clicked => { root.page-requested(1); } } }
                     Text { text: root.loading ? "Loading…" : root.truncated ? "Listing limited to 8192 entries." : ""; color: Theme.muted; wrap: word-wrap; }
                     if root.missing-assets.length > 0: Text { text: "Missing assets"; color: Theme.warning; }

@@ -21,6 +21,7 @@ export component FxPage inherits Rectangle {
     callback effect-add(string); callback effect-action(string); callback parameter-selected(int); callback parameter-adjusted(int);
     callback modulator-selected(int); callback route-selected(int); callback route-action(string); callback route-create();
     callback macro-selected(int); callback macro-adjusted(int); callback external-selected(int); callback external-adjust(string, int); callback external-toggle(string);
+    callback preset-action(string);
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 36px; spacing: 4px;
             PageButton { text: "Chain"; selected: root.subview == "chain"; clicked => { root.subview-selected("chain"); } }
@@ -28,6 +29,7 @@ export component FxPage inherits Rectangle {
             PageButton { text: "Modulation"; selected: root.subview == "modulation"; clicked => { root.subview-selected("modulation"); } }
             PageButton { text: "Macros"; selected: root.subview == "macros"; clicked => { root.subview-selected("macros"); } }
             PageButton { text: "External FX"; selected: root.subview == "external"; clicked => { root.subview-selected("external"); } }
+            PageButton { text: "Presets"; selected: root.subview == "presets"; clicked => { root.subview-selected("presets"); } }
         }
         if root.subview == "chain" || root.subview == "parameters": HorizontalLayout { height: 48px; spacing: 4px;
             for owner[i] in root.owners: PageButton { text: owner.name; selected: owner.selected; clicked => { root.owner-selected(i); } }
@@ -83,6 +85,13 @@ export component FxPage inherits Rectangle {
         }
         if root.subview == "external": VerticalLayout { vertical-stretch: 1; spacing: 5px;
             for fx[i] in root.external-fx: Rectangle { height: 66px; background: Theme.panel; border-radius: Theme.radius; HorizontalLayout { padding: 5px; spacing: 4px; ParameterDisplay { horizontal-stretch: 2; name: fx.name + " — " + fx.status; value: fx.routing + "  Wet " + round(fx.wet * 100) + "%  Lat " + fx.latency-frames + "f"; } PageButton { text: "Send Pair"; clicked => { root.external-selected(i); root.external-toggle("send-pair"); } } PageButton { text: "Return Pair"; clicked => { root.external-selected(i); root.external-toggle("return-pair"); } } PageButton { text: "Send +"; implemented: fx.send-available; clicked => { root.external-selected(i); root.external-adjust("send", 1); } } PageButton { text: "Return +"; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-adjust("return", 1); } } PageButton { text: "Wet +"; implemented: fx.send-available && fx.return-available; clicked => { root.external-selected(i); root.external-adjust("wet", 1); } } PageButton { text: "Latency +"; clicked => { root.external-selected(i); root.external-adjust("latency", 1); } } PageButton { text: "Monitor"; selected: !fx.return-mute; implemented: fx.return-available; clicked => { root.external-selected(i); root.external-toggle("return-mute"); } } PageButton { text: "Enable"; selected: fx.enabled; clicked => { root.external-selected(i); root.external-toggle("enabled"); } } PageButton { text: "Bypass"; implemented: fx.enabled; selected: fx.bypass; clicked => { root.external-selected(i); root.external-toggle("bypass"); } } } }
+        }
+        if root.subview == "presets": VerticalLayout { vertical-stretch: 1; spacing: 6px;
+            Text { text: "Reusable track FX chain"; color: Theme.accent; font-size: 18px; }
+            ParameterDisplay { name: "Source owner"; value: root.owner-name; }
+            PageButton { text: "Browse FX Presets"; clicked => { root.preset-action("browse-fx"); } }
+            PageButton { text: "Save Current Chain…"; implemented: root.owners.length > 0; clicked => { root.preset-action("save-fx"); } }
+            Text { text: "Capture is currently supported for track-owned chains. Activation and library management use Browser."; color: Theme.muted; wrap: word-wrap; }
         }
         if root.error != "": Text { height: 24px; text: root.error; color: #ff8080; overflow: elide; }
     }

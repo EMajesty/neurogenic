@@ -289,7 +289,9 @@ struct SlintBrowserPageState {
 };
 
 struct SlintTextEntryState {
-    std::string title, text, operation, error;
+    std::string title, text, operation, error, context_library,
+        context_preset_id, context_preset_type;
+    TrackId context_track{};
     std::size_t cursor{};
     bool visible{}, uppercase{}, symbols{};
 };

@@ -147,6 +147,23 @@ bool valid_filename(std::string_view value) {
         value.find('/') == std::string_view::npos &&
         value.find('\0') == std::string_view::npos;
 }
+
+std::string preset_id_from_name(std::string_view value) {
+    std::string result;
+    bool separator{};
+    for (const unsigned char character : value) {
+        if (std::isalnum(character)) {
+            result.push_back(static_cast<char>(std::tolower(character)));
+            separator = false;
+        } else if (!result.empty() && !separator) {
+            result.push_back('-');
+            separator = true;
+        }
+        if (result.size() == 96) break;
+    }
+    while (!result.empty() && result.back() == '-') result.pop_back();
+    return result;
+}
 } // namespace
 
 class SlintFrontendAdapter::BrowserWorker {
@@ -221,10 +238,22 @@ class SlintFrontendAdapter::BrowserWorker {
                     if (!filter.empty() &&
                         lower(metadata.name).find(filter) == std::string::npos &&
                         lower(metadata.id).find(filter) == std::string::npos) continue;
+                    std::string detail = std::string(preset_type_name(metadata.type));
+                    try {
+                        const auto value = library.load(metadata.id, false);
+                        const auto validation = validate_preset(value, true);
+                        detail += validation.missing_assets.empty()
+                            ? " — compatible"
+                            : " — missing " +
+                                std::to_string(validation.missing_assets.size()) +
+                                " asset(s)";
+                    } catch (const std::exception &exception) {
+                        detail += " — invalid: " + std::string(exception.what());
+                    }
                     all.push_back({metadata.id, metadata.name,
                         (location / metadata.id).string(),
                         request.category == "fx-presets" ? "FX preset" : "Instrument preset",
-                        metadata.author, request.category == "fx-presets"
+                        std::move(detail), request.category == "fx-presets"
                             ? SlintBrowserEntryKind::fx_preset
                             : SlintBrowserEntryKind::instrument_preset,
                         0, 0, false, true, false});
@@ -1273,8 +1302,16 @@ bool SlintFrontendAdapter::refresh() {
     next.fx.error = last_error_;
     next.browser = state_.browser;
     next.browser.missing_assets.clear();
-    for (const auto &path : snapshot.missing_assets)
-        next.browser.missing_assets.push_back(path.string());
+    const auto preset_dependencies =
+        (next.browser.category == "instrument-presets" ||
+         next.browser.category == "fx-presets") &&
+        !snapshot.preset_application.missing_assets.empty();
+    if (preset_dependencies)
+        for (const auto &path : snapshot.preset_application.missing_assets)
+            next.browser.missing_assets.push_back(path.string());
+    else
+        for (const auto &path : snapshot.missing_assets)
+            next.browser.missing_assets.push_back(path.string());
     if (next.browser.selected_missing >= next.browser.missing_assets.size())
         next.browser.selected_missing = 0;
     if (next.browser.categories.empty())
@@ -1594,9 +1631,52 @@ bool SlintFrontendAdapter::browser_preset_action(std::string action) {
     const auto &entry = state_.browser.entries[state_.browser.selected];
     if (entry.kind != SlintBrowserEntryKind::instrument_preset &&
         entry.kind != SlintBrowserEntryKind::fx_preset) return false;
+    const auto library = state_.browser.location;
     const auto mode = entry.kind == SlintBrowserEntryKind::fx_preset
         ? std::string("insert-fx") : std::string("replace");
-    const auto library = state_.browser.location;
+    if (action == "rename" || action == "duplicate")
+        return request_text_entry(action == "rename" ? "preset-rename"
+                                                       : "preset-duplicate",
+                                  entry.name);
+    if (action == "delete") {
+        state_.browser.confirmation_pending = true;
+        state_.browser.confirmation_action = "preset-delete\n" + library +
+            "\n" + entry.id;
+        state_.browser.confirmation_message =
+            "Delete preset '" + entry.name + "'? This cannot be undone.";
+        ++local_revision_;
+        return refresh();
+    }
+    if (action == "save")
+        return request_text_entry(entry.kind == SlintBrowserEntryKind::fx_preset
+                                      ? "preset-capture-fx"
+                                      : "preset-capture-sound", "New Preset");
+    if (action == "export-portable")
+        return request_text_entry("preset-export-portable",
+                                  entry.id + "-portable");
+    if (action == "update") {
+        const auto type = entry.kind == SlintBrowserEntryKind::fx_preset
+            ? std::string("fx-chain")
+            : entry.metadata.rfind("sample", 0) == 0
+                ? std::string("sample")
+                : entry.metadata.rfind("track-sound", 0) == 0
+                    ? std::string("track-sound") : std::string("synth");
+        state_.browser.confirmation_pending = true;
+        auto target_track = state_.sound.track_id;
+        if (entry.kind == SlintBrowserEntryKind::fx_preset &&
+            state_.fx.owner_kind == "track" && state_.fx.owner_index >= 0 &&
+            static_cast<std::size_t>(state_.fx.owner_index) <
+                state_.mixer.channels.size())
+            target_track = state_.mixer.channels[
+                static_cast<std::size_t>(state_.fx.owner_index)].id;
+        state_.browser.confirmation_action = "preset-update\n" + library +
+            "\n" + entry.id + "\n" + entry.name + "\n" + type + "\n" +
+            std::to_string(target_track);
+        state_.browser.confirmation_message =
+            "Replace this preset with the current configuration?";
+        ++local_revision_;
+        return refresh();
+    }
     if (action == "validate")
         return execute({"preset.validate.v1", {{"library", library},
             {"preset_id", entry.id}, {"mode", mode}}, {}, 0});
@@ -1640,6 +1720,34 @@ bool SlintFrontendAdapter::confirm_browser_action(bool accept) {
         return processing_action("save", path);
     if (action == "profile-save-overwrite")
         return save_setup_controller_profile(path);
+    if (action == "preset-delete") {
+        const auto second = path.find('\n');
+        if (second == std::string::npos) return false;
+        const auto accepted_delete = execute({"preset.delete.v1",
+            {{"library", path.substr(0, second)},
+             {"preset_id", path.substr(second + 1)}}, {}, 0});
+        if (accepted_delete) (void)refresh_browser();
+        return accepted_delete;
+    }
+    if (action == "preset-update") {
+        std::array<std::string, 5> fields;
+        std::size_t start{};
+        for (auto &field : fields) {
+            const auto end = path.find('\n', start);
+            field = path.substr(start, end - start);
+            if (end == std::string::npos) { start = path.size(); break; }
+            start = end + 1;
+        }
+        std::int64_t track{};
+        try { track = std::stoll(fields[4]); }
+        catch (...) { return false; }
+        const auto updated = execute({"preset.capture.v1",
+            {{"library", fields[0]}, {"preset_id", fields[1]},
+             {"name", fields[2]}, {"type", fields[3]},
+             {"track_id", track}, {"overwrite", true}}, {}, 0});
+        if (updated) (void)refresh_browser();
+        return updated;
+    }
     return false;
 }
 
@@ -1657,22 +1765,35 @@ bool SlintFrontendAdapter::relink_missing_asset(bool map_directory) {
         state_.browser.missing_assets[state_.browser.selected_missing]);
     auto replacement = std::filesystem::path(
         state_.browser.entries[state_.browser.selected].path);
-    if (map_directory) replacement = std::filesystem::path(
-        state_.browser.location) / missing.filename();
+    const auto snapshot = application_.snapshot();
+    const auto preset_dependency =
+        !snapshot.preset_application.missing_assets.empty() &&
+        (state_.browser.category == "instrument-presets" ||
+         state_.browser.category == "fx-presets");
+    if (map_directory && preset_dependency)
+        return execute({"preset.relink-prefix.v1",
+            {{"missing_prefix", missing.parent_path().string()},
+             {"replacement_prefix", state_.browser.location}}, {}, 0});
+    if (map_directory)
+        replacement = std::filesystem::path(state_.browser.location) /
+                      missing.filename();
     if (!std::filesystem::is_regular_file(replacement)) {
         last_error_ = "Replacement must be an existing compatible file";
         state_.browser.error = last_error_;
         return false;
     }
-    return execute({"project.relink-sample.v1",
+    return execute({preset_dependency ? "preset.relink-asset.v1"
+                                      : "project.relink-sample.v1",
         {{"missing", missing.string()}, {"replacement", replacement.string()}}, {}, 0});
 }
 
 bool SlintFrontendAdapter::request_text_entry(std::string operation,
                                                std::string current) {
-    static constexpr std::array<std::string_view, 8> supported{
+    static constexpr std::array<std::string_view, 13> supported{
         "project-new", "project-save-as", "track-rename", "pattern-rename",
-        "recording-export", "processing-export", "profile-save", "browser-filter"};
+        "recording-export", "processing-export", "profile-save", "browser-filter",
+        "preset-capture-sound", "preset-capture-fx", "preset-rename",
+        "preset-duplicate", "preset-export-portable"};
     if (std::find(supported.begin(), supported.end(), operation) == supported.end())
         return false;
     state_.text_entry = {};
@@ -1684,6 +1805,31 @@ bool SlintFrontendAdapter::request_text_entry(std::string operation,
         ? "Filter content" : state_.text_entry.operation.find("rename") != std::string::npos
             ? "Rename" : state_.text_entry.operation.find("export") != std::string::npos
                 ? "Export filename" : "Name";
+    state_.text_entry.context_track = state_.sound.track_id;
+    state_.text_entry.context_library = state_.browser.location;
+    if (state_.browser.selected < state_.browser.entries.size()) {
+        const auto &selected = state_.browser.entries[state_.browser.selected];
+        if (selected.kind == SlintBrowserEntryKind::instrument_preset ||
+            selected.kind == SlintBrowserEntryKind::fx_preset) {
+            state_.text_entry.context_preset_id = selected.id;
+            state_.text_entry.context_preset_type =
+                selected.kind == SlintBrowserEntryKind::fx_preset
+                    ? "fx-chain" : state_.sound.sample
+                        ? "sample" : "synth";
+        }
+    }
+    if (state_.text_entry.operation == "preset-capture-fx")
+    {
+        state_.text_entry.context_preset_type = "fx-chain";
+        if (state_.fx.owner_kind == "track" && state_.fx.owner_index >= 0 &&
+            static_cast<std::size_t>(state_.fx.owner_index) <
+                state_.mixer.channels.size())
+            state_.text_entry.context_track = state_.mixer.channels[
+                static_cast<std::size_t>(state_.fx.owner_index)].id;
+    }
+    else if (state_.text_entry.operation == "preset-capture-sound")
+        state_.text_entry.context_preset_type =
+            state_.sound.sample ? "sample" : "synth";
     ++local_revision_;
     return refresh();
 }
@@ -1712,9 +1858,14 @@ bool SlintFrontendAdapter::text_entry_action(std::string action) {
     else if (action == "confirm") {
         const auto operation = entry.operation;
         const auto value = entry.text;
+        const auto context_library = entry.context_library;
+        const auto context_preset_id = entry.context_preset_id;
+        const auto context_preset_type = entry.context_preset_type;
+        const auto context_track = entry.context_track;
         const bool filename = operation == "project-save-as" ||
             operation == "recording-export" || operation == "processing-export" ||
-            operation == "profile-save";
+            operation == "profile-save" ||
+            operation == "preset-export-portable";
         if ((filename && !valid_filename(value)) || (!filename && value.empty())) {
             entry.error = filename ? "Enter a valid filename without '/'" : "Text is required";
             ++local_revision_; return refresh();
@@ -1739,6 +1890,45 @@ bool SlintFrontendAdapter::text_entry_action(std::string action) {
                     {{"name", value}, {"discard", false}}, {}, 0});
         } else if (operation == "browser-filter")
             accepted = set_browser_filter(value);
+        else if (operation == "preset-capture-sound" ||
+                 operation == "preset-capture-fx") {
+            const auto id = preset_id_from_name(value);
+            if (id.empty() || context_library.empty())
+                last_error_ = id.empty() ? "Preset name has no usable identifier"
+                                         : "Open a preset library first";
+            else {
+                accepted = execute({"preset.capture.v1",
+                    {{"library", context_library}, {"preset_id", id},
+                     {"name", value}, {"type", context_preset_type},
+                     {"track_id", static_cast<std::int64_t>(context_track)},
+                     {"overwrite", false}}, {}, 0});
+                if (accepted) (void)refresh_browser();
+            }
+        } else if (operation == "preset-rename" ||
+                   operation == "preset-duplicate") {
+            const auto id = preset_id_from_name(value);
+            if (id.empty() || context_library.empty() ||
+                context_preset_id.empty())
+                last_error_ = "Preset selection or name is unavailable";
+            else {
+                accepted = execute({operation == "preset-rename"
+                        ? "preset.rename.v1" : "preset.duplicate.v1",
+                    {{"library", context_library},
+                     {"preset_id", context_preset_id}, {"new_id", id},
+                     {"new_name", value}}, {}, 0});
+                if (accepted) (void)refresh_browser();
+            }
+        }
+        else if (operation == "preset-export-portable") {
+            if (context_library.empty() || context_preset_id.empty())
+                last_error_ = "Preset selection is unavailable";
+            else
+                accepted = execute({"preset.export-portable.v1",
+                    {{"library", context_library},
+                     {"preset_id", context_preset_id},
+                     {"destination", (std::filesystem::path(context_library)
+                                          .parent_path() / value).string()}}, {}, 0});
+        }
         else {
             auto path = std::filesystem::path(state_.browser.location) / value;
             if (operation == "project-save-as") {
@@ -2591,13 +2781,26 @@ bool SlintFrontendAdapter::preset_action(std::string operation,
                                           std::string preset_id) {
     state_.sound.preset_library = library;
     state_.sound.preset_id = preset_id;
+    if (operation == "browse") {
+        if (!select_page(6)) return false;
+        return select_browser_category("instrument-presets");
+    }
+    if (operation == "browse-fx") {
+        if (!select_page(6)) return false;
+        return select_browser_category("fx-presets");
+    }
+    if (operation == "save")
+        return request_text_entry("preset-capture-sound", "New Preset");
+    if (operation == "save-fx") {
+        if (state_.fx.owner_kind != "track") {
+            last_error_ = "FX preset capture currently requires a track owner";
+            state_.shell.notification = last_error_;
+            return false;
+        }
+        return request_text_entry("preset-capture-fx", "New FX Chain");
+    }
     if (operation == "apply") return invoke_action("preset.apply.v1");
     if (operation == "cancel") return invoke_action("preset.cancel.v1");
-    if (operation == "save") {
-        last_error_ = "Saving the current instrument has no semantic action";
-        state_.shell.notification = last_error_;
-        return false;
-    }
     if (library.empty() || preset_id.empty()) {
         last_error_ = "Preset library and ID are required";
         state_.shell.notification = last_error_;
@@ -2845,8 +3048,8 @@ bool SlintFrontendAdapter::toggle_external_fx(std::string operation) {
 }
 
 bool SlintFrontendAdapter::select_fx_subview(std::string subview) {
-    static constexpr std::array<std::string_view, 5> valid{
-        "chain", "parameters", "modulation", "macros", "external"};
+    static constexpr std::array<std::string_view, 6> valid{
+        "chain", "parameters", "modulation", "macros", "external", "presets"};
     if (std::find(valid.begin(), valid.end(), subview) == valid.end()) {
         last_error_ = "Unknown FX subview";
         return false;

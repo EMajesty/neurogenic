@@ -235,6 +235,91 @@ int main() {
                   {"instance_id", std::int64_t{2}}});
         accepted(application, "track.select.v1",
                  {{"track_id", std::int64_t{1}}});
+        accepted(application, "instrument.instance-parameter-set.v1",
+                 {{"instance_id", std::int64_t{2}},
+                  {"parameter_id", std::string("synth.cutoff")},
+                  {"value", 4200.0}});
+        const auto authored_library = root / "authored";
+        const auto capture_arguments =
+            std::map<std::string, ApplicationValue>{
+                {"library", authored_library.string()},
+                {"preset_id", std::string("captured-synth")},
+                {"name", std::string("Captured Synth")},
+                {"type", std::string("synth")},
+                {"track_id", std::int64_t{1}}};
+        accepted(application, "preset.capture.v1", capture_arguments);
+        PresetLibrary authored(authored_library);
+        const auto captured = authored.load("captured-synth");
+        check(captured.metadata.type == PresetType::synth_patch &&
+                  captured.synth_parameters.contains("synth.cutoff") &&
+                  captured.synth_parameters.size() > 1 &&
+                  captured.synth_parameters.at("synth.cutoff") == 4200.0,
+              "semantic synth capture omitted authoritative parameters");
+        const auto duplicate_arguments =
+            std::map<std::string, ApplicationValue>{
+                {"library", authored_library.string()},
+                {"preset_id", std::string("captured-synth")},
+                {"new_id", std::string("captured-copy")},
+                {"new_name", std::string("Captured Copy")}};
+        accepted(application, "preset.duplicate.v1", duplicate_arguments);
+        check(authored.load("captured-copy").metadata.name == "Captured Copy",
+              "semantic preset duplication did not preserve content");
+        auto rename_arguments = duplicate_arguments;
+        rename_arguments["preset_id"] = std::string("captured-copy");
+        rename_arguments["new_id"] = std::string("captured-renamed");
+        rename_arguments["new_name"] = std::string("Captured Renamed");
+        accepted(application, "preset.rename.v1", rename_arguments);
+        check(!std::filesystem::exists(authored_library / "captured-copy") &&
+                  authored.load("captured-renamed").metadata.name ==
+                      "Captured Renamed",
+              "semantic preset rename left the source identity active");
+        const auto overwrite_rejected = command(
+            application, "preset.capture.v1", capture_arguments);
+        check(!overwrite_rejected.accepted &&
+                  authored.load("captured-synth").metadata.name ==
+                      "Captured Synth",
+              "capture silently overwrote an existing preset");
+        auto overwrite_arguments = capture_arguments;
+        overwrite_arguments["name"] = std::string("Updated Synth");
+        overwrite_arguments["overwrite"] = true;
+        accepted(application, "preset.capture.v1", overwrite_arguments);
+        check(authored.load("captured-synth").metadata.name == "Updated Synth",
+              "explicit preset update was not committed");
+        accepted(application, "preset.delete.v1",
+                 {{"library", authored_library.string()},
+                  {"preset_id", std::string("captured-renamed")}});
+        check(!std::filesystem::exists(authored_library / "captured-renamed"),
+              "semantic preset deletion did not remove the selected identity");
+        const auto unsafe_duplicate = duplicate_arguments;
+        auto unsafe_arguments = unsafe_duplicate;
+        unsafe_arguments["new_id"] = std::string("../outside");
+        check(!command(application, "preset.duplicate.v1", unsafe_arguments).accepted,
+              "semantic preset mutation accepted an unsafe library identity");
+        accepted(application, "effect.create.v1",
+                 {{"id", std::int64_t{77}},
+                  {"type", std::string("native.gain.v1")}});
+        accepted(application, "effect.insert.v1",
+                 {{"id", std::int64_t{77}}, {"chain", std::string("track")},
+                  {"index", std::int64_t{0}}, {"position", std::int64_t{0}}});
+        std::array<float, 32> capture_left{}, capture_right{};
+        application_engine.process(capture_left, capture_right);
+        auto fx_capture = capture_arguments;
+        fx_capture["preset_id"] = std::string("captured-fx");
+        fx_capture["name"] = std::string("Captured FX");
+        fx_capture["type"] = std::string("fx-chain");
+        accepted(application, "preset.capture.v1", fx_capture);
+        const auto captured_fx = authored.load("captured-fx");
+        check(captured_fx.effects && captured_fx.effects->chain.count == 1 &&
+                  captured_fx.effects->instances.size() == 1 &&
+                  captured_fx.effects->instances[0].type ==
+                      EffectProcessorType::gain,
+              "semantic FX capture did not preserve chain order and type");
+        accepted(application, "effect.remove.v1",
+                 {{"chain", std::string("track")}, {"index", std::int64_t{0}},
+                  {"position", std::int64_t{0}}});
+        application_engine.process(capture_left, capture_right);
+        accepted(application, "effect.delete.v1", {{"id", std::int64_t{77}}});
+        application_engine.process(capture_left, capture_right);
         const auto prepare_arguments =
             std::map<std::string, ApplicationValue>{
                 {"library", (root / "library").string()},
@@ -320,6 +405,25 @@ int main() {
         application_engine.process(left, right);
         check(application.snapshot().sample_slots[0].has_sample,
               "sample instrument application");
+        accepted(application, "track.create.v1",
+                 {{"track_id", std::int64_t{2}},
+                  {"name", std::string("Sample capture")},
+                  {"length", std::int64_t{3840}},
+                  {"instrument_id", std::string("sample.main")},
+                  {"instance_id", std::int64_t{3}}});
+        auto sample_capture = capture_arguments;
+        sample_capture["preset_id"] = std::string("captured-sample");
+        sample_capture["name"] = std::string("Captured Sample");
+        sample_capture["type"] = std::string("sample");
+        sample_capture["track_id"] = std::int64_t{2};
+        accepted(application, "preset.capture.v1", sample_capture);
+        const auto captured_sample = authored.load("captured-sample");
+        check(captured_sample.samples.has_value(),
+              "semantic sample capture omitted sample configuration");
+        check(!captured_sample.samples->sample_paths.empty(),
+              "semantic sample capture omitted audio-active sample paths");
+        check(captured_sample.samples->pads[0] == 7,
+              "semantic sample capture omitted authoritative pad assignments");
 
         auto fx_only = source;
         fx_only.metadata.id = "fx-only";

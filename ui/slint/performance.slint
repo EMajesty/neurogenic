@@ -303,6 +303,7 @@ export component PerformanceWindow inherits Window {
             route-selected(index) => { root.fx-route-selected(index); } route-action(action) => { root.fx-route-action(action); } route-create => { root.fx-route-create(); }
             macro-selected(index) => { root.fx-macro-selected(index); } macro-adjusted(steps) => { root.fx-macro-adjusted(steps); }
             external-selected(index) => { root.mixer-fx-selected(index); } external-adjust(operation, steps) => { root.mixer-fx-adjust(operation, steps); } external-toggle(operation) => { root.mixer-fx-toggle(operation); }
+            preset-action(action) => { root.sound-preset-action(action, "", ""); }
         }
         if root.page-id == "browser": BrowserPage {
             vertical-stretch: 1; category: root.browser-category; location: root.browser-location; destination: root.browser-destination;

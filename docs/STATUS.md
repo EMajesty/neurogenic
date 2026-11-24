@@ -4,14 +4,18 @@
 
 The evidence-based audit in [`docs/audit/`](audit/IMPLEMENTATION_AUDIT.md)
 classifies engine, semantic API, Slint, controller, persistence, test and
-appliance behavior independently. The engine/application layer is broad and
-well covered by deterministic host tests, and all eight Slint destinations are
-real components rather than blank placeholders. The Slint surface is not yet a
-complete standalone-instrument workflow: recording/resampling/live-loop setup,
+appliance behavior independently. At the Task 080 baseline, the
+engine/application layer was broad and well covered by deterministic host tests,
+and all eight Slint destinations were real components rather than blank
+placeholders. The Slint surface was not yet a complete standalone-instrument
+workflow: recording/resampling/live-loop setup,
 sequence pages beyond 16 steps, advanced step properties, processing-result
 publication, modulator and macro creation, preset authoring, MIDI routing,
 controller-map editing, missing-asset recovery and touchscreen text entry remain
-incomplete or backend-only.
+incomplete or backend-only. Tasks 081–085 resolve the listed recording,
+processing publication, sequencer, text/path, project relink and preset
+authoring gaps to the limits documented below; MIDI/controller configuration
+and physical appliance validation remain outstanding.
 
 No P0 data-loss, crash or callback-safety defect was confirmed. P1 blockers and
 evidence are tracked with stable IDs in
@@ -659,3 +663,14 @@ only. Atomic multi-asset prefix relinking and preset-package recovery remain
 open. Generated software-rendered coverage includes the keyboard at both
 target resolutions; physical touch and removable-media validation remain
 outstanding.
+
+Task 085 completes authoring and management for the existing reusable preset
+formats. ApplicationService captures synth, sample-instrument, track FX-chain
+and track-sound state from an explicit stable source; Browser/Sound/FX expose
+touch-only save, metadata inspection, transactional activation, rename,
+duplicate, explicit update and confirmed deletion. Library writes retain the
+generation-atomic manifest protocol, while activation allocates fresh runtime
+identities and waits for callback acknowledgement. Preset assets can be
+explicitly relinked for a prepared activation. Persisting repaired dependencies
+back to a package, group/aux/master FX capture and macro capture remain known
+limitations.

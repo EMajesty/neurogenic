@@ -329,6 +329,17 @@ Destination categories include synth, sample, mixer/aux/master and external
 FX. Numeric identities select tracks, channel slots or loop slots; adapters do
 not manipulate a routing graph or republish mixer configurations.
 
+# Preset actions
+
+Preset browsing, capture, validation, preparation, activation, rename,
+duplication and deletion are semantic operations. Capture binds an explicit
+stable source track plus library identity; controllers must use a validated
+context that supplies those arguments and must not advertise a bare Save or
+Apply assignment when they are unavailable. Confirmation and naming use the
+shared modal/text-entry context. No encoder push is assumed, and touch remains
+an independent complete path. Preset content never includes controller
+profiles or physical mappings.
+
 # MIDI routing actions
 
 Adapters can select clock ownership and outputs, create/delete explicit

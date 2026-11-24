@@ -98,6 +98,7 @@ class PresetLibrary {
                                    bool require_assets = true) const;
     [[nodiscard]] std::vector<PresetMetadata>
     enumerate(std::optional<PresetType> type = std::nullopt) const;
+    [[nodiscard]] bool contains(std::string_view id) const;
     void erase(std::string_view id);
     void duplicate(std::string_view source_id, std::string new_id,
                    std::string new_name);

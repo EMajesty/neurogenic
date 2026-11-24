@@ -534,6 +534,9 @@ std::vector<PresetMetadata> PresetLibrary::enumerate(
               [](const auto &a, const auto &b) { return a.id < b.id; });
     return result;
 }
+bool PresetLibrary::contains(std::string_view id) const {
+    return std::filesystem::exists(preset_path(id));
+}
 void PresetLibrary::erase(std::string_view id) {
     const auto path = preset_path(id);
     if (!std::filesystem::exists(path)) throw std::runtime_error("preset does not exist");

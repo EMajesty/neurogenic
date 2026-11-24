@@ -1021,10 +1021,16 @@ int run_slint_frontend(ApplicationService &application,
                     window->invoke_advanced_step_edit("probability", -1);
                     break;
                 case 2: window->invoke_sample_slot_selected(0); break;
-                case 3: window->invoke_sound_subview_selected("instrument"); break;
+                case 3:
+                    window->invoke_sound_subview_selected("presets");
+                    window->invoke_sound_preset_action("save", "", "");
+                    if (!window->get_text_entry_visible())
+                        throw std::runtime_error("Sound preset naming did not open keyboard");
+                    window->invoke_text_entry_action("cancel");
+                    break;
                 case 4: window->invoke_mixer_bank_changed(0); break;
-                case 5: window->invoke_fx_subview_selected("chain"); break;
-                case 6: window->invoke_browser_category_selected("projects"); break;
+                case 5: window->invoke_fx_subview_selected("presets"); break;
+                case 6: window->invoke_browser_category_selected("instrument-presets"); break;
                 case 7: window->invoke_setup_subview_selected("audio"); break;
                 }
                 if (!options.screenshot_path.empty())

@@ -142,6 +142,15 @@ incompatible file, relink, save, reopen and audition expected PCM.
 Temporary-directory tests do not establish physical touchscreen behavior or
 filesystem latency.
 
+For preset authoring, capture a synth patch and a track FX chain using only
+touch, then rename, duplicate, explicitly update and delete library entries.
+Confirm destructive operations require a modal, the intended stable track is
+still used if selection changes while the naming dialog is open, and applying
+the same preset twice creates coherent fresh internal identities. Disconnect a
+sample-preset asset and verify the dependency is reported and never silently
+substituted. These are physical interaction checks; automated software-renderer
+tests cover component callbacks and layout only.
+
 On Setup, compare active and requested audio device/buffer/channel values with
 backend logs. Confirm changes remain restart-required until a clean restart and
 that 48 kHz is the only engine rate displayed. Exercise controller reconnect,

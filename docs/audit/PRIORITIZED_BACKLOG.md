@@ -61,6 +61,15 @@ save/publication, and waits for audio-active acknowledgement.
 
 ### AUD-004 — Reusable preset creation and management is inaccessible
 
+**Resolved by Task 085 for the existing version-1 preset scopes.** Stable-source
+semantic capture covers synth, sample-instrument, track-owned FX-chain and
+track-sound presets. Sound/FX/Browser provide touch-only save, validate,
+transactional apply, rename, duplicate, explicit update and confirmed delete.
+Generation-atomic writes and prepared activation preserve prior valid content;
+tests cover repeated identity remapping, cross-project activation, missing
+dependencies and rollback. Group/aux/master FX capture and performance macros
+remain outside the format and are documented rather than fabricated.
+
 - **Impact:** users cannot build a reusable sound library on the appliance.
 - **Evidence:** Sound “Save Current” explicitly rejects; Browser only validates
   and applies despite `PresetLibrary` save/delete support.
@@ -193,6 +202,15 @@ paths and invokes the existing transactional `project.relink-sample.v1` action
 for an explicitly selected replacement. Folder-assisted lookup only proposes
 the same filename for the selected dependency; an atomic multi-dependency
 prefix transaction and preset-package recovery remain follow-up work.
+
+**Preset portion advanced by Task 085.** Preset enumeration reports missing
+dependencies and Browser can select an explicit replacement or directory
+prefix through the existing prepared-transaction relink actions. Validation is
+performed before activation and cancellation preserves the stored preset.
+Self-contained portable export is accessible through Browser and copies assets
+using the existing collision-safe package service.
+Persisting repaired paths back into the library as one atomic multi-dependency
+mutation is still missing, so AUD-012 remains partial.
 
 - **Impact:** relocated projects/presets cannot be repaired standalone.
 - **Evidence:** relink actions/services exist; Browser exposes no missing

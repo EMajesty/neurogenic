@@ -1,4 +1,4 @@
-import { LineEdit, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 import { PageButton, ParameterDisplay, EmptyState } from "components.slint";
 import { Theme } from "theme.slint";
 
@@ -50,11 +50,10 @@ export component SoundPage inherits VerticalLayout {
     }
     if root.subview == "presets": VerticalLayout { spacing: 6px; vertical-stretch: 1;
         Text { text: "Reusable sound preset"; color: Theme.accent; font-size: 18px; }
-        LineEdit { text <=> root.preset-library; placeholder-text: "/path/to/preset/library"; }
-        LineEdit { text <=> root.preset-id; placeholder-text: "preset-id"; }
-        HorizontalLayout { height: 40px; spacing: 5px; PageButton { text: "Validate"; implemented: root.preset-library != "" && root.preset-id != ""; clicked => { root.preset-action("validate", root.preset-library, root.preset-id); } } PageButton { text: "Prepare"; implemented: root.preset-library != "" && root.preset-id != ""; clicked => { root.preset-action("prepare", root.preset-library, root.preset-id); } } PageButton { text: "Apply"; implemented: root.preset-status == "prepared"; clicked => { root.preset-action("apply", root.preset-library, root.preset-id); } } PageButton { text: "Cancel"; implemented: root.preset-status != "idle"; clicked => { root.preset-action("cancel", root.preset-library, root.preset-id); } } PageButton { text: "Save Current"; clicked => { root.preset-action("save", root.preset-library, root.preset-id); } } }
+        ParameterDisplay { name: "Selected preset"; value: root.preset-id == "" ? "Choose from Browser" : root.preset-id; }
+        HorizontalLayout { height: 40px; spacing: 5px; PageButton { text: "Browse Library"; clicked => { root.preset-action("browse", "", ""); } } PageButton { text: "Save Current…"; clicked => { root.preset-action("save", "", ""); } } PageButton { text: "Apply Prepared"; implemented: root.preset-status == "prepared"; clicked => { root.preset-action("apply", "", ""); } } PageButton { text: "Cancel"; implemented: root.preset-status != "idle"; clicked => { root.preset-action("cancel", "", ""); } } }
         ParameterDisplay { name: "Status"; value: root.preset-status; }
         if root.error != "": ParameterDisplay { name: "Error"; value: root.error; }
-        Text { text: "Preset enumeration and saving current state are unavailable until semantic actions expose them."; color: Theme.muted; wrap: word-wrap; }
+        Text { text: "Browser provides compatibility, activation, rename, duplicate, update and delete workflows."; color: Theme.muted; wrap: word-wrap; }
     }
 }
