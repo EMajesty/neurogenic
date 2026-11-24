@@ -83,7 +83,7 @@ issues; unperformed rows remain NOT RUN.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 
-The exact next task is **Task 089 — unify reusable pattern editing and
-arrangement authoring**. It is independent of physical hardware and removes the
-first point at which a standalone musician currently cannot compose a complete
-multi-pattern song.
+After Task 094, the exact next task is **Task 095 — frontend verification and
+measured publication closure**. It is independent of physical hardware and
+should resolve AUD2-011/AUD2-012 before Task 096 maps the locked Reference
+Controller V2 design onto the shared semantic and history contracts.

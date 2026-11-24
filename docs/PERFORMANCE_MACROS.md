@@ -96,8 +96,9 @@ controls to the same semantic objects.
 Current limitations: scene capture stores macro values (the optional numeric
 parameter list is reserved), assignment-specific smoothing metadata is
 persisted but DSP destinations currently use their existing smoothing, recorded
-automation segments remain discrete, and Undo/Redo remains timeline-oriented
-rather than a general project-object history. The reusable callback-safe
+automation segments remain discrete. Macro assignment and scene authoring uses
+the shared application history; live macro values and scene recall remain
+performance state. The reusable callback-safe
 `ParameterSmoother` supports bypass, linear ramps and exponential smoothing for
 future destinations; it is not stacked on processors that already smooth their
 inputs.

@@ -132,8 +132,11 @@ Projects write optional version-3 `modulation.ngm`. It preserves source settings
 route IDs, scopes, track IDs, depths, and destinations. Older projects load an
 empty matrix. Forward versions and unsafe destinations are rejected.
 
-Current limitations: no general authoring Undo/Redo (timeline history is a
-separate authority), no per-voice sample filter, audio-rate modulation,
+Source/route authoring participates in shared application Undo/Redo. Restores
+compile and validate the complete graph and become history-visible only after
+audio activation acknowledgement. High-rate live modulation and macro-value
+gestures are intentionally not individual entries. Current DSP limitations
+remain: no per-voice sample filter, audio-rate modulation,
 recursive graphs, modulation curves, or per-track MIDI CC/XY lanes. Dynamic
 voice-local sample ADSR/LFO/function/random/step/velocity/gate sources are
 implemented; group follower taps observe post-fader group audio. Delay

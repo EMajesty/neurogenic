@@ -14,9 +14,9 @@ Base and automation values are established before graph contributions;
 parameter locks address their scheduled base/automation lane; enabled
 modulation routes and macro mappings then contribute deltas and the destination
 clamps once. Live macro gestures are bounded commands. Persistent graph
-authoring has no general project-object Undo/Redo because history currently
-owns timeline transactions; this remains explicit rather than adding a second
-history authority.
+authoring participates in the bounded application history described in
+[`APPLICATION_HISTORY.md`](APPLICATION_HISTORY.md). High-rate performance
+gestures remain intentionally outside authoring history.
 
 The default Nix package is the production Slint appliance. Pinned Slint 1.19.0
 and Corrosion sources enter CMake through disconnected FetchContent overrides;
@@ -454,6 +454,13 @@ native generators, and Lua timeline commits share it. Snapshot history and
 grouped working copies stay on the control side. Commit, Undo, and Redo publish
 immutable plans through the existing bounded handoff; the callback never
 allocates, locks, or destroys history.
+
+`ApplicationService` composes that timeline mechanism with bounded
+configuration before/after records to provide one chronological user-facing
+Undo/Redo sequence. Modulation, macro and preset restoration is prepared on the
+control thread and moves history only after matching audio activation
+acknowledgement. The 32-entry limit and metadata/path-only sample records avoid
+retaining unbounded PCM versions.
 
 ## Performance observation
 

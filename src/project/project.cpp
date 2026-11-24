@@ -1,4 +1,5 @@
 #include "neurogenic/project/project.hpp"
+#include "neurogenic/audio/sample.hpp"
 #include "neurogenic/timeline/io.hpp"
 #include "neurogenic/timeline/playback.hpp"
 #include <algorithm>
@@ -1076,5 +1077,70 @@ bool relink_project_sample(Project &project,
         }
     error = "missing sample reference was not found";
     return false;
+}
+
+bool relink_project_assets(
+    Project &project, const std::vector<ProjectAssetRelink> &exact,
+    const std::vector<ProjectDirectoryRelink> &directories,
+    std::uint32_t target_sample_rate,
+    std::vector<std::filesystem::path> &unresolved, std::string &error) {
+    auto candidate = project;
+    unresolved.clear();
+    const auto beneath = [](const std::filesystem::path &path,
+                            const std::filesystem::path &prefix,
+                            std::filesystem::path &suffix) {
+        const auto normalized = path.lexically_normal();
+        const auto base = prefix.lexically_normal();
+        auto value = normalized.begin();
+        auto root = base.begin();
+        for (; root != base.end(); ++root, ++value)
+            if (value == normalized.end() || *value != *root) return false;
+        suffix.clear();
+        for (; value != normalized.end(); ++value) suffix /= *value;
+        return true;
+    };
+    for (auto &[slot, path] : candidate.samples.sample_paths) {
+        (void)slot;
+        const auto original = path.lexically_normal();
+        std::optional<std::filesystem::path> replacement;
+        for (const auto &mapping : exact)
+            if (original == mapping.missing.lexically_normal()) {
+                replacement = mapping.replacement;
+                break;
+            }
+        if (!replacement)
+            for (const auto &mapping : directories) {
+                std::filesystem::path suffix;
+                if (beneath(original, mapping.missing_prefix, suffix)) {
+                    replacement = mapping.replacement_prefix / suffix;
+                    break;
+                }
+            }
+        if (replacement) {
+            const auto normalized = replacement->lexically_normal();
+            if (!normalized.is_absolute() && !normalized.empty() &&
+                *normalized.begin() == "..") {
+                error = "unsafe project relink target: " + normalized.string();
+                return false;
+            }
+            try {
+                (void)load_wav(normalized, target_sample_rate);
+            } catch (const std::exception &exception) {
+                error = "invalid replacement " + normalized.string() + ": " +
+                        exception.what();
+                return false;
+            }
+            path = normalized;
+        }
+        if (!std::filesystem::exists(path)) unresolved.push_back(path);
+    }
+    if (!unresolved.empty()) {
+        error = "project recovery has unresolved sample dependencies";
+        return false;
+    }
+    candidate.missing_assets.clear();
+    project = std::move(candidate);
+    error.clear();
+    return true;
 }
 } // namespace neurogenic

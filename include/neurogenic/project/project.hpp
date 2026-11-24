@@ -30,6 +30,12 @@ struct ProjectIoMetrics {
     std::uint64_t elapsed_microseconds{};
     std::uintmax_t metadata_bytes{};
 };
+struct ProjectAssetRelink {
+    std::filesystem::path missing, replacement;
+};
+struct ProjectDirectoryRelink {
+    std::filesystem::path missing_prefix, replacement_prefix;
+};
 
 void save_project(const Project &, const std::filesystem::path &directory,
                   ProjectIoMetrics *metrics = nullptr);
@@ -42,4 +48,8 @@ load_modulation_configuration(const std::filesystem::path &);
 bool relink_project_sample(Project &, const std::filesystem::path &missing,
                            const std::filesystem::path &replacement,
                            std::string &error);
+bool relink_project_assets(
+    Project &, const std::vector<ProjectAssetRelink> &,
+    const std::vector<ProjectDirectoryRelink> &, std::uint32_t target_sample_rate,
+    std::vector<std::filesystem::path> &unresolved, std::string &error);
 } // namespace neurogenic

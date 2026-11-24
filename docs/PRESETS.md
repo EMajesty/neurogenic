@@ -130,7 +130,15 @@ active state changes. Old sample versions retire only after their voices finish.
 The default policy preserves active voices; replacement may request release.
 Cancellation is supported while prepared or queued; once the callback has
 activated the snapshot it cannot be rolled back as a real-time operation.
-Undo/Redo does not yet capture application as one history entry.
+Acknowledged synth, track-sound and track FX-chain activation is one application
+history entry and restores mixer, modulation, macro, synth and compatible
+sample metadata through prepared publication. Sample-instrument activation that
+changes the stable slot set is applied safely but is explicitly not advertised
+as undoable until atomic slot removal exists.
+
+Missing dependency repair can be persisted with the generation-atomic
+`PresetLibrary::repair_assets` path. All exact or prefix replacements validate
+before a new generation becomes current; failure preserves the previous entry.
 
 The Slint Sound and FX pages open the shared Browser and capture the current
 stable source through `preset.capture.v1`. Browser enumeration and validation

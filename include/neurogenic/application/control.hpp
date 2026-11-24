@@ -256,6 +256,8 @@ struct ApplicationState {
     std::string selected_lock_parameter{"synth.cutoff"};
     std::vector<StepParameterLockState> selected_step_locks;
     bool edit_group_active{}, can_undo{}, can_redo{};
+    bool history_pending{};
+    std::string undo_label, redo_label;
     bool fill_active{}, fill_latched{};
     std::uint64_t generation_seed{};
     std::size_t undo_depth{}, redo_depth{}, history_capacity{};
@@ -357,6 +359,36 @@ class ApplicationService {
         const std::array<bool, maximum_midi_ports> &connections);
 
   private:
+    struct AuthoringHistoryState {
+        MixerConfiguration mixer;
+        ModulationConfiguration modulation;
+        MacroProject macros;
+        std::optional<SliceProject> samples;
+        std::map<InstrumentInstanceId, std::map<std::string, double>>
+            synth_parameters;
+    };
+    struct ApplicationHistoryEntry {
+        std::string label;
+        std::optional<Timeline> timeline_before, timeline_after;
+        std::optional<AuthoringHistoryState> authoring_before,
+            authoring_after;
+    };
+    struct PendingHistoryRestore {
+        ApplicationHistoryEntry entry;
+        AuthoringHistoryState target;
+        PresetActivationRequest activation;
+        bool undo{};
+        std::uint64_t activation_sequence{};
+        std::array<std::uint64_t, maximum_preset_samples>
+            sample_publications{};
+    };
+    struct PendingProjectRecovery {
+        Project project;
+        PresetActivationRequest activation;
+        std::array<std::filesystem::path, maximum_preset_samples> sample_paths{};
+        std::array<std::uint64_t, maximum_preset_samples> sample_publications{};
+        std::uint64_t activation_sequence{};
+    };
     struct PendingPresetApplication {
         SoundPreset preset;
         PresetImportMode mode{PresetImportMode::preview};
@@ -369,8 +401,18 @@ class ApplicationService {
         std::map<std::string, double> synth_parameters;
         std::uint64_t activation_sequence{};
         bool published{};
+        std::unique_ptr<AuthoringHistoryState> history_before;
     };
+    CommandResult execute_with_history(const ApplicationCommand &,
+                                       std::uint64_t);
     CommandResult execute_locked(const ApplicationCommand &, std::uint64_t);
+    [[nodiscard]] std::unique_ptr<AuthoringHistoryState>
+        capture_authoring_state(bool include_samples = false) const;
+    bool prepare_history_restore(const ApplicationHistoryEntry &, bool,
+                                 std::string &);
+    void push_history(ApplicationHistoryEntry) const;
+    void clear_history();
+    static constexpr std::size_t application_history_capacity = 32;
     bool publish_modulation_with_macros(const ModulationConfiguration &,
                                         std::string &);
     bool publish_performance_launches(const Timeline &,
@@ -423,7 +465,10 @@ class ApplicationService {
     MusicalTick automation_thinning_ticks_{ticks_per_quarter / 64};
     bool fill_momentary_{};
     mutable std::optional<PendingPresetApplication> pending_preset_;
-    Project project_;
+    mutable std::optional<PendingHistoryRestore> pending_history_restore_;
+    mutable std::optional<PendingProjectRecovery> pending_project_recovery_;
+    mutable std::deque<ApplicationHistoryEntry> history_undo_, history_redo_;
+    mutable Project project_;
     mutable SystemMonitor system_monitor_;
 };
 

@@ -106,6 +106,10 @@ class PresetLibrary {
                         const std::filesystem::path &destination) const;
     [[nodiscard]] PortablePresetExportResult export_self_contained(
         std::string_view id, const std::filesystem::path &destination) const;
+    [[nodiscard]] PresetValidation repair_assets(
+        std::string_view id, const std::vector<PresetAssetRelink> &,
+        const std::vector<PresetDirectoryRelink> & = {},
+        std::uint32_t target_sample_rate = 0);
     void import_package(const std::filesystem::path &source,
                         std::string_view id);
 

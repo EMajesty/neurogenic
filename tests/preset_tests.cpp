@@ -436,12 +436,24 @@ int main() {
         auto fx_arguments = prepare_arguments;
         fx_arguments["preset_id"] = std::string("fx-only");
         fx_arguments["mode"] = std::string("insert-fx");
+        const auto effects_before_history =
+            application.snapshot().mixer.configuration.effects.tracks[0].count;
         accepted(application, "preset.prepare.v1", fx_arguments);
         accepted(application, "preset.apply.v1");
         application_engine.process(left, right);
         check(application.snapshot().mixer.configuration.effects.tracks[0]
                       .count == 2,
               "FX chain insertion");
+        accepted(application, "edit.undo.v1");
+        application_engine.process(left, right);
+        check(application.snapshot().mixer.configuration.effects.tracks[0].count ==
+                  effects_before_history,
+              "acknowledged preset activation participates in unified undo");
+        accepted(application, "edit.redo.v1");
+        application_engine.process(left, right);
+        check(application.snapshot().mixer.configuration.effects.tracks[0].count ==
+                  2,
+              "preset activation redo restores the intended FX configuration");
 
         accepted(application, "preset.prepare.v1", prepare_arguments);
         accepted(application, "preset.cancel.v1");
@@ -506,6 +518,46 @@ int main() {
         check(application.snapshot().preset_application.missing_assets.empty(),
               "directory-prefix relinking");
         accepted(application, "preset.cancel.v1");
+        const auto rejected_repair = library.repair_assets(
+            "prefix-relink", {},
+            {{{root / "old-library"}, {root / "missing-library"}}}, 48000);
+        check(!rejected_repair.valid &&
+                  library.load("prefix-relink", false)
+                          .samples->sample_paths.at(1) ==
+                      root / "old-library" / "tone.wav",
+              "failed persistent preset repair preserves the active generation");
+        const auto repaired = library.repair_assets(
+            "prefix-relink", {},
+            {{{root / "old-library"}, duplicate_a}}, 48000);
+        check(repaired.valid &&
+                  library.load("prefix-relink", true)
+                          .samples->sample_paths.at(1) ==
+                      duplicate_a / "tone.wav",
+              "persistent preset prefix repair commits a generation atomically");
+        prefix_relink.metadata.id = "semantic-repair";
+        prefix_relink.samples->sample_paths[1] =
+            root / "old-library" / "tone.wav";
+        library.save(prefix_relink);
+        const auto semantic_rejected = command(
+            application, "preset.repair-prefix.v1",
+            {{"library", (root / "library").string()},
+             {"preset_id", std::string("semantic-repair")},
+             {"missing_prefix", (root / "old-library").string()},
+             {"replacement_prefix", (root / "missing-library").string()}});
+        check(!semantic_rejected.accepted &&
+                  library.load("semantic-repair", false)
+                          .samples->sample_paths.at(1) ==
+                      root / "old-library" / "tone.wav",
+              "failed semantic preset repair preserves the active generation");
+        accepted(application, "preset.repair-prefix.v1",
+                 {{"library", (root / "library").string()},
+                  {"preset_id", std::string("semantic-repair")},
+                  {"missing_prefix", (root / "old-library").string()},
+                  {"replacement_prefix", duplicate_a.string()}});
+        check(library.load("semantic-repair", true)
+                      .samples->sample_paths.at(1) ==
+                  duplicate_a / "tone.wav",
+              "semantic preset repair persists the complete validated mapping");
         auto portable = source;
         portable.metadata.id = "portable";
         portable.samples->sample_paths = {

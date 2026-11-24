@@ -82,7 +82,9 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
 }
 
 constexpr std::size_t browser_page_size = 128;
-constexpr std::size_t browser_scan_limit = 8192;
+constexpr std::size_t browser_chunk_pages = 8;
+constexpr std::size_t browser_chunk_size =
+    browser_page_size * browser_chunk_pages;
 constexpr std::array<std::pair<std::string_view, std::string_view>, 8> pages{{
     {"performance", "Performance"}, {"sequencer", "Sequencer"},
     {"sample", "Sample"},           {"sound", "Sound"},
@@ -271,9 +273,12 @@ class SlintFrontendAdapter::BrowserWorker {
                             ? SlintBrowserEntryKind::fx_preset
                             : SlintBrowserEntryKind::instrument_preset,
                         0, 0, false, true, false});
-                    if (all.size() == browser_scan_limit) { next.truncated = true; break; }
                 }
             } else {
+                const auto requested_chunk = request.page / browser_chunk_pages;
+                const auto window_begin = requested_chunk * browser_chunk_size;
+                const auto window_end = window_begin + browser_chunk_size;
+                std::size_t matching{};
                 fs::directory_iterator iterator(location,
                     fs::directory_options::skip_permission_denied, error), end;
                 for (; !error && iterator != end; iterator.increment(error)) {
@@ -311,10 +316,12 @@ class SlintFrontendAdapter::BrowserWorker {
                     item.compatible = item.directory ||
                         item.kind == SlintBrowserEntryKind::sample ||
                         item.kind == SlintBrowserEntryKind::project;
-                    all.push_back(std::move(item));
-                    if (all.size() == browser_scan_limit) { next.truncated = true; break; }
+                    if (matching >= window_begin && matching < window_end)
+                        all.push_back(std::move(item));
+                    ++matching;
                 }
                 if (error) throw fs::filesystem_error("directory listing", location, error);
+                next.total_entries = matching;
             }
             const auto compare = [&](const auto &a, const auto &b) {
                 if (a.directory != b.directory) return a.directory > b.directory;
@@ -324,11 +331,19 @@ class SlintFrontendAdapter::BrowserWorker {
                 return lower(a.name) < lower(b.name);
             };
             std::stable_sort(all.begin(), all.end(), compare);
-            next.total_entries = all.size();
+            if (request.category == "instrument-presets" ||
+                request.category == "fx-presets")
+                next.total_entries = all.size();
             next.page_count = std::max<std::size_t>(1,
-                (all.size() + browser_page_size - 1) / browser_page_size);
+                (next.total_entries + browser_page_size - 1) /
+                    browser_page_size);
             next.page = std::min(next.page, next.page_count - 1);
-            const auto begin = std::min(all.size(), next.page * browser_page_size);
+            const auto local_page =
+                request.category == "instrument-presets" ||
+                        request.category == "fx-presets"
+                    ? next.page
+                    : next.page % browser_chunk_pages;
+            const auto begin = std::min(all.size(), local_page * browser_page_size);
             const auto finish = std::min(all.size(), begin + browser_page_size);
             next.entries.assign(std::make_move_iterator(all.begin() + begin),
                                 std::make_move_iterator(all.begin() + finish));
@@ -1799,9 +1814,13 @@ bool SlintFrontendAdapter::cycle_browser_sort() {
 
 bool SlintFrontendAdapter::change_browser_page(int direction) {
     if (!browser_worker_ || direction == 0) return false;
+    const auto magnitude = static_cast<std::size_t>(
+        direction < 0 ? -static_cast<std::int64_t>(direction) : direction);
     const auto target = direction < 0
-        ? (state_.browser.page == 0 ? 0 : state_.browser.page - 1)
-        : std::min(state_.browser.page + 1, state_.browser.page_count - 1);
+        ? (magnitude > state_.browser.page ? 0
+                                           : state_.browser.page - magnitude)
+        : std::min(state_.browser.page + magnitude,
+                   state_.browser.page_count - 1);
     if (target == state_.browser.page) return false;
     state_.browser.loading = true;
     state_.browser.entries.clear();
@@ -2027,8 +2046,9 @@ bool SlintFrontendAdapter::relink_missing_asset(bool map_directory) {
             {{"missing_prefix", missing.parent_path().string()},
              {"replacement_prefix", state_.browser.location}}, {}, 0});
     if (map_directory)
-        replacement = std::filesystem::path(state_.browser.location) /
-                      missing.filename();
+        return execute({"project.relink-prefix.v1",
+            {{"missing_prefix", missing.parent_path().string()},
+             {"replacement_prefix", state_.browser.location}}, {}, 0});
     if (!std::filesystem::is_regular_file(replacement)) {
         last_error_ = "Replacement must be an existing compatible file";
         state_.browser.error = last_error_;

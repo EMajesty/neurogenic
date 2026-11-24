@@ -237,10 +237,12 @@ invents absent hardware channels.
 sample or preset data. Projects, WAV samples, instrument presets and FX presets
 are capability-backed categories. Listings are non-recursive, permission
 errors are reported, unsupported files are filtered, and a control-side worker
-publishes deterministic 128-row pages. Requests carry generation IDs, so a
-slow result cannot replace a newer path; the bounded scan limit is 8192
-entries. Filtering, sorting, parent navigation and refresh update only Browser
-state.
+publishes 128-row pages from bounded 1024-entry windows. Requests carry
+generation IDs, so a slow result cannot replace a newer path; entries beyond
+the former 8192 limit remain accessible. Ordering is deterministic inside an
+unchanged window rather than falsely claiming a globally sorted snapshot while
+a directory mutates. Filtering, sorting, parent navigation and refresh update
+only Browser state.
 
 Project open/save uses the project lifecycle service and dirty replacement
 requires explicit confirmation. Loading a WAV targets the selected sample slot

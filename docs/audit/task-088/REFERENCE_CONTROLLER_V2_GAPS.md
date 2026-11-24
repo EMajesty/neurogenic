@@ -57,7 +57,7 @@ Status vocabulary:
 | Screen zones | Top navigation and eight contextual labels/functions exist | Partial | Locked top/right-2×4/bottom composition and SHIFT label changes at both resolutions |
 | Manual mappings | MIDI learn, target selection, pickup/invert/fine/acceleration and profile persistence | Partial (AUD2-006) | Manual source creation, complex typed arguments, conflict replacement, feedback/context editing |
 | Firmware | Protocol supports press/release, encoder deltas, RGB/context feedback and reconnection | Missing firmware/protocol support | Physical firmware, rollover/ghosting/debounce tests, connection epoch/lost-release contract |
-| Temporary performance state | Timeline history, scenes and macro state are separate existing facilities | Missing semantic authority | Define a bounded transaction in Task 094 history work; do not add a shadow snapshot stack |
+| Temporary performance state | Task 094 establishes one bounded application history and specifies a single application-owned checkpoint | Design complete; implementation deferred | Implement prepared capture/restore after Task 095, without PCM retention or a shadow snapshot stack |
 
 ## Semantic and engine gaps
 
@@ -155,11 +155,11 @@ as separate coherent tasks. Do not stub labels or create frontend state.
 
 ## Roadmap integration
 
-Task 094 (atomic dependency recovery, unified history investigation and content
-bounds) and Task 095 (frontend verification/performance closure) retain their
-objectives. RC2-001 may proceed before or alongside Task 094 because safe input
-ownership is foundational; temporary performance state depends on Task 094's
-history decision. The recommended full integration milestone is **Task 096 —
+Task 094 established atomic dependency recovery, bounded unified history and
+content windows. Task 095 retains frontend verification/performance closure.
+The temporary-performance checkpoint design is now documented in
+`docs/APPLICATION_HISTORY.md`; implementation remains deferred. The recommended
+full integration milestone is **Task 096 —
 Reference Controller V2 interaction integration**, beginning with RC2-001–004
 after Tasks 094–095, followed by RC2-005–007. RC2-008 remains capability-driven
 musical expansion.

@@ -236,3 +236,10 @@ performance launch slot. Positions are stable project-owned musical
 assignments, independent of controller profiles. Loading schema 10 or earlier
 assigns the former ascending-slot-ID order deterministically; loading never
 rewrites the original project. Duplicated/new slots are explicitly unassigned.
+
+Multi-asset recovery is prepared transactionally. Exact and directory-prefix
+proposals are applied to a project copy, every replacement WAV and dependent
+slice/region is validated, and all immutable sample versions are published in
+one activation. Project references change only after acknowledgement; rejected
+proposals leave valid active versions and paths unchanged. See
+[`APPLICATION_HISTORY.md`](APPLICATION_HISTORY.md).

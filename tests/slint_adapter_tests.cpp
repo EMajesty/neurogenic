@@ -944,6 +944,20 @@ int main() {
                     std::filesystem::path(adapter.state().browser.location).filename() == "folder" &&
                     adapter.state().browser.entries.empty(),
                 "superseded results cannot replace newer navigation state");
+        const auto very_large_root = browser_root / "very-large";
+        std::filesystem::create_directory(very_large_root);
+        for (int index = 0; index < 8205; ++index)
+            std::ofstream(very_large_root /
+                              ("entry-" + std::to_string(index) + ".wav"),
+                          std::ios::binary)
+                << "RIFF";
+        require(adapter.navigate_browser(very_large_root.string()) &&
+                    await_browser(adapter) &&
+                    adapter.state().browser.total_entries == 8205 &&
+                    adapter.change_browser_page(64) && await_browser(adapter) &&
+                    adapter.state().browser.page == 64 &&
+                    !adapter.state().browser.entries.empty(),
+                "chunked enumeration exposes entries beyond the former 8192-entry ceiling");
         require(adapter.select_page(7) &&
                     adapter.state().shell.page_id == "setup" &&
                     adapter.state().shell.pages[7].implemented &&

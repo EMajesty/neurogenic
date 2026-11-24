@@ -1,5 +1,37 @@
 # Implementation status
 
+## Task 094 unified history and atomic content recovery
+
+`ApplicationService` now presents one bounded chronological Undo/Redo sequence
+for timeline edits, modulation/macro authoring and acknowledged compatible
+preset activation. Configuration restoration uses the existing prepared audio
+activation and moves history only after the matching callback acknowledgement;
+failed or cancelled operations leave history and active state intact. History
+stores configuration and sample paths/metadata, not PCM, and is capped at 32
+entries.
+
+Project directory-prefix recovery validates the complete candidate and all WAV,
+slice and region dependencies before publishing every immutable sample version
+as one activation. Preset dependency repair persists through a generation-
+atomic library write. Browser enumeration uses bounded windows and exposes
+entries beyond the former 8192 ceiling. Logical cancellation and stale-result
+rejection are bounded; an arbitrary uninterruptible filesystem call still has
+no portable strict shutdown bound.
+
+See [`APPLICATION_HISTORY.md`](APPLICATION_HISTORY.md) for transaction rules,
+memory bounds, listing consistency and the future single-checkpoint temporary
+performance-state design. Physical Reference Controller V2 interaction remains
+Task 096 and physical validation is **NOT RUN**.
+
+Task 094 validation passed the dependency-enabled development suite (33/33),
+production Slint suite (36/36, including both software-rendered target sizes),
+ASan/UBSan suite (33/33), sandboxed production `nix build`, `nix flake check`
+(including the AArch64 compilation check), and an installed-package headless
+device-enumeration smoke test. Dedicated generated-component callbacks for the
+new history and recovery operations were not added; existing Browser callbacks
+and rendered states compile and pass, so that interaction-specific coverage
+remains a documented Task 095 verification gap.
+
 ## Task 092 standalone live-loop workflows
 
 The shared recording surface now discovers and selects stable live-loop

@@ -623,6 +623,18 @@ PortablePresetExportResult PresetLibrary::export_self_contained(
     }
     return result;
 }
+
+PresetValidation PresetLibrary::repair_assets(
+    std::string_view id, const std::vector<PresetAssetRelink> &exact,
+    const std::vector<PresetDirectoryRelink> &directories,
+    std::uint32_t target_sample_rate) {
+    auto preset = load(id, false);
+    auto result = relink_preset_assets(preset, exact, directories,
+                                       target_sample_rate);
+    if (!result.valid) return result;
+    save(preset);
+    return result;
+}
 void PresetLibrary::import_package(const std::filesystem::path &source,
                                    std::string_view id) {
     if (!safe_id(id)) throw std::invalid_argument("unsafe preset ID");

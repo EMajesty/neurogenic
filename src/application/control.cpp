@@ -689,6 +689,10 @@ ActionRegistry::ActionRegistry() {
     add(action(
         "project.relink-sample.v1", "Relink missing sample", "Project",
         {{"missing", ValueType::text}, {"replacement", ValueType::text}}));
+    add(action("project.relink-prefix.v1", "Relink missing sample directory",
+               "Project",
+               {{"missing_prefix", ValueType::text},
+                {"replacement_prefix", ValueType::text}}));
     add(action("project.query.v1", "Query project status", "Project"));
     add(action("preset.validate.v1", "Validate preset", "Presets",
                {{"library", ValueType::text}, {"preset_id", ValueType::text},
@@ -721,6 +725,18 @@ ActionRegistry::ActionRegistry() {
                 {"replacement", ValueType::text}}));
     add(action("preset.relink-prefix.v1", "Relink preset directory", "Presets",
                {{"missing_prefix", ValueType::text},
+                {"replacement_prefix", ValueType::text}}));
+    add(action("preset.repair-asset.v1", "Persist preset asset repair",
+               "Presets",
+               {{"library", ValueType::text},
+                {"preset_id", ValueType::text},
+                {"missing", ValueType::text},
+                {"replacement", ValueType::text}}));
+    add(action("preset.repair-prefix.v1", "Persist preset directory repair",
+               "Presets",
+               {{"library", ValueType::text},
+                {"preset_id", ValueType::text},
+                {"missing_prefix", ValueType::text},
                 {"replacement_prefix", ValueType::text}}));
     add(action("preset.export-portable.v1", "Export portable preset", "Presets",
                {{"library", ValueType::text}, {"preset_id", ValueType::text},
@@ -1619,7 +1635,7 @@ std::vector<CommandResult> ApplicationService::dispatch_pending() {
             item = std::move(queue_.front());
             queue_.pop_front();
         }
-        result.push_back(execute_locked(item.second, item.first));
+        result.push_back(execute_with_history(item.second, item.first));
     }
     return result;
 }
@@ -1629,7 +1645,257 @@ CommandResult ApplicationService::execute(const ApplicationCommand &command) {
         std::lock_guard lock(mutex_);
         sequence = next_sequence_++;
     }
-    return execute_locked(command, sequence);
+    return execute_with_history(command, sequence);
+}
+
+std::unique_ptr<ApplicationService::AuthoringHistoryState>
+ApplicationService::capture_authoring_state(bool include_samples) const {
+    std::map<std::uint32_t, std::filesystem::path> sample_paths;
+    if (include_samples)
+        for (const auto &slot : samples_.states())
+            if (slot.has_sample) sample_paths[slot.id.value] = slot.source_path;
+    return std::make_unique<AuthoringHistoryState>(AuthoringHistoryState{
+        mixer_configuration_, modulation_configuration_,
+        performance_macros_.project(),
+        include_samples
+            ? std::optional<SliceProject>(
+                  slices_.project_snapshot(std::move(sample_paths)))
+            : std::nullopt,
+        synth_instance_parameters_});
+}
+
+void ApplicationService::push_history(ApplicationHistoryEntry entry) const {
+    if (history_undo_.size() == application_history_capacity)
+        history_undo_.pop_front();
+    history_undo_.push_back(std::move(entry));
+    history_redo_.clear();
+}
+
+void ApplicationService::clear_history() {
+    history_undo_.clear();
+    history_redo_.clear();
+    pending_history_restore_.reset();
+}
+
+CommandResult ApplicationService::execute_with_history(
+    const ApplicationCommand &command, std::uint64_t sequence) {
+    // Observe callback acknowledgements before deciding whether a new
+    // authoring transaction conflicts with pending work.
+    (void)snapshot();
+    const auto timeline_before = timeline_.snapshot();
+    const auto config_edit =
+        command.action_id.rfind("modulation.route-", 0) == 0 ||
+        command.action_id.rfind("modulation.source-", 0) == 0 ||
+        command.action_id.rfind("modulator.", 0) == 0 ||
+        command.action_id.rfind("instrument.instance-parameter-set", 0) == 0 ||
+        (command.action_id.rfind("effect.", 0) == 0 &&
+         command.action_id != "effect.query.v1") ||
+        (command.action_id.rfind("macro.", 0) == 0 &&
+         command.action_id != "macro.value-set.v1" &&
+         command.action_id != "macro.scene-recall.v1");
+    const auto timeline_edit =
+        command.action_id.rfind("step.", 0) == 0 ||
+        command.action_id.rfind("track.", 0) == 0 ||
+        command.action_id.rfind("pattern.", 0) == 0 ||
+        command.action_id.rfind("arrangement.", 0) == 0 ||
+        command.action_id.rfind("timeline.", 0) == 0;
+    if (pending_history_restore_ &&
+        (config_edit || timeline_edit ||
+         command.action_id.rfind("preset.", 0) == 0 ||
+         command.action_id.rfind("project.", 0) == 0))
+        return {false, sequence, snapshot().revision,
+                "history restoration is awaiting audio activation"};
+    if (pending_preset_ && pending_preset_->published &&
+        (config_edit || timeline_edit ||
+         command.action_id.rfind("preset.", 0) == 0 ||
+         command.action_id.rfind("project.", 0) == 0) &&
+        command.action_id != "preset.cancel.v1" &&
+        command.action_id != "preset.query.v1")
+        return {false, sequence, snapshot().revision,
+                "preset activation is awaiting audio acknowledgement"};
+    const auto authoring_before = config_edit
+        ? std::optional<AuthoringHistoryState>(*capture_authoring_state())
+        : std::nullopt;
+    auto result = execute_locked(command, sequence);
+    if (!result.accepted) return result;
+    if (command.action_id == "edit.undo.v1" ||
+        command.action_id == "edit.redo.v1" ||
+        command.action_id == "preset.apply.v1")
+        return result;
+    if (command.action_id == "project.open.v1" ||
+        command.action_id == "project.new.v1" ||
+        command.action_id == "project.close.v1") {
+        clear_history();
+        return result;
+    }
+    const auto timeline_after = timeline_.snapshot();
+    ApplicationHistoryEntry entry;
+    if (const auto descriptor = actions_.find(command.action_id))
+        entry.label = descriptor->name;
+    else
+        entry.label = command.action_id;
+    if (timeline_after.revision != timeline_before.revision) {
+        entry.timeline_before = timeline_before.timeline;
+        entry.timeline_after = timeline_after.timeline;
+    }
+    if (authoring_before) {
+        entry.authoring_before = *authoring_before;
+        entry.authoring_after = *capture_authoring_state();
+    }
+    if (entry.timeline_before || entry.authoring_before)
+        push_history(std::move(entry));
+    return result;
+}
+
+bool ApplicationService::prepare_history_restore(
+    const ApplicationHistoryEntry &entry, bool undo, std::string &error) {
+    if (pending_history_restore_) {
+        error = "a history restoration is awaiting audio activation";
+        return false;
+    }
+    const auto &authoring = undo ? entry.authoring_before : entry.authoring_after;
+    const auto &timeline = undo ? entry.timeline_before : entry.timeline_after;
+    if (!authoring) {
+        if (!timeline) {
+            error = "history entry has no restorable state";
+            return false;
+        }
+        auto transaction = timeline_.edit();
+        transaction.timeline() = *timeline;
+        transaction.set_generation_seed(timeline->generation_seed);
+        return timeline_.commit(std::move(transaction),
+                                TimelineCommitPolicy::next_audio_callback,
+                                error);
+    }
+    PerformanceMacroService macros(authoring->macros);
+    const auto target_timeline = timeline ? *timeline : timeline_.snapshot().timeline;
+    if (!macros.replace(authoring->macros, target_timeline, authoring->mixer,
+                        error))
+        return false;
+    ModulationConfiguration compiled;
+    if (!macros.compile(authoring->modulation, compiled, error)) return false;
+    PresetActivationRequest activation;
+    activation.mixer = authoring->mixer;
+    activation.mixer.revision = mixer_configuration_.revision + 1;
+    activation.modulation = compiled;
+    if (authoring->samples && authoring->samples->sample_paths.size() >
+                                   activation.samples.size()) {
+        error = "history sample capacity exceeded";
+        return false;
+    }
+    std::array<std::filesystem::path, maximum_preset_samples> sample_paths{};
+    if (authoring->samples) {
+        for (const auto &[slot, path] : authoring->samples->sample_paths) {
+            try {
+                auto sample = std::make_shared<const Sample>(
+                    load_wav(path, engine_.sample_rate()));
+                const auto index = activation.sample_count++;
+                activation.samples[index] = {SampleSlotId{slot}, sample};
+                sample_paths[index] = path;
+            } catch (const std::exception &exception) {
+                error = "cannot restore history sample " + path.string() +
+                        ": " + exception.what();
+                return false;
+            }
+        }
+    }
+    activation.replace_pad_mappings = authoring->samples.has_value();
+    if (authoring->samples) {
+        for (std::size_t pad = 0; pad < activation.pads.size(); ++pad) {
+        auto &mapping = activation.pads[pad];
+        mapping.playback = authoring->samples->pad_settings[pad];
+        if (authoring->samples->region_pads[pad]) {
+            const auto found = std::find_if(
+                authoring->samples->regions.begin(),
+                authoring->samples->regions.end(), [&](const auto &region) {
+                    return region.id == *authoring->samples->region_pads[pad];
+                });
+            if (found == authoring->samples->regions.end()) {
+                error = "history pad references a missing region";
+                return false;
+            }
+            const auto sample = std::find_if(
+                activation.samples.begin(),
+                activation.samples.begin() + activation.sample_count,
+                [&](const auto &candidate) { return candidate.slot == found->slot; });
+            if (sample == activation.samples.begin() + activation.sample_count ||
+                found->start_frame >= found->end_frame ||
+                found->end_frame > sample->sample->frames()) {
+                error = "history region is outside its sample";
+                return false;
+            }
+            mapping.slot = found->slot;
+            mapping.start_frame = found->start_frame;
+            mapping.end_frame = found->end_frame;
+            mapping.gain = found->gain;
+            mapping.playback.reverse =
+                found->direction == RegionDirection::reverse;
+            mapping.region = {found->fade_in_frames, found->fade_out_frames,
+                              found->loop_start_frame, found->loop_end_frame,
+                              found->loop_crossfade_frames, found->fade_curve,
+                              found->loop_enabled};
+            mapping.assigned = true;
+            continue;
+        }
+        if (!authoring->samples->pads[pad]) continue;
+        const auto found = std::find_if(
+            authoring->samples->slices.begin(), authoring->samples->slices.end(),
+            [&](const auto &slice) {
+                return slice.id == *authoring->samples->pads[pad];
+            });
+        if (found == authoring->samples->slices.end()) {
+            error = "history pad references a missing slice";
+            return false;
+        }
+        const auto sample = std::find_if(
+            activation.samples.begin(),
+            activation.samples.begin() + activation.sample_count,
+            [&](const auto &candidate) { return candidate.slot == found->slot; });
+        if (sample == activation.samples.begin() + activation.sample_count ||
+            found->start_frame >= found->end_frame ||
+            found->end_frame > sample->sample->frames()) {
+            error = "history slice is outside its sample";
+            return false;
+        }
+        mapping.slot = found->slot;
+        mapping.start_frame = found->start_frame;
+        mapping.end_frame = found->end_frame;
+        mapping.gain = found->gain;
+        mapping.assigned = true;
+        }
+    }
+    for (const auto &[instance, parameters] : authoring->synth_parameters)
+        for (const auto &[id, value] : parameters) {
+            const auto destination = resolve_parameter_destination(id);
+            if (!destination ||
+                destination->target != ParameterTarget::subtractive_synth ||
+                activation.synth_parameter_count ==
+                    activation.synth_parameters.size()) {
+                error = "history contains an invalid synth parameter target";
+                return false;
+            }
+            activation.synth_parameters[activation.synth_parameter_count++] = {
+                instance, static_cast<SynthParameter>(destination->parameter),
+                static_cast<float>(value)};
+        }
+    PendingHistoryRestore pending;
+    pending.entry = entry;
+    pending.target = *authoring;
+    pending.target.mixer = activation.mixer;
+    pending.activation = activation;
+    pending.sample_publications.fill(0);
+    pending.undo = undo;
+    if (!engine_.publish_preset_activation(
+            activation, pending.activation_sequence,
+            pending.sample_publications, error))
+        return false;
+    for (std::size_t i = 0; i < activation.sample_count; ++i)
+        if (pending.target.samples)
+            pending.target.samples->sample_paths
+                [activation.samples[i].slot.value] = sample_paths[i];
+    pending_history_restore_ = std::move(pending);
+    error.clear();
+    return true;
 }
 CommandResult
 ApplicationService::execute_locked(const ApplicationCommand &command,
@@ -3981,6 +4247,33 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                             "portable export has unresolved assets"};
                 return {true, sequence, before.revision, {}};
             }
+            if (command.action_id == "preset.repair-asset.v1" ||
+                command.action_id == "preset.repair-prefix.v1") {
+                PresetLibrary library(
+                    *argument<std::string>(command, "library"));
+                const auto preset_id =
+                    *argument<std::string>(command, "preset_id");
+                PresetValidation repaired;
+                if (command.action_id == "preset.repair-asset.v1") {
+                    const PresetAssetRelink mapping{
+                        std::filesystem::path(
+                            *argument<std::string>(command, "missing")),
+                        std::filesystem::path(
+                            *argument<std::string>(command, "replacement"))};
+                    repaired = library.repair_assets(
+                        preset_id, {mapping}, {}, engine_.sample_rate());
+                } else {
+                    const PresetDirectoryRelink mapping{
+                        std::filesystem::path(*argument<std::string>(
+                            command, "missing_prefix")),
+                        std::filesystem::path(*argument<std::string>(
+                            command, "replacement_prefix"))};
+                    repaired = library.repair_assets(
+                        preset_id, {}, {mapping}, engine_.sample_rate());
+                }
+                return {repaired.valid, sequence, before.revision,
+                        repaired.errors.empty() ? "" : repaired.errors.front()};
+            }
             if (command.action_id == "preset.relink-asset.v1" ||
                 command.action_id == "preset.relink-prefix.v1") {
                 std::lock_guard lock(mutex_);
@@ -4057,6 +4350,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     changed_locked();
                     return {false, sequence, state_.revision, error};
                 }
+                pending.history_before = capture_authoring_state(true);
                 pending.published = true;
                 state_.preset_application.status = "activating";
                 state_.preset_application.progress = 0.8F;
@@ -4134,6 +4428,10 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
     }
     if (command.action_id.rfind("project.", 0) == 0) {
         try {
+            if (pending_project_recovery_ &&
+                command.action_id != "project.query.v1")
+                return {false, sequence, before.revision,
+                        "project dependency recovery is awaiting audio activation"};
             if ((command.action_id == "project.new.v1" ||
                  command.action_id == "project.open.v1" ||
                  command.action_id == "project.close.v1") &&
@@ -4519,6 +4817,147 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 project_ = std::move(relinked);
                 state_.missing_assets = project_.missing_assets;
                 state_.project_dirty = true;
+                changed_locked();
+                return {true, sequence, state_.revision, {}};
+            }
+            if (command.action_id == "project.relink-prefix.v1") {
+                if (pending_project_recovery_)
+                    return {false, sequence, before.revision,
+                            "a project recovery is already pending"};
+                auto repaired = std::make_unique<Project>(project_);
+                std::vector<std::filesystem::path> unresolved;
+                const ProjectDirectoryRelink mapping{
+                    std::filesystem::path(*argument<std::string>(
+                        command, "missing_prefix")),
+                    std::filesystem::path(*argument<std::string>(
+                        command, "replacement_prefix"))};
+                if (!relink_project_assets(
+                        *repaired, {}, {mapping},
+                        engine_.sample_rate(), unresolved, error))
+                    return {false, sequence, before.revision, std::move(error)};
+                auto pending = std::make_unique<PendingProjectRecovery>();
+                pending->project = std::move(*repaired);
+                pending->activation.mixer = mixer_configuration_;
+                PerformanceMacroService macros(
+                    pending->project.performance_macros);
+                if (!macros.compile(pending->project.modulation,
+                                    pending->activation.modulation, error))
+                    return {false, sequence, before.revision, std::move(error)};
+                if (pending->project.samples.sample_paths.size() >
+                    pending->activation.samples.size())
+                    return {false, sequence, before.revision,
+                            "project sample capacity exceeded"};
+                for (const auto &[slot, path] :
+                     pending->project.samples.sample_paths) {
+                    try {
+                        auto sample = std::make_shared<const Sample>(
+                            load_wav(path, engine_.sample_rate()));
+                        const auto index = pending->activation.sample_count++;
+                        pending->activation.samples[index] =
+                            {SampleSlotId{slot}, sample};
+                        pending->sample_paths[index] = path;
+                    } catch (const std::exception &exception) {
+                        return {false, sequence, before.revision,
+                                "cannot prepare recovered sample " +
+                                    path.string() + ": " + exception.what()};
+                    }
+                }
+                const auto prepared_sample = [&](SampleSlotId slot)
+                    -> std::shared_ptr<const Sample> {
+                    const auto found = std::find_if(
+                        pending->activation.samples.begin(),
+                        pending->activation.samples.begin() +
+                            pending->activation.sample_count,
+                        [&](const auto &candidate) {
+                            return candidate.slot == slot;
+                        });
+                    return found == pending->activation.samples.begin() +
+                                        pending->activation.sample_count
+                        ? nullptr
+                        : found->sample;
+                };
+                for (const auto &slice : pending->project.samples.slices) {
+                    const auto sample = prepared_sample(slice.slot);
+                    if (!sample || !slice.id ||
+                        slice.start_frame >= slice.end_frame ||
+                        slice.end_frame > sample->frames() ||
+                        !std::isfinite(slice.gain) || slice.gain < 0)
+                        return {false, sequence, before.revision,
+                                "recovered project contains an invalid slice"};
+                }
+                for (const auto &region : pending->project.samples.regions) {
+                    const auto sample = prepared_sample(region.slot);
+                    const auto length = region.end_frame - region.start_frame;
+                    if (!sample || !region.id ||
+                        region.start_frame >= region.end_frame ||
+                        region.end_frame > sample->frames() ||
+                        !std::isfinite(region.gain) || region.gain < 0 ||
+                        region.fade_in_frames > length ||
+                        region.fade_out_frames > length ||
+                        (region.loop_enabled &&
+                         (region.loop_start_frame < region.start_frame ||
+                          region.loop_start_frame >= region.loop_end_frame ||
+                          region.loop_end_frame > region.end_frame ||
+                          region.loop_crossfade_frames >
+                              region.loop_end_frame -
+                                  region.loop_start_frame)))
+                        return {false, sequence, before.revision,
+                                "recovered project contains an invalid region"};
+                }
+                pending->activation.replace_pad_mappings = true;
+                for (std::size_t pad = 0;
+                     pad < pending->activation.pads.size();
+                     ++pad) {
+                    auto &mapping = pending->activation.pads[pad];
+                    mapping.playback =
+                        pending->project.samples.pad_settings[pad];
+                    if (pending->project.samples.region_pads[pad]) {
+                        const auto found = std::find_if(
+                            pending->project.samples.regions.begin(),
+                            pending->project.samples.regions.end(),
+                            [&](const auto &region) {
+                                return region.id ==
+                                    *pending->project.samples.region_pads[pad];
+                            });
+                        if (found == pending->project.samples.regions.end())
+                            return {false, sequence, before.revision,
+                                    "recovered pad references a missing region"};
+                        mapping.slot = found->slot;
+                        mapping.start_frame = found->start_frame;
+                        mapping.end_frame = found->end_frame;
+                        mapping.gain = found->gain;
+                        mapping.playback.reverse =
+                            found->direction == RegionDirection::reverse;
+                        mapping.region = {
+                            found->fade_in_frames, found->fade_out_frames,
+                            found->loop_start_frame, found->loop_end_frame,
+                            found->loop_crossfade_frames, found->fade_curve,
+                            found->loop_enabled};
+                        mapping.assigned = true;
+                    } else if (pending->project.samples.pads[pad]) {
+                        const auto found = std::find_if(
+                            pending->project.samples.slices.begin(),
+                            pending->project.samples.slices.end(),
+                            [&](const auto &slice) {
+                                return slice.id ==
+                                    *pending->project.samples.pads[pad];
+                            });
+                        if (found == pending->project.samples.slices.end())
+                            return {false, sequence, before.revision,
+                                    "recovered pad references a missing slice"};
+                        mapping.slot = found->slot;
+                        mapping.start_frame = found->start_frame;
+                        mapping.end_frame = found->end_frame;
+                        mapping.gain = found->gain;
+                        mapping.assigned = true;
+                    }
+                }
+                if (!engine_.publish_preset_activation(
+                        pending->activation, pending->activation_sequence,
+                        pending->sample_publications, error))
+                    return {false, sequence, before.revision, std::move(error)};
+                pending_project_recovery_ = std::move(*pending);
+                state_.project_error.clear();
                 changed_locked();
                 return {true, sequence, state_.revision, {}};
             }
@@ -6407,13 +6846,25 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    command.action_id == "edit.redo.v1") {
             if (edit_group_)
                 error = "finish or cancel the grouped edit first";
+            else if (pending_history_restore_)
+                error = "a history restoration is awaiting audio activation";
             else {
-                const bool ok =
-                    command.action_id == "edit.undo.v1"
-                        ? timeline_.undo(
-                              TimelineCommitPolicy::next_audio_callback, error)
-                        : timeline_.redo(
-                              TimelineCommitPolicy::next_audio_callback, error);
+                const auto undo = command.action_id == "edit.undo.v1";
+                auto &source = undo ? history_undo_ : history_redo_;
+                auto &destination = undo ? history_redo_ : history_undo_;
+                bool ok{};
+                if (!source.empty()) {
+                    auto entry = std::make_unique<ApplicationHistoryEntry>(
+                        source.back());
+                    ok = prepare_history_restore(*entry, undo, error);
+                    if (ok && !pending_history_restore_) {
+                        source.pop_back();
+                        if (destination.size() == application_history_capacity)
+                            destination.pop_front();
+                        destination.push_back(std::move(*entry));
+                    }
+                } else
+                    error = undo ? "nothing to undo" : "nothing to redo";
                 if (ok) {
                     selected_event_id_.reset();
                     changed_locked();
@@ -8538,6 +8989,41 @@ void ApplicationService::synchronize_locked() const {
         state_.project_dirty = true;
         ++state_.revision;
     }
+    if (pending_project_recovery_ &&
+        engine_.preset_activation_cancelled(
+            pending_project_recovery_->activation_sequence)) {
+        engine_.reclaim_preset_activations();
+        pending_project_recovery_.reset();
+        state_.project_error = "project dependency recovery was cancelled";
+        ++state_.revision;
+    }
+    if (pending_project_recovery_ &&
+        engine_.preset_activation_applied(
+            pending_project_recovery_->activation_sequence)) {
+        auto pending = std::make_unique<PendingProjectRecovery>(
+            std::move(*pending_project_recovery_));
+        for (std::size_t i = 0; i < pending->activation.sample_count; ++i)
+            samples_.adopt_preset_activation(
+                pending->activation.samples[i].slot,
+                pending->activation.samples[i].sample,
+                pending->sample_paths[i], pending->sample_publications[i]);
+        std::string recovery_error;
+        if (slices_.adopt_activated_project(pending->project.samples,
+                                            recovery_error)) {
+            project_ = std::move(pending->project);
+            state_.missing_assets = project_.missing_assets;
+            state_.project_dirty = true;
+            state_.project_error.clear();
+        } else {
+            state_.project_error =
+                "project dependency recovery adoption failed: " +
+                recovery_error;
+        }
+        (void)engine_.finalize_preset_activation(
+            pending->activation_sequence);
+        pending_project_recovery_.reset();
+        ++state_.revision;
+    }
     if (pending_preset_ && pending_preset_->published &&
         engine_.preset_activation_cancelled(
             pending_preset_->activation_sequence)) {
@@ -8565,6 +9051,31 @@ void ApplicationService::synchronize_locked() const {
         modulation_configuration_ = pending.activation.modulation;
         for (const auto &[id, value] : pending.synth_parameters)
             synth_instance_parameters_[pending.target_instrument][id] = value;
+        if (pending.history_before) {
+            auto after = capture_authoring_state(true);
+            const auto same_sample_slots =
+                pending.history_before->samples && after->samples &&
+                pending.history_before->samples->sample_paths.size() ==
+                    after->samples->sample_paths.size() &&
+                std::equal(
+                    pending.history_before->samples->sample_paths.begin(),
+                    pending.history_before->samples->sample_paths.end(),
+                    after->samples->sample_paths.begin(),
+                    [](const auto &left, const auto &right) {
+                        return left.first == right.first;
+                    });
+            if (same_sample_slots) {
+                auto entry = std::make_unique<ApplicationHistoryEntry>();
+                entry->label = "Apply preset";
+                entry->authoring_before = *pending.history_before;
+                entry->authoring_after = std::move(*after);
+                push_history(std::move(*entry));
+            } else {
+                state_.preset_application.error =
+                    "preset applied; Undo is unavailable because the sample "
+                    "slot set changed";
+            }
+        }
         state_.project_dirty = true;
         state_.preset_application.status = "applied";
         state_.preset_application.progress = 1;
@@ -8572,6 +9083,77 @@ void ApplicationService::synchronize_locked() const {
         (void)engine_.finalize_preset_activation(
             pending.activation_sequence);
         pending_preset_.reset();
+    }
+    if (pending_history_restore_ &&
+        engine_.preset_activation_cancelled(
+            pending_history_restore_->activation_sequence)) {
+        engine_.reclaim_preset_activations();
+        pending_history_restore_.reset();
+        state_.project_error = "history restoration was cancelled";
+        ++state_.revision;
+    }
+    if (pending_history_restore_ &&
+        engine_.preset_activation_applied(
+            pending_history_restore_->activation_sequence)) {
+        auto pending = std::make_unique<PendingHistoryRestore>(
+            std::move(*pending_history_restore_));
+        const auto &timeline_target = pending->undo
+            ? pending->entry.timeline_before : pending->entry.timeline_after;
+        std::string restore_error;
+        bool valid = performance_macros_.replace(
+            pending->target.macros,
+            timeline_target ? *timeline_target : timeline_.snapshot().timeline,
+            pending->target.mixer, restore_error);
+        if (valid && timeline_target) {
+            auto transaction = timeline_.edit();
+            transaction.timeline() = *timeline_target;
+            transaction.set_generation_seed(timeline_target->generation_seed);
+            valid = timeline_.commit(
+                std::move(transaction),
+                TimelineCommitPolicy::next_audio_callback, restore_error);
+        }
+        if (valid) {
+            for (std::size_t i = 0;
+                 pending->target.samples &&
+                 i < pending->activation.sample_count; ++i) {
+                const auto &sample = pending->activation.samples[i];
+                const auto path = pending->target.samples->sample_paths.find(
+                    sample.slot.value);
+                samples_.adopt_preset_activation(
+                    sample.slot, sample.sample,
+                    path == pending->target.samples->sample_paths.end()
+                        ? std::filesystem::path{}
+                        : path->second,
+                    pending->sample_publications[i]);
+            }
+            if (pending->target.samples)
+                valid = slices_.adopt_activated_project(
+                    *pending->target.samples, restore_error);
+        }
+        if (valid) {
+            mixer_configuration_ = pending->target.mixer;
+            modulation_configuration_ = pending->target.modulation;
+            synth_instance_parameters_ = pending->target.synth_parameters;
+            project_.mixer = mixer_configuration_;
+            project_.modulation = modulation_configuration_;
+            project_.performance_macros = pending->target.macros;
+            if (pending->target.samples)
+                project_.samples = *pending->target.samples;
+            auto &source = pending->undo ? history_undo_ : history_redo_;
+            auto &destination = pending->undo ? history_redo_ : history_undo_;
+            if (!source.empty()) source.pop_back();
+            if (destination.size() == application_history_capacity)
+                destination.pop_front();
+            destination.push_back(std::move(pending->entry));
+            state_.project_dirty = true;
+            state_.project_error.clear();
+        } else {
+            state_.project_error = "history restoration failed: " + restore_error;
+        }
+        (void)engine_.finalize_preset_activation(
+            pending->activation_sequence);
+        pending_history_restore_.reset();
+        ++state_.revision;
     }
     state_.midi = project_.midi;
     state_.midi_dropped =
@@ -8691,7 +9273,11 @@ void ApplicationService::synchronize_locked() const {
             queued_launch_frame_.reset();
         }
     }
-    const auto history = timeline_.history_status();
+    const auto history = TimelineHistoryStatus{
+        !history_undo_.empty() && !pending_history_restore_,
+        !history_redo_.empty() && !pending_history_restore_,
+        history_undo_.size(), history_redo_.size(),
+        application_history_capacity};
     auto slots = samples_.states();
     const auto desired_tracks =
         std::min(timeline.timeline.tracks.size(), maximum_mixer_tracks);
@@ -8877,6 +9463,9 @@ void ApplicationService::synchronize_locked() const {
     state_.timeline_revision = timeline.revision;
     state_.can_undo = history.can_undo;
     state_.can_redo = history.can_redo;
+    state_.history_pending = pending_history_restore_.has_value();
+    state_.undo_label = history_undo_.empty() ? "" : history_undo_.back().label;
+    state_.redo_label = history_redo_.empty() ? "" : history_redo_.back().label;
     state_.undo_depth = history.undo_depth;
     state_.redo_depth = history.redo_depth;
     state_.history_capacity = history.capacity;

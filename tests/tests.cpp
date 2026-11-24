@@ -4443,6 +4443,85 @@ void test_unified_project_persistence() {
               loaded.samples.sample_paths.at(3) == replacement,
           "project sample relinking");
 
+    Project multi_relink = loaded;
+    multi_relink.modulation = {};
+    multi_relink.performance_macros = {};
+    multi_relink.mixer = {};
+    const auto old_assets = relocated / "old-assets";
+    multi_relink.samples.sample_paths = {
+        {3, old_assets / "kick.wav"}, {4, old_assets / "snare.wav"}};
+    multi_relink.missing_assets = {old_assets / "kick.wav",
+                                   old_assets / "snare.wav"};
+    const auto missing_multi_project = relocated / "missing-multi-project";
+    save_project(multi_relink, missing_multi_project);
+    const auto repaired_assets = relocated / "repaired-assets";
+    std::filesystem::create_directories(repaired_assets);
+    write_pcm16_wav(repaired_assets / "kick.wav", 48000, 1,
+                    std::vector<float>(4096, 0.25F));
+    std::vector<std::filesystem::path> unresolved;
+    const auto before_relink = multi_relink.samples.sample_paths;
+    check(!relink_project_assets(
+              multi_relink, {}, {{old_assets, relocated / "invalid-assets"}},
+              48000, unresolved, error) &&
+              multi_relink.samples.sample_paths == before_relink,
+          "invalid multi-asset recovery is atomic");
+    write_pcm16_wav(repaired_assets / "snare.wav", 48000, 1,
+                    std::vector<float>(4096, -0.25F));
+    check(relink_project_assets(multi_relink, {},
+                                {{old_assets, repaired_assets}}, 48000,
+                                unresolved, error) &&
+              unresolved.empty() && multi_relink.missing_assets.empty() &&
+              multi_relink.samples.sample_paths.at(3) ==
+                  repaired_assets / "kick.wav" &&
+              multi_relink.samples.sample_paths.at(4) ==
+                  repaired_assets / "snare.wav",
+          "directory-prefix recovery commits all project dependencies");
+
+    {
+        AudioEngine recovery_engine;
+        SampleManager recovery_manager(recovery_engine);
+        TimelineService recovery_timeline(
+            [&](const Timeline &timeline, std::string &publish_error) {
+                return recovery_engine.queue_timeline(timeline, publish_error);
+            });
+        ApplicationService recovery_application(
+            recovery_engine, recovery_timeline, recovery_manager);
+        const auto opened = recovery_application.execute(
+            {"project.open.v1",
+             {{"path", missing_multi_project.string()}, {"discard", false}}});
+        if (!opened.accepted)
+            throw std::runtime_error(
+                "open project with multiple missing dependencies: " +
+                opened.error);
+        const auto rejected = recovery_application.execute(
+            {"project.relink-prefix.v1",
+             {{"missing_prefix", old_assets.string()},
+              {"replacement_prefix", (relocated / "invalid-assets").string()}}});
+        check(!rejected.accepted &&
+                  recovery_application.snapshot().missing_assets.size() == 2,
+              "failed semantic recovery leaves every reference unchanged");
+        check(recovery_application
+                  .execute({"project.relink-prefix.v1",
+                            {{"missing_prefix", old_assets.string()},
+                             {"replacement_prefix", repaired_assets.string()}}})
+                  .accepted,
+              "prepared semantic multi-asset recovery");
+        std::array<float, 128> recovery_left{}, recovery_right{};
+        recovery_engine.process(recovery_left, recovery_right);
+        const auto recovered_state = recovery_application.snapshot();
+        const auto recovered_three =
+            recovery_manager.status(SampleSlotId{3});
+        const auto recovered_four = recovery_manager.status(SampleSlotId{4});
+        if (!recovered_state.missing_assets.empty() ||
+            !recovered_three.has_sample || !recovered_four.has_sample)
+            throw std::runtime_error(
+                "multi-asset recovery acknowledgement: missing=" +
+                std::to_string(recovered_state.missing_assets.size()) +
+                " slot3=" + std::to_string(recovered_three.has_sample) +
+                " slot4=" + std::to_string(recovered_four.has_sample) +
+                " error=" + recovered_state.project_error);
+    }
+
     const auto action_project = relocated / "action-project";
     AudioEngine engine;
     SampleManager manager(engine);

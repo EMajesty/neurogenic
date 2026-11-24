@@ -15,9 +15,11 @@ void check(bool value, const char *message) {
 }
 void execute(ApplicationService &application, std::string id,
              std::map<std::string, ApplicationValue> arguments = {}) {
+    const auto action = id;
     const auto result = application.execute(
         {std::move(id), std::move(arguments), "modulation-authoring-test", 0});
-    if (!result.accepted) throw std::runtime_error(result.error);
+    if (!result.accepted)
+        throw std::runtime_error(action + ": " + result.error);
 }
 void process(AudioEngine &engine, std::size_t frames = 128) {
     std::array<float, 128> left{}, right{};
@@ -176,6 +178,48 @@ int main() {
         check(std::abs(application.snapshot().modulation.sources[0].rate_hz - 1.0F) <
                   1e-6F,
               "source reset restores defaults");
+
+        const auto history_state = application.snapshot();
+        const auto history_route_count = history_state.modulation.route_count;
+        const auto history_route = history_state.modulation.routes[0].id;
+        const auto history_macro = history_state.performance_macros.macros[0];
+        const auto history_assignment = history_macro.assignments[0].id;
+        execute(application, "macro.assignment-delete.v1",
+                {{"macro_id", static_cast<std::int64_t>(history_macro.id)},
+                 {"assignment_id",
+                  static_cast<std::int64_t>(history_assignment)}});
+        const auto route_count_after_macro_delete =
+            application.snapshot().modulation.route_count;
+        execute(application, "modulation.route-delete.v1",
+                {{"route_id", static_cast<std::int64_t>(history_route)}});
+        check(application.snapshot().undo_depth >= 2,
+              "cross-subsystem history records chronological authoring edits");
+        execute(application, "edit.undo.v1");
+        process(engine);
+        const auto undo_route_count = application.snapshot().modulation.route_count;
+        check(undo_route_count == route_count_after_macro_delete,
+              "undo restores the deleted modulation route after acknowledgement");
+        execute(application, "edit.undo.v1");
+        process(engine);
+        check(application.snapshot().performance_macros.macros[0]
+                      .assignments.size() == 2 &&
+                  application.snapshot().modulation.route_count ==
+                      history_route_count,
+              "second chronological undo restores macro assignment");
+        execute(application, "edit.redo.v1");
+        process(engine);
+        check(application.snapshot().performance_macros.macros[0]
+                      .assignments.size() == 1,
+              "redo reapplies macro edit through prepared activation");
+        execute(application, "edit.redo.v1");
+        process(engine);
+        check(application.snapshot().modulation.route_count + 1 ==
+                  route_count_after_macro_delete,
+              "redo reapplies modulation edit in chronological order");
+        execute(application, "edit.undo.v1");
+        process(engine);
+        execute(application, "edit.undo.v1");
+        process(engine);
 
         const auto project_path = std::filesystem::temp_directory_path() /
                                   "neurogenic-modulation-authoring.ngp";
