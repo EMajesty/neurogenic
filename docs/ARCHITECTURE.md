@@ -509,3 +509,13 @@ Trigger probability and conditions are immutable compiled-plan metadata.
 Scheduling uses a stateless integer hash rather than a callback RNG, and Fill
 crosses into the audio thread through the bounded transport queue. Ratchets are
 expanded at preparation time; the callback performs no allocation or lookup.
+
+## Slint presentation publication
+
+Slint remains a client of copied `ApplicationState`. Structural fingerprints
+select full presentation reconstruction; transport/playhead, meter, workflow
+progress, parameter and contextual-control changes use bounded telemetry updates.
+Only the active page receives telemetry model rows, equal-size vector models
+retain identity, and page activation refreshes authoritative state. This adds no
+frontend dependency, allocation or lock to the audio callback. Complete snapshot
+construction remains control-side and is a measured future optimization boundary.

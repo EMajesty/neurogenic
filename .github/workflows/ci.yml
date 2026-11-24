@@ -29,6 +29,14 @@ jobs:
         run: nix develop --no-update-lock-file --command cmake --build --preset slint
       - name: Run Slint-enabled CTest suite
         run: nix develop --no-update-lock-file --command ctest --preset slint
+      - name: Retain rendered Slint diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: slint-rendered-failure-artifacts
+          path: build/slint/slint-*.ppm*
+          if-no-files-found: warn
+          retention-days: 7
 
   nix-build-and-test:
     runs-on: ubuntu-24.04

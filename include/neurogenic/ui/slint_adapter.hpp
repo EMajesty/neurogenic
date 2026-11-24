@@ -345,6 +345,22 @@ struct SlintUiState {
     SlintRecordingWorkflowState recording;
 };
 
+enum class SlintRefreshKind : std::uint8_t { none, full, telemetry };
+
+struct SlintRefreshDiagnostics {
+    std::uint64_t calls{}, full_rebuilds{}, telemetry_updates{}, skipped{};
+    std::uint64_t snapshot_nanoseconds{}, construction_nanoseconds{},
+        maximum_refresh_nanoseconds{};
+    SlintRefreshKind last_kind{SlintRefreshKind::none};
+};
+
+struct SlintPublicationDiagnostics {
+    std::uint64_t passes{}, model_creations{}, model_resets{}, model_row_updates{};
+};
+
+[[nodiscard]] SlintPublicationDiagnostics slint_publication_diagnostics() noexcept;
+void reset_slint_publication_diagnostics() noexcept;
+
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
 // tests. It owns no engine state: every value is copied from ApplicationState
 // and every mutation goes through a semantic action or ParameterBindingService.
@@ -355,6 +371,9 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool refresh();
     [[nodiscard]] const SlintUiState &state() const noexcept {
         return state_;
+    }
+    [[nodiscard]] const SlintRefreshDiagnostics &refresh_diagnostics() const noexcept {
+        return refresh_diagnostics_;
     }
     [[nodiscard]] bool invoke_action(std::string action_id);
     [[nodiscard]] bool turn_encoder(std::size_t index, double steps,
@@ -480,6 +499,8 @@ class SlintFrontendAdapter {
     AppliancePreferences staged_preferences_;
     std::uint64_t setup_runtime_revision_{};
     SlintUiState state_;
+    SlintRefreshDiagnostics refresh_diagnostics_;
+    std::uint64_t structural_fingerprint_{};
     std::string last_error_;
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};
@@ -492,6 +513,10 @@ struct SlintOptions {
     std::function<bool()> request_close;
     std::function<bool()> external_stop_requested;
     SlintSetupServices setup;
+    // Generated-component CI hook. The appliance CLI never enables this.
+    bool interaction_test{};
+    bool interaction_test_backend{true};
+    std::string screenshot_path;
 };
 
 [[nodiscard]] bool slint_available() noexcept;

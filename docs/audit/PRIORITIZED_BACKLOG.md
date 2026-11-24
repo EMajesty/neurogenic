@@ -90,9 +90,11 @@ save/publication, and waits for audio-active acknowledgement.
 
 ### AUD-007 — Production CI does not compile Slint
 
-**Task 081 status: compilation portion resolved.** CI configures pinned Slint,
-compiles generated UI and the production executable, and runs CTest. Rendered
-interaction remains AUD-011/Task 082.
+**Resolved by Tasks 081–082.** CI configures pinned Slint, compiles generated UI
+and the production executable, runs generated-component/rendered CTest at both
+target resolutions, and retains PPM diagnostics on failure. Native AArch64
+frontend build instructions are documented; physical rendering remains hardware
+validation.
 
 - **Impact:** generated UI/link regressions can reach main.
 - **Evidence:** `flake.nix` forces `NEUROGENIC_ENABLE_SLINT=OFF`; CI has no Slint
@@ -103,6 +105,12 @@ interaction remains AUD-011/Task 082.
   AArch64 compile path documented.
 
 ### AUD-008 — Full UI models rebuild on high-frequency revisions
+
+**Task 082 substantially resolved.** Structural fingerprints split full rebuilds
+from telemetry, stable models use row publication, and inactive pages are skipped
+for high-frequency updates. The workload measured a 13.9% median refresh
+reduction and asserts no structural rebuild during playback. Complete
+`ApplicationService::snapshot()` copying remains a measured bottleneck.
 
 - **Impact:** possible UI stalls/allocation pressure during playback/metering.
 - **Evidence:** full `SlintUiState` rebuild and replacement of all
@@ -137,6 +145,13 @@ interaction remains AUD-011/Task 082.
   refresh and next-page behavior tested.
 
 ### AUD-011 — Slint rendered interaction/responsiveness is unverified
+
+**Software portion resolved by Task 082; physical validation remains.** The
+production generated component and callbacks render all eight pages plus modal
+state at both resolutions using Slint's software renderer. Tests cover semantic
+round trips and stable model identity. The pinned C++ API does not provide
+reliable coordinate-level pointer/touch simulation with pixels, so compositor
+input, physical touch, focus ergonomics and readability remain hardware QA.
 
 - **Impact:** controls may clip, focus poorly, or fail touch use despite model
   tests.

@@ -2,20 +2,169 @@
 #include "neurogenic/audio/slicing.hpp"
 #include "performance.h"
 #include <slint.h>
+#include <slint-platform.h>
 #include <algorithm>
 #include <cmath>
 #include <chrono>
 #include <cstdlib>
+#include <fstream>
 #include <memory>
 
 namespace neurogenic {
 namespace {
+SlintPublicationDiagnostics publication_diagnostics;
+
+struct PublicationModels {
+    std::shared_ptr<slint::VectorModel<PageItem>> pages;
+    std::shared_ptr<slint::VectorModel<SceneItem>> scenes;
+    std::shared_ptr<slint::VectorModel<ContextItem>> encoders, functions;
+    std::shared_ptr<slint::VectorModel<PadItem>> pads;
+    std::shared_ptr<slint::VectorModel<StepItem>> steps;
+    std::shared_ptr<slint::VectorModel<PatternItem>> patterns;
+    std::shared_ptr<slint::VectorModel<ArrangementItem>> arrangement;
+    std::shared_ptr<slint::VectorModel<float>> waveform_left, waveform_right,
+        slice_markers;
+    std::shared_ptr<slint::VectorModel<SliceItem>> slices;
+    std::shared_ptr<slint::VectorModel<RegionItem>> regions;
+    std::shared_ptr<slint::VectorModel<SoundParameterItem>> sound_parameters;
+    std::shared_ptr<slint::VectorModel<SoundModulationItem>> sound_modulation;
+    std::shared_ptr<slint::VectorModel<MixerChannelItem>> mixer_channels;
+    std::shared_ptr<slint::VectorModel<MixerFxItem>> mixer_fx;
+    std::shared_ptr<slint::VectorModel<FxOwnerItem>> fx_owners;
+    std::shared_ptr<slint::VectorModel<FxInstanceItem>> fx_effects;
+    std::shared_ptr<slint::VectorModel<FxParameterItem>> fx_parameters;
+    std::shared_ptr<slint::VectorModel<FxModulatorItem>> fx_modulators;
+    std::shared_ptr<slint::VectorModel<FxRouteItem>> fx_routes;
+    std::shared_ptr<slint::VectorModel<FxMacroItem>> fx_macros;
+    std::shared_ptr<slint::VectorModel<BrowserEntryItem>> browser_entries;
+    std::shared_ptr<slint::VectorModel<SetupDeviceItem>> audio_inputs,
+        audio_outputs, midi_inputs, midi_outputs;
+    std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
+};
+
+class HeadlessWindowAdapter final : public slint::platform::WindowAdapter {
+  public:
+    slint::platform::AbstractRenderer &renderer() override { return renderer_; }
+    slint::PhysicalSize size() override { return size_; }
+    void set_size(slint::PhysicalSize value) override {
+        size_ = value;
+        pixels_.resize(static_cast<std::size_t>(size_.width) * size_.height);
+        window().dispatch_resize_event(slint::LogicalSize(
+            {static_cast<float>(size_.width), static_cast<float>(size_.height)}));
+    }
+    void set_visible(bool) override {}
+    void request_redraw() override { redraw_requested_ = true; }
+    void render() {
+        slint::platform::update_timers_and_animations();
+        renderer_.render(pixels_, size_.width);
+        redraw_requested_ = false;
+    }
+    [[nodiscard]] const std::vector<slint::Rgb8Pixel> &pixels() const noexcept {
+        return pixels_;
+    }
+  private:
+    slint::platform::SoftwareRenderer renderer_{
+        slint::platform::SoftwareRenderer::RepaintBufferType::NewBuffer};
+    slint::PhysicalSize size_{{1280, 800}};
+    std::vector<slint::Rgb8Pixel> pixels_{1280U * 800U};
+    bool redraw_requested_{};
+};
+
+HeadlessWindowAdapter *headless_window{};
+
+class HeadlessPlatform final : public slint::platform::Platform {
+  public:
+    std::unique_ptr<slint::platform::WindowAdapter> create_window_adapter() override {
+        auto result = std::make_unique<HeadlessWindowAdapter>();
+        headless_window = result.get();
+        return result;
+    }
+};
+
+template <typename T, typename Setter>
+void publish_model(std::shared_ptr<slint::VectorModel<T>> &model,
+                   std::vector<T> values, Setter setter) {
+    if (!model) {
+        model = std::make_shared<slint::VectorModel<T>>(std::move(values));
+        setter(model);
+        ++publication_diagnostics.model_creations;
+    } else if (model->row_count() == values.size()) {
+        for (std::size_t row = 0; row < values.size(); ++row) {
+            model->set_row_data(row, std::move(values[row]));
+            ++publication_diagnostics.model_row_updates;
+        }
+    } else {
+        model->set_vector(std::move(values));
+        ++publication_diagnostics.model_resets;
+    }
+}
+
 slint::SharedString text(const std::string &value) {
     return slint::SharedString(std::string_view(value));
 }
 
 void publish(const SlintUiState &state,
-             const slint::ComponentHandle<PerformanceWindow> &window) {
+             const slint::ComponentHandle<PerformanceWindow> &window,
+             bool reset_models = false,
+             SlintRefreshKind kind = SlintRefreshKind::full) {
+    static PublicationModels models;
+    if (reset_models)
+        models = {};
+    ++publication_diagnostics.passes;
+    if (kind == SlintRefreshKind::telemetry) {
+        window->set_transport_state(text(state.shell.transport));
+        window->set_position(text(state.shell.position));
+        window->set_recording_phase(text(state.recording.phase));
+        window->set_recording_progress(state.recording.progress);
+        window->set_recording_overflows(static_cast<int>(state.recording.overflow_count));
+        window->set_processing_status(text(state.sample.processing_status));
+        window->set_processing_progress(state.sample.processing_progress);
+        window->set_processing_can_cancel(state.sample.processing_can_cancel);
+        window->set_processing_can_publish(state.sample.processing_can_publish);
+        window->set_processing_audio_active(state.sample.processing_audio_active);
+        std::vector<ContextItem> encoders, functions;
+        for (const auto &item : state.context.encoders)
+            encoders.push_back({text(item.label), text(item.value), text(item.unit), item.available});
+        for (const auto &item : state.context.functions)
+            functions.push_back({text(item.label), text(item.value), text(item.unit), item.available});
+        publish_model(models.encoders, std::move(encoders), [&](auto value) { window->set_encoders(value); });
+        publish_model(models.functions, std::move(functions), [&](auto value) { window->set_functions(value); });
+        if (state.shell.page_id == "performance") {
+            std::vector<PadItem> pads;
+            for (const auto &pad : state.performance.pads)
+                pads.push_back({text(pad.label), text(pad.status), pad.active,
+                                pad.queued, pad.selected, pad.available});
+            publish_model(models.pads, std::move(pads), [&](auto value) { window->set_pads(value); });
+        } else if (state.shell.page_id == "sequencer") {
+            std::vector<StepItem> steps;
+            for (const auto &step : state.sequencer.steps)
+                steps.push_back({text(step.label), text(step.status), step.active,
+                                 step.selected, step.playhead, step.available});
+            publish_model(models.steps, std::move(steps), [&](auto value) { window->set_steps(value); });
+        } else if (state.shell.page_id == "sound") {
+            std::vector<SoundParameterItem> parameters;
+            for (const auto &parameter : state.sound.parameters)
+                parameters.push_back({text(parameter.id), text(parameter.name),
+                    text(parameter.value), text(parameter.unit), text(parameter.group),
+                    static_cast<float>(parameter.normalized), parameter.available,
+                    parameter.automatable, parameter.modulatable});
+            publish_model(models.sound_parameters, std::move(parameters), [&](auto value) { window->set_sound_parameters(value); });
+        } else if (state.shell.page_id == "mixer") {
+            std::vector<MixerChannelItem> channels;
+            for (const auto &channel : state.mixer.channels)
+                channels.push_back({static_cast<int>(channel.id), text(channel.name),
+                    text(channel.type), text(channel.route), channel.gain, channel.pan,
+                    channel.meter_left, channel.meter_right, channel.aux_sends[0],
+                    channel.aux_sends[1], channel.mute, channel.solo, channel.clip,
+                    channel.selected, channel.available});
+            publish_model(models.mixer_channels, std::move(channels), [&](auto value) { window->set_mixer_channels(value); });
+        } else if (state.shell.page_id == "setup") {
+            window->set_setup_callback_load(static_cast<float>(state.setup.callback_load));
+            window->set_setup_callback_peak(static_cast<float>(state.setup.callback_peak_load));
+            window->set_setup_xruns(static_cast<int>(state.setup.xruns));
+        }
+        return;
+    }
     window->set_transport_state(text(state.shell.transport));
     window->set_tempo(text(std::to_string(state.shell.tempo_bpm) + " BPM"));
     window->set_project_name(text(state.shell.project_name));
@@ -87,34 +236,27 @@ void publish(const SlintUiState &state,
     for (const auto &pad : state.performance.pads)
         pads.push_back({text(pad.label), text(pad.status), pad.active,
                         pad.queued, pad.selected, pad.available});
-    window->set_pages(
-        std::make_shared<slint::VectorModel<PageItem>>(std::move(pages)));
-    window->set_scenes(
-        std::make_shared<slint::VectorModel<SceneItem>>(std::move(scenes)));
-    window->set_encoders(std::make_shared<slint::VectorModel<ContextItem>>(
-        std::move(encoders)));
-    window->set_functions(std::make_shared<slint::VectorModel<ContextItem>>(
-        std::move(functions)));
-    window->set_pads(
-        std::make_shared<slint::VectorModel<PadItem>>(std::move(pads)));
+    publish_model(models.pages, std::move(pages), [&](auto value) { window->set_pages(value); });
+    publish_model(models.scenes, std::move(scenes), [&](auto value) { window->set_scenes(value); });
+    publish_model(models.encoders, std::move(encoders), [&](auto value) { window->set_encoders(value); });
+    publish_model(models.functions, std::move(functions), [&](auto value) { window->set_functions(value); });
+    publish_model(models.pads, std::move(pads), [&](auto value) { window->set_pads(value); });
     std::vector<StepItem> steps;
     for (const auto &step : state.sequencer.steps)
         steps.push_back({text(step.label), text(step.status), step.active,
                          step.selected, step.playhead, step.available});
-    window->set_steps(std::make_shared<slint::VectorModel<StepItem>>(std::move(steps)));
+    publish_model(models.steps, std::move(steps), [&](auto value) { window->set_steps(value); });
     std::vector<PatternItem> patterns;
     for (const auto &pattern : state.sequencer.patterns)
         patterns.push_back({static_cast<int>(pattern.id), text(pattern.name),
                             pattern.selected, pattern.active, pattern.queued});
-    window->set_patterns(
-        std::make_shared<slint::VectorModel<PatternItem>>(std::move(patterns)));
+    publish_model(models.patterns, std::move(patterns), [&](auto value) { window->set_patterns(value); });
     std::vector<ArrangementItem> arrangement;
     for (const auto &item : state.sequencer.arrangement)
         arrangement.push_back({static_cast<int>(item.id), text(item.label),
                                text(item.range), text(item.kind), item.selected,
                                item.enabled});
-    window->set_arrangement_items(
-        std::make_shared<slint::VectorModel<ArrangementItem>>(std::move(arrangement)));
+    publish_model(models.arrangement, std::move(arrangement), [&](auto value) { window->set_arrangement_items(value); });
     const auto visible_fraction = 1.0F / std::max(1.0F, state.sample.zoom);
     const auto visible_start = state.sample.offset * (1.0F - visible_fraction);
     const auto visible_end = visible_start + visible_fraction;
@@ -137,12 +279,9 @@ void publish(const SlintUiState &state,
             if (normalized >= visible_start && normalized <= visible_end)
                 markers.push_back((normalized - visible_start) / visible_fraction);
         }
-    window->set_waveform_left(
-        std::make_shared<slint::VectorModel<float>>(std::move(waveform_left)));
-    window->set_waveform_right(
-        std::make_shared<slint::VectorModel<float>>(std::move(waveform_right)));
-    window->set_slice_markers(
-        std::make_shared<slint::VectorModel<float>>(std::move(markers)));
+    publish_model(models.waveform_left, std::move(waveform_left), [&](auto value) { window->set_waveform_left(value); });
+    publish_model(models.waveform_right, std::move(waveform_right), [&](auto value) { window->set_waveform_right(value); });
+    publish_model(models.slice_markers, std::move(markers), [&](auto value) { window->set_slice_markers(value); });
     const auto normalized_region_start = state.sample.frames
         ? static_cast<float>(state.sample.region_start) / state.sample.frames : 0.0F;
     const auto normalized_region_end = state.sample.frames
@@ -157,16 +296,14 @@ void publish(const SlintUiState &state,
                           text(std::to_string(slice.start_frame) + ".." +
                                std::to_string(slice.end_frame)),
                           slice.selected, slice.assigned});
-    window->set_sample_slices(
-        std::make_shared<slint::VectorModel<SliceItem>>(std::move(slices)));
+    publish_model(models.slices, std::move(slices), [&](auto value) { window->set_sample_slices(value); });
     std::vector<RegionItem> regions;
     for (const auto &region : state.sample.regions)
         regions.push_back({static_cast<int>(region.id), text(region.label),
                            text(std::to_string(region.start_frame) + ".." +
                                 std::to_string(region.end_frame)),
                            text(region.fade), text(region.loop), region.selected});
-    window->set_sample_regions(
-        std::make_shared<slint::VectorModel<RegionItem>>(std::move(regions)));
+    publish_model(models.regions, std::move(regions), [&](auto value) { window->set_sample_regions(value); });
     window->set_sound_track(text(state.sound.track));
     window->set_sound_instrument(text(state.sound.instrument));
     window->set_sound_instrument_id(text(state.sound.instrument_id));
@@ -197,17 +334,13 @@ void publish(const SlintUiState &state,
              text(parameter.unit), text(parameter.group),
              static_cast<float>(parameter.normalized), parameter.available,
              parameter.automatable, parameter.modulatable});
-    window->set_sound_parameters(
-        std::make_shared<slint::VectorModel<SoundParameterItem>>(
-            std::move(sound_parameters)));
+    publish_model(models.sound_parameters, std::move(sound_parameters), [&](auto value) { window->set_sound_parameters(value); });
     std::vector<SoundModulationItem> sound_modulation;
     for (const auto &route : state.sound.modulation)
         sound_modulation.push_back(
             {static_cast<int>(route.id), text(route.source),
              text(route.destination), text(route.amount), route.enabled});
-    window->set_sound_modulation(
-        std::make_shared<slint::VectorModel<SoundModulationItem>>(
-            std::move(sound_modulation)));
+    publish_model(models.sound_modulation, std::move(sound_modulation), [&](auto value) { window->set_sound_modulation(value); });
     window->set_mixer_bank(static_cast<int>(state.mixer.bank));
     window->set_mixer_bank_label(text(state.mixer.bank_label));
     window->set_mixer_selected_channel(
@@ -221,9 +354,7 @@ void publish(const SlintUiState &state,
              channel.meter_left, channel.meter_right, channel.aux_sends[0],
              channel.aux_sends[1], channel.mute, channel.solo, channel.clip,
              channel.selected, channel.available});
-    window->set_mixer_channels(
-        std::make_shared<slint::VectorModel<MixerChannelItem>>(
-            std::move(mixer_channels)));
+    publish_model(models.mixer_channels, std::move(mixer_channels), [&](auto value) { window->set_mixer_channels(value); });
     std::vector<MixerFxItem> mixer_fx;
     for (const auto &fx : state.mixer.external_fx)
         mixer_fx.push_back(
@@ -232,9 +363,7 @@ void publish(const SlintUiState &state,
              text(fx.routing), fx.send_gain, fx.return_gain, fx.wet,
              fx.meter_left, fx.meter_right, fx.enabled, fx.bypass,
              fx.return_mute, fx.send_available, fx.return_available});
-    window->set_mixer_external_fx(
-        std::make_shared<slint::VectorModel<MixerFxItem>>(
-            std::move(mixer_fx)));
+    publish_model(models.mixer_fx, std::move(mixer_fx), [&](auto value) { window->set_mixer_external_fx(value); });
     window->set_fx_subview(text(state.fx.subview));
     window->set_fx_owner_name(text(state.fx.owner_name));
     window->set_fx_chain_bypass(state.fx.chain_bypass);
@@ -242,33 +371,33 @@ void publish(const SlintUiState &state,
     std::vector<FxOwnerItem> fx_owners;
     for (const auto &owner : state.fx.owners)
         fx_owners.push_back({text(owner.name), text(owner.kind), owner.selected});
-    window->set_fx_owners(std::make_shared<slint::VectorModel<FxOwnerItem>>(std::move(fx_owners)));
+    publish_model(models.fx_owners, std::move(fx_owners), [&](auto value) { window->set_fx_owners(value); });
     std::vector<FxInstanceItem> fx_effects;
     for (const auto &effect : state.fx.effects)
         fx_effects.push_back({static_cast<int>(effect.id), text(effect.name),
                               text(effect.type), effect.bypass, effect.selected});
-    window->set_fx_effects(std::make_shared<slint::VectorModel<FxInstanceItem>>(std::move(fx_effects)));
+    publish_model(models.fx_effects, std::move(fx_effects), [&](auto value) { window->set_fx_effects(value); });
     std::vector<FxParameterItem> fx_parameters;
     for (const auto &parameter : state.fx.parameters)
         fx_parameters.push_back({static_cast<int>(parameter.id), text(parameter.name),
             text(parameter.value), text(parameter.unit), static_cast<float>(parameter.normalized),
             parameter.automatable, parameter.modulatable, parameter.selected});
-    window->set_fx_parameters(std::make_shared<slint::VectorModel<FxParameterItem>>(std::move(fx_parameters)));
+    publish_model(models.fx_parameters, std::move(fx_parameters), [&](auto value) { window->set_fx_parameters(value); });
     std::vector<FxModulatorItem> fx_modulators;
     for (const auto &modulator : state.fx.modulators)
         fx_modulators.push_back({static_cast<int>(modulator.id), text(modulator.name),
             text(modulator.type), text(modulator.owner), modulator.enabled, modulator.selected});
-    window->set_fx_modulators(std::make_shared<slint::VectorModel<FxModulatorItem>>(std::move(fx_modulators)));
+    publish_model(models.fx_modulators, std::move(fx_modulators), [&](auto value) { window->set_fx_modulators(value); });
     std::vector<FxRouteItem> fx_routes;
     for (const auto &route : state.fx.routes)
         fx_routes.push_back({static_cast<int>(route.id), text(route.source), text(route.destination),
             text(route.depth), route.enabled, route.selected, route.valid});
-    window->set_fx_routes(std::make_shared<slint::VectorModel<FxRouteItem>>(std::move(fx_routes)));
+    publish_model(models.fx_routes, std::move(fx_routes), [&](auto value) { window->set_fx_routes(value); });
     std::vector<FxMacroItem> fx_macros;
     for (const auto &macro : state.fx.macros)
         fx_macros.push_back({static_cast<int>(macro.id), text(macro.name), text(macro.assignments),
             macro.value, macro.enabled, macro.selected});
-    window->set_fx_macros(std::make_shared<slint::VectorModel<FxMacroItem>>(std::move(fx_macros)));
+    publish_model(models.fx_macros, std::move(fx_macros), [&](auto value) { window->set_fx_macros(value); });
     window->set_browser_category(text(state.browser.category));
     window->set_browser_location(text(state.browser.location));
     window->set_browser_destination(text(state.browser.destination));
@@ -284,8 +413,7 @@ void publish(const SlintUiState &state,
     for (const auto &entry : state.browser.entries)
         browser_entries.push_back({text(entry.name), text(entry.type),
             text(entry.metadata), entry.directory, entry.compatible, entry.selected});
-    window->set_browser_entries(
-        std::make_shared<slint::VectorModel<BrowserEntryItem>>(std::move(browser_entries)));
+    publish_model(models.browser_entries, std::move(browser_entries), [&](auto value) { window->set_browser_entries(value); });
     window->set_setup_subview(text(state.setup.subview));
     window->set_setup_audio_backend(text(state.setup.audio_backend));
     window->set_setup_audio_status(text(state.setup.audio_status));
@@ -325,28 +453,38 @@ void publish(const SlintUiState &state,
     append_devices(state.setup.audio_outputs, audio_outputs);
     append_devices(state.setup.midi_inputs, midi_inputs);
     append_devices(state.setup.midi_outputs, midi_outputs);
-    window->set_setup_audio_inputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(audio_inputs)));
-    window->set_setup_audio_outputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(audio_outputs)));
-    window->set_setup_midi_inputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(midi_inputs)));
-    window->set_setup_midi_outputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(midi_outputs)));
+    publish_model(models.audio_inputs, std::move(audio_inputs), [&](auto value) { window->set_setup_audio_inputs(value); });
+    publish_model(models.audio_outputs, std::move(audio_outputs), [&](auto value) { window->set_setup_audio_outputs(value); });
+    publish_model(models.midi_inputs, std::move(midi_inputs), [&](auto value) { window->set_setup_midi_inputs(value); });
+    publish_model(models.midi_outputs, std::move(midi_outputs), [&](auto value) { window->set_setup_midi_outputs(value); });
     std::vector<SetupControllerItem> controllers;
     for (const auto &item : state.setup.controllers)
         controllers.push_back({text(item.id), text(item.transport), text(item.device),
             text(item.profile), text(item.protocol), text(item.status), text(item.error),
             item.connected, item.feedback, item.selected});
-    window->set_setup_controllers(
-        std::make_shared<slint::VectorModel<SetupControllerItem>>(std::move(controllers)));
+    publish_model(models.controllers, std::move(controllers), [&](auto value) { window->set_setup_controllers(value); });
 }
 } // namespace
+
+SlintPublicationDiagnostics slint_publication_diagnostics() noexcept {
+    return publication_diagnostics;
+}
+
+void reset_slint_publication_diagnostics() noexcept {
+    publication_diagnostics = {};
+}
 
 bool slint_available() noexcept { return true; }
 
 int run_slint_frontend(ApplicationService &application,
                        const SlintOptions &options, std::string &error) {
+    if (options.interaction_test && options.interaction_test_backend)
+        slint::platform::set_platform(std::make_unique<HeadlessPlatform>());
 #if defined(__linux__)
     const auto wayland = std::getenv("WAYLAND_DISPLAY");
     const auto display = std::getenv("DISPLAY");
-    if ((wayland == nullptr || *wayland == '\0') &&
+    if (!options.interaction_test &&
+        (wayland == nullptr || *wayland == '\0') &&
         (display == nullptr || *display == '\0')) {
         error = "Slint requires an available Wayland or X11 display";
         return 1;
@@ -358,8 +496,13 @@ int run_slint_frontend(ApplicationService &application,
         window->window().set_size(slint::PhysicalSize({
             static_cast<std::uint32_t>(options.width),
             static_cast<std::uint32_t>(options.height)}));
+        if (options.interaction_test)
+            window->window().dispatch_resize_event(
+                slint::LogicalSize({static_cast<float>(options.width),
+                                    static_cast<float>(options.height)}));
         window->window().set_fullscreen(options.fullscreen);
-        publish(adapter.state(), window);
+        reset_slint_publication_diagnostics();
+        publish(adapter.state(), window, true);
         window->on_encoder_turned([&](int index, int delta) {
             (void)adapter.turn_encoder(static_cast<std::size_t>(index), delta);
             publish(adapter.state(), window);
@@ -728,11 +871,104 @@ int run_slint_frontend(ApplicationService &application,
             adapter.dismiss_notification();
             publish(adapter.state(), window);
         });
+        if (options.interaction_test) {
+            // Exercise the generated component callbacks after the production
+            // bindings above are installed. This intentionally tests the same
+            // callback path used by mouse/touch controls, without a display.
+            window->invoke_transport_invoked("play");
+            if (!application.snapshot().playing)
+                throw std::runtime_error("generated transport callback did not start playback");
+            window->invoke_transport_invoked("stop");
+            window->show();
+            const auto capture_headless = [&](const std::string &path) {
+                if (path.empty() || !options.interaction_test_backend ||
+                    !headless_window)
+                    return;
+                headless_window->render();
+                std::ofstream output(path, std::ios::binary | std::ios::trunc);
+                if (!output)
+                    throw std::runtime_error("could not create rendered test artifact");
+                const auto size = headless_window->size();
+                output << "P6\n" << size.width << ' ' << size.height << "\n255\n";
+                for (const auto &pixel : headless_window->pixels()) {
+                    output.put(static_cast<char>(pixel.r));
+                    output.put(static_cast<char>(pixel.g));
+                    output.put(static_cast<char>(pixel.b));
+                }
+            };
+            constexpr std::array<std::string_view, 8> page_ids{
+                "performance", "sequencer", "sample", "sound", "mixer",
+                "fx", "browser", "setup"};
+            for (int page = 0; page < 8; ++page) {
+                window->invoke_page_selected(page);
+                if (std::string_view(window->get_page_id().data()) !=
+                    page_ids[static_cast<std::size_t>(page)])
+                    throw std::runtime_error("generated page callback did not publish selection");
+                switch (page) {
+                case 0: window->invoke_pad_invoked(0, true); break;
+                case 1: window->invoke_sequencer_step_invoked(0); break;
+                case 2: window->invoke_sample_slot_selected(0); break;
+                case 3: window->invoke_sound_subview_selected("instrument"); break;
+                case 4: window->invoke_mixer_bank_changed(0); break;
+                case 5: window->invoke_fx_subview_selected("chain"); break;
+                case 6: window->invoke_browser_category_selected("projects"); break;
+                case 7: window->invoke_setup_subview_selected("audio"); break;
+                }
+                if (!options.screenshot_path.empty())
+                    capture_headless(options.screenshot_path + "-" +
+                                     std::string(page_ids[static_cast<std::size_t>(page)]) +
+                                     ".ppm");
+            }
+            window->invoke_transport_invoked("record");
+            if (!window->get_recording_visible())
+                throw std::runtime_error("recording modal did not become visible");
+            if (!options.screenshot_path.empty())
+                capture_headless(options.screenshot_path + "-recording.ppm");
+            window->invoke_recording_action("cancel");
+            window->invoke_recording_closed();
+            if (options.interaction_test_backend && headless_window)
+                headless_window->render();
+            const auto pixels = options.interaction_test_backend
+                ? std::optional<slint::SharedPixelBuffer<slint::Rgba8Pixel>>{}
+                : window->window().take_snapshot();
+            const auto rendered_width = options.interaction_test_backend
+                ? headless_window->size().width : pixels ? pixels->width() : 0U;
+            const auto rendered_height = options.interaction_test_backend
+                ? headless_window->size().height : pixels ? pixels->height() : 0U;
+            if (rendered_width != static_cast<std::uint32_t>(options.width) ||
+                rendered_height != static_cast<std::uint32_t>(options.height))
+                throw std::runtime_error("renderer produced unexpected layout size");
+            if (!options.screenshot_path.empty()) {
+                std::ofstream output(options.screenshot_path,
+                                     std::ios::binary | std::ios::trunc);
+                if (!output)
+                    throw std::runtime_error("could not create rendered test artifact");
+                output << "P6\n" << rendered_width << ' ' << rendered_height
+                       << "\n255\n";
+                if (options.interaction_test_backend) {
+                    for (const auto &pixel : headless_window->pixels()) {
+                        output.put(static_cast<char>(pixel.r));
+                        output.put(static_cast<char>(pixel.g));
+                        output.put(static_cast<char>(pixel.b));
+                    }
+                } else {
+                    for (const auto &pixel : *pixels) {
+                        output.put(static_cast<char>(pixel.r));
+                        output.put(static_cast<char>(pixel.g));
+                        output.put(static_cast<char>(pixel.b));
+                    }
+                }
+            }
+            window->hide();
+            adapter.shutdown();
+            return 0;
+        }
         slint::Timer refresh;
         refresh.start(slint::TimerMode::Repeated, std::chrono::milliseconds(16),
                       [&] {
                           if (adapter.refresh())
-                              publish(adapter.state(), window);
+                              publish(adapter.state(), window, false,
+                                      adapter.refresh_diagnostics().last_kind);
                           if (options.external_stop_requested &&
                               options.external_stop_requested())
                               window->hide();

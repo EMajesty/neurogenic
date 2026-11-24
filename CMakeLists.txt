@@ -95,6 +95,14 @@ if(NEUROGENIC_ENABLE_SLINT)
   target_include_directories(neurogenic_slint_frontend PUBLIC include)
   target_link_libraries(neurogenic_slint_frontend PUBLIC
     neurogenic_slint_adapter Slint::Slint)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Slint's winit backend loads this library dynamically. Retain it as an
+    # ELF dependency so Nix records a clean RUNPATH; do not depend on a global
+    # LD_LIBRARY_PATH in CI or the appliance.
+    find_library(NEUROGENIC_XKBCOMMON_X11 xkbcommon-x11 REQUIRED)
+    target_link_libraries(neurogenic_slint_frontend PRIVATE
+      "-Wl,--no-as-needed" ${NEUROGENIC_XKBCOMMON_X11} "-Wl,--as-needed")
+  endif()
   target_compile_options(neurogenic_slint_frontend PRIVATE
     -Wall -Wextra -Wpedantic)
   slint_target_sources(neurogenic_slint_frontend ui/slint/performance.slint
@@ -199,7 +207,29 @@ if(NEUROGENIC_BUILD_TESTS)
       COMMAND neurogenic --frontend slint --headless --run-for 0.05)
     set_tests_properties(neurogenic_slint_missing_display PROPERTIES
       WILL_FAIL TRUE TIMEOUT 10 ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=")
+    add_executable(neurogenic_slint_rendered_tests
+      tests/slint_rendered_tests.cpp)
+    target_link_libraries(neurogenic_slint_rendered_tests PRIVATE
+      neurogenic_slint_frontend)
+    add_test(NAME neurogenic_slint_rendered_primary
+      COMMAND neurogenic_slint_rendered_tests 1920 1200
+        ${CMAKE_CURRENT_BINARY_DIR}/slint-primary.ppm)
+    add_test(NAME neurogenic_slint_rendered_minimum
+      COMMAND neurogenic_slint_rendered_tests 1024 600
+        ${CMAKE_CURRENT_BINARY_DIR}/slint-minimum.ppm)
+    set_tests_properties(neurogenic_slint_rendered_primary
+      neurogenic_slint_rendered_minimum PROPERTIES
+      PASS_REGULAR_EXPRESSION "neurogenic.slint-rendered-tests.v1 passed"
+      TIMEOUT 30 ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=")
   endif()
+  add_executable(neurogenic_slint_benchmark tests/slint_benchmark.cpp)
+  target_link_libraries(neurogenic_slint_benchmark PRIVATE
+    neurogenic_slint_adapter)
+  add_test(NAME neurogenic_slint_incremental_publication
+    COMMAND neurogenic_slint_benchmark)
+  set_tests_properties(neurogenic_slint_incremental_publication PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.slint-benchmark.v1 passed"
+    TIMEOUT 20)
   add_executable(neurogenic_preset_tests tests/preset_tests.cpp)
   target_link_libraries(neurogenic_preset_tests PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_preset_tests COMMAND neurogenic_preset_tests)

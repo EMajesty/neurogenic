@@ -624,3 +624,12 @@ and performance capture. Sample processing now exposes progress, cancellation,
 explicit save and callback-acknowledged publication. Tests assert captured
 stereo PCM and normalized processed PCM. CI compiles generated Slint components
 and runs the Slint-enabled suite.
+
+Task 082 adds measured incremental Slint publication and generated-component
+rendering tests. Playback telemetry updates the active page without replacing
+unrelated structural models; stable vector models use row updates. Production
+callbacks and all eight pages render through Slint's software renderer at
+1920x1200 and 1024x600 in CI, with failure artifacts retained. The measured
+debug x86_64 workload reduced median adapter refresh from 70.591 us to 60.774 us.
+Complete snapshot copying, coordinate-level input simulation and physical
+touchscreen/controller validation remain limitations.

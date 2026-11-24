@@ -1,5 +1,10 @@
 # Performance monitoring and benchmarks
 
+Slint adapter refresh and generated software-renderer methodology/results are
+reported in [SLINT_FRONTEND_PERFORMANCE.md](SLINT_FRONTEND_PERFORMANCE.md).
+Those are desktop presentation measurements, not audio-callback or appliance
+hardware claims.
+
 Task 065 uses the bounded 16/64-slot preparation cases and integrated scene
 transitions to exercise hybrid publication. Track-scoped activation adds a
 fixed 32-ID payload and bounded cleanup, not callback graph work.

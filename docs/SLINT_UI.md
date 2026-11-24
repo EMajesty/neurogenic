@@ -255,3 +255,18 @@ The `slint-production-build-and-test` CI job configures pinned Slint 1.19,
 compiles generated components, links the production appliance and runs the
 Slint-enabled CTest suite. Headless builds remain independent. Rendered UI
 interaction testing remains Task 082.
+
+## Incremental publication and generated-component validation
+
+Task 082 separates structural rebuilds from transport, meter, playhead,
+recording/processing and parameter telemetry. Stable Slint models update by row
+when shape is unchanged, and inactive page models are not republished for
+telemetry-only refreshes. Page activation performs a full authoritative refresh.
+See [SLINT_FRONTEND_PERFORMANCE.md](SLINT_FRONTEND_PERFORMANCE.md) for commands,
+measurements and exact coverage.
+
+Before appliance release, manually verify at 1920x1200 and 1024x600: touch
+activation; scrolling to every essential action; focus/back behavior; recording
+confirmation/cancellation; contextual labels against the physical controller;
+clipping; and readable meters/playheads. Repeat mouse-only and touchscreen-only.
+Automated software rendering is not physical touchscreen validation.

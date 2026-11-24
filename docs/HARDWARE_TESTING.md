@@ -246,3 +246,9 @@ On the FX page, verify that external-loop controls are disabled when their
 published send or return channels are unavailable. Test pair selection and
 manual latency only through supported semantic configuration; the UI must not
 infer channel counts from a nominal eight-output design.
+
+For Slint validation at both target resolutions, follow the physical
+touchscreen/controller checklist in [SLINT_UI.md](SLINT_UI.md). Automated
+software-renderer PPMs verify generated layout and bindings only; they do not
+validate touch calibration, compositor scaling, display latency, controller
+ergonomics or physical readability.

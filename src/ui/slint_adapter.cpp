@@ -2,6 +2,8 @@
 #include "neurogenic/audio/slicing.hpp"
 #include "neurogenic/project/preset.hpp"
 #include <algorithm>
+#include <bit>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -11,6 +13,49 @@
 
 namespace neurogenic {
 namespace {
+void hash_combine(std::uint64_t &seed, std::uint64_t value) noexcept {
+    seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
+}
+
+std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
+    std::uint64_t value{0xcbf29ce484222325ULL};
+    const auto add = [&](std::uint64_t item) { hash_combine(value, item); };
+    add(state.timeline_revision); add(state.slice_revision);
+    add(state.mixer.configuration.revision); add(state.selected_track);
+    add(state.selected_sample_slot.value); add(state.selected_slice);
+    add(state.selected_region); add(state.selected_pattern);
+    add(state.selected_step); add(state.step_page);
+    add(static_cast<std::uint64_t>(state.step_resolution));
+    add(std::bit_cast<std::uint64_t>(state.tempo_bpm));
+    add(state.patterns.size()); add(state.clips.size());
+    add(state.audio_clips.size()); add(state.tracks.size());
+    add(state.performance_launching.slots.size());
+    add(state.performance_launching.scenes.size());
+    add(state.parameters.size()); add(state.sample_slots.size());
+    add(state.modulation.modulator_count); add(state.modulation.route_count);
+    for (std::size_t i = 0; i < state.modulation.modulator_count; ++i)
+        add(state.modulation.modulators[i].id);
+    for (std::size_t i = 0; i < state.modulation.route_count; ++i) {
+        add(state.modulation.routes[i].id);
+        add(state.modulation.routes[i].source_instance);
+        add(state.modulation.routes[i].destination.parameter);
+    }
+    add(state.performance_macros.macros.size());
+    for (const auto &macro : state.performance_macros.macros) {
+        add(macro.id); add(macro.assignments.size());
+    }
+    for (const auto &track : state.tracks) {
+        add(track.id); add(track.events.size()); add(track.pattern_length);
+    }
+    for (const auto &slot : state.sample_slots) {
+        add(slot.id.value); add(slot.revision); add(slot.active_publication);
+    }
+    for (const auto &parameter : state.parameters) {
+        add(std::hash<std::string>{}(parameter.id));
+    }
+    return value;
+}
+
 constexpr std::size_t browser_entry_limit = 512;
 constexpr std::array<std::pair<std::string_view, std::string_view>, 8> pages{{
     {"performance", "Performance"}, {"sequencer", "Sequencer"},
@@ -105,9 +150,23 @@ SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application,
 }
 
 bool SlintFrontendAdapter::refresh() {
+    const auto refresh_started = std::chrono::steady_clock::now();
+    ++refresh_diagnostics_.calls;
+    const auto finish = [&](SlintRefreshKind kind) {
+        const auto elapsed = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now() - refresh_started).count());
+        refresh_diagnostics_.maximum_refresh_nanoseconds =
+            std::max(refresh_diagnostics_.maximum_refresh_nanoseconds, elapsed);
+        refresh_diagnostics_.last_kind = kind;
+    };
     if (!active_)
         return false;
+    const auto snapshot_started = std::chrono::steady_clock::now();
     const auto snapshot = application_.snapshot();
+    refresh_diagnostics_.snapshot_nanoseconds += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - snapshot_started).count());
     std::optional<SlintSetupRuntimeSnapshot> setup_runtime;
     if (setup_services_.snapshot) {
         setup_runtime = setup_services_.snapshot();
@@ -116,10 +175,180 @@ bool SlintFrontendAdapter::refresh() {
             ++local_revision_;
         }
     }
-    // Worker-owned recording/analysis/processing phases can advance without a
-    // musical ApplicationState revision. Rebuild on an explicit UI refresh so
-    // completion and publication acknowledgements never remain stale. Task
-    // 082 will split these telemetry revisions for incremental publication.
+    const auto fingerprint = slint_structural_fingerprint(snapshot);
+    if (structural_fingerprint_ != 0 && fingerprint == structural_fingerprint_ &&
+        published_local_revision_ == local_revision_) {
+        const auto before_revision = state_.shell.revision;
+        const auto before_position = state_.shell.position;
+        const auto before_transport = state_.shell.transport;
+        const auto before_recording_phase = state_.recording.phase;
+        const auto before_recording_progress = state_.recording.progress;
+        const auto before_processing_status = state_.sample.processing_status;
+        const auto before_processing_progress = state_.sample.processing_progress;
+        state_.shell.revision = snapshot.revision;
+        state_.shell.playing = snapshot.playing;
+        state_.shell.record_armed = snapshot.recording.state == RecordingState::armed;
+        state_.shell.recording = snapshot.recording.state == RecordingState::recording;
+        state_.shell.position = format_slint_musical_position(
+            snapshot.transport_tick, snapshot.time_signature_numerator,
+            snapshot.time_signature_denominator);
+        const auto recording = recording_workflow_.snapshot();
+        state_.recording.phase = recording.status;
+        state_.recording.captured_frames = recording.captured_frames;
+        state_.recording.capacity_frames = recording.capacity_frames;
+        state_.recording.overflow_count = recording.overflow_count;
+        state_.recording.captured_events = recording.captured_events;
+        state_.recording.progress = recording.progress;
+        state_.recording.can_configure = recording.can_configure;
+        state_.recording.can_arm = recording.can_arm;
+        state_.recording.can_start = recording.can_start;
+        state_.recording.can_stop = recording.can_stop;
+        state_.recording.can_cancel = recording.can_cancel;
+        state_.recording.can_commit =
+            recording.phase == RecordingWorkflowPhase::finalizing;
+        state_.recording.result_audio_active = recording.result_audio_active;
+        state_.recording.result_pending = recording.result_pending;
+        state_.recording.error = recording.error;
+        state_.shell.transport = recording.phase != RecordingWorkflowPhase::idle &&
+                                         recording.phase != RecordingWorkflowPhase::configuring
+                                     ? recording.status
+                                     : slint_recording_label(snapshot.recording.state,
+                                                             snapshot.playing);
+        if (const auto processing = std::find_if(
+                snapshot.sample_processing_jobs.begin(),
+                snapshot.sample_processing_jobs.end(), [&](const auto &job) {
+                    return job.id == snapshot.selected_processing_job;
+                }); processing != snapshot.sample_processing_jobs.end()) {
+            state_.sample.processing_status = sample_processing_status_name(processing->status);
+            state_.sample.processing_progress = processing->progress;
+            state_.sample.processing_can_cancel =
+                processing->status == SampleProcessingStatus::draft ||
+                processing->status == SampleProcessingStatus::running;
+            state_.sample.processing_can_publish =
+                processing->status == SampleProcessingStatus::complete;
+            state_.sample.processing_audio_active =
+                processing->status == SampleProcessingStatus::audio_active;
+        }
+        const auto playhead = snapshot.step_ticks > 0
+            ? snapshot.transport_tick / snapshot.step_ticks : MusicalTick{};
+        for (std::size_t i = 0; i < state_.sequencer.steps.size(); ++i)
+            state_.sequencer.steps[i].playhead =
+                snapshot.playing && playhead == static_cast<MusicalTick>(
+                    snapshot.step_page * 16 + i);
+        std::size_t channel{};
+        for (std::size_t i = 0; i < snapshot.mixer.configuration.track_count &&
+                                channel < state_.mixer.channels.size(); ++i, ++channel) {
+            state_.mixer.channels[channel].meter_left = snapshot.mixer.tracks[i].left;
+            state_.mixer.channels[channel].meter_right = snapshot.mixer.tracks[i].right;
+            state_.mixer.channels[channel].clip = snapshot.mixer.tracks[i].clip;
+        }
+        for (std::size_t i = 0; i < snapshot.mixer.configuration.group_count &&
+                                channel < state_.mixer.channels.size(); ++i, ++channel) {
+            state_.mixer.channels[channel].meter_left = snapshot.mixer.groups[i].left;
+            state_.mixer.channels[channel].meter_right = snapshot.mixer.groups[i].right;
+            state_.mixer.channels[channel].clip = snapshot.mixer.groups[i].clip;
+        }
+        for (std::size_t i = 0; i < mixer_aux_count &&
+                                channel < state_.mixer.channels.size(); ++i, ++channel) {
+            state_.mixer.channels[channel].meter_left = snapshot.mixer.aux[i].left;
+            state_.mixer.channels[channel].meter_right = snapshot.mixer.aux[i].right;
+            state_.mixer.channels[channel].clip = snapshot.mixer.aux[i].clip;
+        }
+        if (channel < state_.mixer.channels.size()) {
+            state_.mixer.channels[channel].meter_left = snapshot.mixer.master.left;
+            state_.mixer.channels[channel].meter_right = snapshot.mixer.master.right;
+            state_.mixer.channels[channel].clip = snapshot.mixer.master.clip;
+        }
+        state_.setup.callback_load = snapshot.performance.audio.average_load_percent;
+        state_.setup.callback_peak_load = snapshot.performance.audio.peak_load_percent;
+        for (auto &presented : state_.sound.parameters) {
+            const auto parameter = std::find_if(
+                snapshot.parameters.begin(), snapshot.parameters.end(),
+                [&](const auto &candidate) { return candidate.id == presented.id; });
+            if (parameter == snapshot.parameters.end()) continue;
+            const auto current = numeric_value(parameter->current_value);
+            presented.value = format_value(current);
+            presented.normalized = presented.maximum > presented.minimum
+                ? (current - presented.minimum) /
+                      (presented.maximum - presented.minimum)
+                : 0.0;
+        }
+        if (state_.fx.selected_effect < state_.fx.effects.size()) {
+            const auto effect_id = state_.fx.effects[state_.fx.selected_effect].id;
+            const auto &configuration = snapshot.mixer.configuration;
+            const auto effect_end = configuration.effects.instances.begin() +
+                                    configuration.effects.instance_count;
+            const auto instance = std::find_if(
+                configuration.effects.instances.begin(), effect_end,
+                [&](const auto &candidate) { return candidate.id == effect_id; });
+            if (instance != effect_end) {
+                const auto descriptors = effect_parameter_descriptors(instance->type);
+                for (auto &presented : state_.fx.parameters) {
+                    const auto descriptor = std::find_if(
+                        descriptors.begin(), descriptors.end(),
+                        [&](const auto &candidate) {
+                            return candidate.stable_id == presented.stable_id;
+                        });
+                    if (descriptor == descriptors.end()) continue;
+                    const auto parameter_end = instance->parameters.begin() +
+                                               instance->parameter_count;
+                    const auto parameter = std::find_if(
+                        instance->parameters.begin(), parameter_end,
+                        [&](const auto &candidate) {
+                            return candidate.id == descriptor->id;
+                        });
+                    const auto current = parameter == parameter_end
+                        ? descriptor->default_value : parameter->value;
+                    presented.value = format_value(current);
+                    presented.normalized = presented.maximum > presented.minimum
+                        ? (current - presented.minimum) /
+                              (presented.maximum - presented.minimum)
+                        : 0.0;
+                }
+            }
+        }
+        for (auto &presented : state_.fx.macros) {
+            const auto effective = std::find_if(
+                snapshot.performance_macros.effective_values.begin(),
+                snapshot.performance_macros.effective_values.end(),
+                [&](const auto &candidate) { return candidate.first == presented.id; });
+            if (effective != snapshot.performance_macros.effective_values.end())
+                presented.value = effective->second;
+        }
+        const auto context_name = state_.shell.page_id == "sample"
+            ? std::string_view("samples")
+            : state_.shell.page_id == "sound" ? std::string_view("parameters")
+            : state_.shell.page_id == "mixer" ? std::string_view("mixer")
+            : state_.shell.page_id == "fx" ? std::string_view("parameters")
+            : state_.shell.page_id == "performance" ? std::string_view("performance")
+                                                     : std::string_view("sequencer");
+        const auto context = resolve_controller_context(
+            snapshot, context_name, snapshot.modifiers);
+        for (std::size_t i = 0; i < 8; ++i) {
+            const auto copy = [](const ContextControl &from) {
+                return SlintContextItem{from.label.empty() ? "Unavailable" : from.label,
+                    from.value.empty() ? "--" : from.value, from.unit,
+                    from.parameter_id, from.action_id, from.active};
+            };
+            state_.context.encoders[i] = copy(context[i]);
+            state_.context.functions[i] = copy(context[8 + i]);
+        }
+        if (state_.shell.position == before_position &&
+            state_.shell.transport == before_transport &&
+            state_.recording.phase == before_recording_phase &&
+            state_.recording.progress == before_recording_progress &&
+            state_.sample.processing_status == before_processing_status &&
+            state_.sample.processing_progress == before_processing_progress &&
+            snapshot.revision == before_revision) {
+            ++refresh_diagnostics_.skipped;
+            finish(SlintRefreshKind::none);
+            return false;
+        }
+        ++refresh_diagnostics_.telemetry_updates;
+        finish(SlintRefreshKind::telemetry);
+        return true;
+    }
+    const auto construction_started = std::chrono::steady_clock::now();
     SlintUiState next;
     next.shell.revision = snapshot.revision;
     next.shell.playing = snapshot.playing;
@@ -817,7 +1046,13 @@ bool SlintFrontendAdapter::refresh() {
     next.mixer.error = last_error_;
     next.shell.notification = last_error_;
     state_ = std::move(next);
+    structural_fingerprint_ = fingerprint;
     published_local_revision_ = local_revision_;
+    refresh_diagnostics_.construction_nanoseconds += static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now() - construction_started).count());
+    ++refresh_diagnostics_.full_rebuilds;
+    finish(SlintRefreshKind::full);
     return true;
 }
 
