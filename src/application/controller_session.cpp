@@ -26,7 +26,21 @@ std::string context_key(const ContextControl &value) {
            << value.active << value.bipolar << value.pickup << ':'
            << static_cast<int>(value.pickup_direction);
     for (const auto &[name, argument] : value.arguments)
-        output << '\x1f' << name << '=' << argument.index();
+        output << '\x1f' << name << '=' << argument.index() << ':'
+               << std::visit([](const auto &item) {
+                      using Value = std::decay_t<decltype(item)>;
+                      if constexpr (std::is_same_v<Value, std::monostate>)
+                          return std::string{};
+                      else if constexpr (std::is_same_v<Value, std::string>)
+                          return item;
+                      else if constexpr (std::is_same_v<Value, bool>)
+                          return item ? std::string("1") : std::string("0");
+                      else if constexpr (std::is_same_v<Value, NormalizedXY>)
+                          return std::to_string(item.x) + "," +
+                                 std::to_string(item.y);
+                      else
+                          return std::to_string(item);
+                  }, argument);
     return output.str();
 }
 } // namespace
@@ -143,6 +157,21 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
                        input.sequence}, error);
     }
     if (mapping->semantic == "performance-pad") {
+        if (state_.context.starts_with("performance")) {
+            const auto slot = std::find_if(
+                snapshot.performance_launching.slots.begin(),
+                snapshot.performance_launching.slots.end(),
+                [&](const auto &candidate) {
+                    return candidate.logical_position == mapping->index;
+                });
+            if (slot == snapshot.performance_launching.slots.end()) {
+                error.clear();
+                return true;
+            }
+            return submit({"performance.slot-launch.v1",
+                           {{"slot", static_cast<std::int64_t>(slot->id)}},
+                           state_.session_id, input.sequence}, error);
+        }
         PerformanceGrid grid;
         grid.set_mode(snapshot.pad_mode);
         grid.set_step_page(snapshot.step_page);
@@ -181,6 +210,7 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
             return true;
         }
         auto steps = input.value;
+        if (mapping->invert) steps = -steps;
         if (state_.modifiers.shift || state_.modifiers.shift_latched)
             steps *= mapping->fine_scale;
         else if (std::abs(input.value) >= 4)
@@ -198,6 +228,8 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
     if (!mapping->parameter_id.empty()) {
         const auto relative = control->type == ControlType::relative_encoder;
         auto value = input.value;
+        if (mapping->invert)
+            value = relative ? -value : 1.0 - value;
         if (relative && (state_.modifiers.shift || state_.modifiers.shift_latched))
             value *= mapping->fine_scale;
         else if (relative && std::abs(value) >= 4)
@@ -375,6 +407,27 @@ void ControllerSession::set_context(std::string context) {
     state_.context = std::move(context);
     ++state_.local_revision;
     state_.resync_required = true;
+}
+
+bool ControllerSession::set_binding(std::size_t index, ControlBinding binding,
+                                    std::string &error) {
+    if (index >= profile_.bindings.size()) {
+        error = "controller binding index is out of range";
+        return false;
+    }
+    auto candidate = profile_;
+    candidate.bindings[index] = std::move(binding);
+    if (!validate_controller_configuration(descriptor_, candidate,
+                                           *application_, error))
+        return false;
+    profile_ = std::move(candidate);
+    pickup_.clear();
+    pickup_targets_.clear();
+    state_.pickup.clear();
+    ++state_.local_revision;
+    invalidate_feedback();
+    error.clear();
+    return true;
 }
 
 void ControllerSession::feedback_delivery_failed() noexcept {

@@ -6,6 +6,7 @@ export struct SetupDeviceItem { name: string, detail: string, selected: bool, av
 export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, learn-status: string, connected: bool, feedback: bool, selected: bool }
 export struct SetupMidiRouteItem { id: int, input: string, output: string, channels: string, flags: string, enabled: bool, selected: bool }
 export struct SetupMappingItem { endpoint: string, control: string, source: string, mode: string, feedback: bool, selected: bool }
+export struct SetupMappingTargetItem { kind: string, id: string, label: string, selected: bool }
 
 export component SetupPage inherits Rectangle {
     background: Theme.background;
@@ -29,6 +30,7 @@ export component SetupPage inherits Rectangle {
     in property <[SetupControllerItem]> controllers;
     in property <[SetupMidiRouteItem]> midi-routes;
     in property <[SetupMappingItem]> mappings;
+    in property <[SetupMappingTargetItem]> mapping-targets;
     in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
@@ -36,6 +38,7 @@ export component SetupPage inherits Rectangle {
     callback midi-learn(string, string, string); callback text-requested(string, string); callback exit-requested();
     callback midi-route-selected(int); callback midi-route-action(string);
     callback mapping-selected(int); callback mapping-remove();
+    callback mapping-target-selected(int); callback mapping-target-apply();
 
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
@@ -108,6 +111,11 @@ export component SetupPage inherits Rectangle {
                 ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 3px;
                     for mapping[i] in root.mappings: PageButton { text: mapping.control + " ← " + mapping.source + " (" + mapping.mode + ")"; selected: mapping.selected; clicked => { root.mapping-selected(i); } }
                 } }
+                Text { text: "Compatible semantic targets"; color: Theme.foreground; }
+                ScrollView { height: 100px; VerticalLayout { spacing: 2px;
+                    for target[i] in root.mapping-targets: PageButton { text: target.label + " (" + target.kind + ")"; selected: target.selected; clicked => { root.mapping-target-selected(i); } }
+                } }
+                PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-target-apply(); } }
                 PageButton { text: "Remove selected mapping"; implemented: root.mappings.length > 0; clicked => { root.mapping-remove(); } }
                 PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }
                 Text { text: "Mapping targets come from the selected profile and application discovery. Graphical layout editing is intentionally not provided."; color: Theme.muted; wrap: word-wrap; }

@@ -44,3 +44,17 @@ assignments in Performance, absolute steps in Sequencer, slice/sample triggers
 in Sample, and remain inactive elsewhere unless a documented mode exists.
 Administrative filesystem/text operations can remain touch-oriented. Physical
 controller and touchscreen behavior is **NOT RUN**.
+## Task 093 reconciliation
+
+The functional grammar is now: encoders adjust values/selections, function
+controls invoke actions/navigation, pads manipulate musical material, and named
+context banks extend each page without assuming encoder push. Performance uses
+explicit logical launch positions. Sequencer retains step/pattern banks; Sample,
+Sound, Mixer and FX expose their discovered parameter groups; Browser and Setup
+no longer inherit Sequencer labels. Typed bound arguments survive both Slint
+and physical dispatch.
+
+This is a software reference assignment, not a finalized panel specification.
+Text entry, filesystem recovery, complex mapping arguments and administrative
+modal selection remain intentionally touch-assisted. Final modal focus and
+complete page-bank ergonomics require the physical layout and hardware test.

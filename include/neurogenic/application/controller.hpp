@@ -43,7 +43,7 @@ struct ControlBinding {
     std::string semantic, context;
     std::int32_t index{-1};
     double fine_scale{0.1}, acceleration{2.0};
-    bool pickup{}, explicitly_unassigned{};
+    bool pickup{}, invert{}, explicitly_unassigned{};
     std::map<std::string, ApplicationValue> arguments;
 };
 struct ControllerProfile {

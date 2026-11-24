@@ -130,6 +130,10 @@ struct LaunchSlot {
     std::uint16_t follow_repetitions{1};
     std::uint64_t random_seed{1};
     bool quantization_override{};
+    // Optional presentation-neutral logical surface position. This is not a
+    // protocol control ID or physical panel coordinate. Profiles and UIs may
+    // expose any supported number of positions; -1 means unassigned.
+    std::int32_t logical_position{-1};
 };
 struct PerformanceSceneEntry {
     TrackId track{};

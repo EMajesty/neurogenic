@@ -1,6 +1,7 @@
 #include "neurogenic/timeline/io.hpp"
 #include "neurogenic/timeline/performance_launching.hpp"
 #include "neurogenic/application/control.hpp"
+#include "neurogenic/application/controller_session.hpp"
 #include "neurogenic/application/discovery.hpp"
 #include "neurogenic/timeline/arrangement_recording.hpp"
 #include <algorithm>
@@ -36,6 +37,8 @@ Timeline fixture() {
         {103, 1, LaunchSourceType::pattern, 12, LaunchBehavior::loop,
          LaunchQuantization::bar, ticks_per_quarter / 4,
          SlotFollowAction::stop, 0, 1, 11, true}};
+    t.arrangement.launch_slots[0].logical_position = 4;
+    t.arrangement.launch_slots[1].logical_position = 1;
     t.arrangement.performance_scenes.push_back(
         {301, "Both", {{1, 101}, {2, 102}}, LaunchQuantization::bar,
          ticks_per_quarter / 4});
@@ -114,6 +117,8 @@ int main() {
     const auto loaded = load_timeline(path);
     std::filesystem::remove(path);
     assert(loaded.arrangement.launch_slots.size() == 3);
+    assert(loaded.arrangement.launch_slots[0].logical_position ==
+           timeline.arrangement.launch_slots[0].logical_position);
     assert(loaded.arrangement.performance_scenes.size() == 1);
     assert(loaded.arrangement.velocity_policy == VelocityPolicy::fixed);
     auto invalid = timeline;
@@ -125,6 +130,25 @@ int main() {
         publish_error.clear(); return true;
     }, fixture());
     ApplicationService application(engine, service, samples);
+    auto controller_profile = full_performance_profile();
+    ControllerSession controller(application, rp2040_controller_descriptor(),
+                                 controller_profile, "simulated-task093", 64);
+    assert(controller.valid());
+    operation_ok = controller.input({"page.0", 1, 0, true, 1}, error);
+    assert(operation_ok);
+    assert(controller.state().context == "performance");
+    operation_ok = controller.input({"grid.4", 1, 0, true, 2}, error);
+    assert(operation_ok);
+    const auto physical_results = application.dispatch_pending();
+    if (physical_results.size() != 1 || !physical_results.front().accepted) {
+        std::cerr << "physical launch failure: "
+                  << (physical_results.empty() ? "no result"
+                                               : physical_results.front().error)
+                  << '\n';
+        return 1;
+    }
+    assert(application.snapshot().performance_launching.pending.size() == 1);
+    assert(application.snapshot().performance_launching.pending.front().slot == 101);
     auto result = application.execute({"performance.slot-duplicate.v1",
         {{"source", std::int64_t{101}}, {"slot", std::int64_t{104}}}, "test", 1});
     assert(result.accepted);

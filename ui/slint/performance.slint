@@ -7,7 +7,7 @@ import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.s
 import { MixerPage, MixerChannelItem, MixerFxItem } from "mixer_page.slint";
 import { FxPage, FxOwnerItem, FxInstanceItem, FxParameterItem, FxModulatorItem, FxModulatorParameterItem, FxModulatorTypeItem, FxDestinationItem, FxRouteItem, FxMacroItem, FxMacroAssignmentItem, FxSceneItem } from "fx_page.slint";
 import { BrowserPage, BrowserEntryItem } from "browser_page.slint";
-import { SetupPage, SetupDeviceItem, SetupControllerItem, SetupMidiRouteItem, SetupMappingItem } from "setup_page.slint";
+import { SetupPage, SetupDeviceItem, SetupControllerItem, SetupMidiRouteItem, SetupMappingItem, SetupMappingTargetItem } from "setup_page.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
@@ -75,6 +75,8 @@ export component PerformanceWindow inherits Window {
     in property <[PageItem]> pages;
     in property <[ContextItem]> encoders;
     in property <[ContextItem]> functions;
+    in property <string> context-identity: "performance:primary";
+    in property <string> context-bank: "Primary";
     in property <[PadItem]> pads;
     in property <[SceneItem]> scenes;
     in property <[StepItem]> steps;
@@ -147,6 +149,7 @@ export component PerformanceWindow inherits Window {
     in property <[SetupDeviceItem]> setup-midi-outputs; in property <[SetupControllerItem]> setup-controllers;
     in property <[SetupMidiRouteItem]> setup-midi-routes;
     in property <[SetupMappingItem]> setup-mappings;
+    in property <[SetupMappingTargetItem]> setup-mapping-targets;
     in-out property <string> setup-learn-control: "encoder.1"; in-out property <string> setup-learn-mode: "cc-absolute";
     in-out property <string> setup-profile-path: "";
     in-out property <bool> modal-visible: false;
@@ -172,7 +175,9 @@ export component PerformanceWindow inherits Window {
     in property <bool> recording-can-save: false;
     in property <[LiveLoopItem]> recording-loops;
     callback encoder-turned(int, int); callback function-invoked(int);
+    callback context-bank-changed(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
+    callback pad-assignment(int, int); callback pad-assignment-clear(int);
     callback page-selected(int); callback transport-invoked(string);
     callback track-selected(int); callback return-arrangement();
     callback scene-invoked(int); callback notification-dismissed();
@@ -227,6 +232,7 @@ export component PerformanceWindow inherits Window {
     callback setup-midi-learn(string, string, string); callback setup-profile-save(string); callback setup-exit();
     callback setup-midi-route-selected(int); callback setup-midi-route-action(string);
     callback setup-mapping-selected(int); callback setup-mapping-remove();
+    callback setup-mapping-target-selected(int); callback setup-mapping-target-apply();
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -238,7 +244,10 @@ export component PerformanceWindow inherits Window {
         }
         HorizontalLayout {
             spacing: 5px; height: 72px;
+            PageButton { width: 36px; text: "‹"; clicked => { root.context-bank-changed(-1); } }
+            Text { width: 90px; text: root.context-bank; color: #9fb3c8; vertical-alignment: center; }
             for item[i] in root.encoders: ContextualEncoder { label: item.label; value: item.value; unit: item.unit; active: item.active; turned(delta) => { root.encoder-turned(i, delta); } }
+            PageButton { width: 36px; text: "›"; clicked => { root.context-bank-changed(1); } }
         }
         if root.page-id == "performance": PerformancePage {
             vertical-stretch: 1; transport-state: root.transport-state;
@@ -357,7 +366,7 @@ export component PerformanceWindow inherits Window {
             midi-clock: root.setup-midi-clock; system: root.setup-system; version: root.setup-version; callback-load: root.setup-callback-load;
             callback-peak: root.setup-callback-peak; xruns: root.setup-xruns; xruns-available: root.setup-xruns-available;
             error: root.setup-error; learn-status: root.setup-learn-status; audio-inputs: root.setup-audio-inputs; audio-outputs: root.setup-audio-outputs;
-            midi-inputs: root.setup-midi-inputs; midi-outputs: root.setup-midi-outputs; controllers: root.setup-controllers; midi-routes: root.setup-midi-routes; mappings: root.setup-mappings;
+            midi-inputs: root.setup-midi-inputs; midi-outputs: root.setup-midi-outputs; controllers: root.setup-controllers; midi-routes: root.setup-midi-routes; mappings: root.setup-mappings; mapping-targets: root.setup-mapping-targets;
             learn-control <=> root.setup-learn-control; learn-mode <=> root.setup-learn-mode;
             subview-selected(value) => { root.setup-subview-selected(value); } device-selected(kind, index) => { root.setup-device-selected(kind, index); }
             value-adjusted(property, direction) => { root.setup-value-adjusted(property, direction); }
@@ -365,6 +374,7 @@ export component PerformanceWindow inherits Window {
             controller-selected(index) => { root.setup-controller-selected(index); } midi-learn(action, control, mode) => { root.setup-midi-learn(action, control, mode); }
             midi-route-selected(index) => { root.setup-midi-route-selected(index); } midi-route-action(action) => { root.setup-midi-route-action(action); }
             mapping-selected(index) => { root.setup-mapping-selected(index); } mapping-remove => { root.setup-mapping-remove(); }
+            mapping-target-selected(index) => { root.setup-mapping-target-selected(index); } mapping-target-apply => { root.setup-mapping-target-apply(); }
             text-requested(operation, current) => { root.text-entry-requested(operation, current); } exit-requested => { root.setup-exit(); }
         }
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }

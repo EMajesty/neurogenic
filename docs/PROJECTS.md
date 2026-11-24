@@ -231,3 +231,8 @@ generation-based writer; no stronger power-loss guarantee is implied.
 The Slint Browser invokes these same lifecycle actions. It presents explicit
 dirty-session confirmation before passing `discard=true`; failed opens retain
 the prior usable project and directory selection alone never mutates state.
+Timeline schema 11 stores an optional logical presentation position on each
+performance launch slot. Positions are stable project-owned musical
+assignments, independent of controller profiles. Loading schema 10 or earlier
+assigns the former ascending-slot-ID order deterministically; loading never
+rewrites the original project. Duplicated/new slots are explicitly unassigned.

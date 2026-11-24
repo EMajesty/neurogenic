@@ -792,3 +792,24 @@ identities and waits for callback acknowledgement. Preset assets can be
 explicitly relinked for a prepared activation. Persisting repaired dependencies
 back to a package, group/aux/master FX capture and macro capture remain known
 limitations.
+## Task 093 hardware-first interaction
+
+The controller and Slint clients now share named page/bank context identities,
+typed action arguments, discovered parameter/action targets, and explicit
+logical performance-surface assignments. The sixteen-pad/eight-encoder/eight-
+function layout remains a provisional reference profile: application and
+profile identities do not encode PCB positions, and logical launch positions
+are unbounded by that presentation count.
+
+Timeline schema 11 persists `LaunchSlot::logical_position`. Older timelines
+migrate the previous ascending-stable-slot presentation deterministically at
+load time without rewriting the source. New and duplicated slots remain
+unassigned until explicitly placed. Slint exposes bank identity and bank
+navigation; Setup exposes discovered mapping targets, while controller
+profiles now round-trip inversion, fine scale and acceleration.
+
+Software simulation covers physical page selection and launch, explicit
+assignment/reassignment/clear, contextual argument copying, profile round-trip,
+generated bank and mapping-target callbacks, and both rendered resolutions.
+Physical panel ergonomics and final label placement remain NOT RUN because the
+panel layout is not finalized.

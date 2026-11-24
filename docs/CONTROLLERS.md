@@ -393,3 +393,26 @@ Arm/Start, Stop, Overdub, Replace and Cancel actions. Availability follows the
 authoritative pass state; the controller cannot redirect an armed pass by
 changing a later UI selection. Destructive Clear is deliberately confirmation
 only and is not assigned to an ordinary performance button.
+## Task 093 interaction grammar
+
+The functional reference profile uses sixteen musical pads, eight contextual
+encoders and eight contextual function controls, but these counts and their
+panel placement are provisional. Device descriptors remain variable-length;
+profiles bind logical control IDs, and application services never depend on a
+GPIO, shift-register bit, MIDI note, or panel coordinate.
+
+Default page contexts are Performance, Sequencer, Sample, Sound, Mixer, FX,
+Browser and Setup. Each may select named banks such as `primary` and
+`secondary`. Encoders adjust values or selection, function controls invoke
+actions/navigation, and pads manipulate page-specific musical material. Shift
+continues to provide fine adjustment. No encoder push is required.
+
+Controller action bindings persist typed arguments plus pickup, inversion,
+fine scale and acceleration. Required arguments are validated against semantic
+descriptors. Reconnection invalidates feedback and republishes current context.
+The maintenance profile remains the recovery path for a profile that removes
+navigation.
+
+Final transport/navigation grouping, label placement, bank count and any
+additional dedicated controls must be revisited after the physical panel is
+frozen.

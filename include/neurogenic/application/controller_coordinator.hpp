@@ -40,6 +40,8 @@ class ControllerCoordinator {
     bool confirm_midi_learn(std::string_view id, std::string &error);
     bool set_midi_binding(std::string_view id, std::size_t index,
                           MidiControlBinding, std::string &error);
+    bool set_controller_binding(std::string_view id, std::size_t index,
+                                ControlBinding, std::string &error);
     bool remove_midi_binding(std::string_view id, std::size_t index,
                              std::string &error);
     void shutdown() noexcept;

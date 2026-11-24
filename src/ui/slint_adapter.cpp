@@ -41,6 +41,10 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
     add(state.patterns.size()); add(state.clips.size());
     add(state.audio_clips.size()); add(state.tracks.size());
     add(state.performance_launching.slots.size());
+    for (const auto &slot : state.performance_launching.slots) {
+        add(slot.id);
+        add(static_cast<std::uint64_t>(slot.logical_position + 1));
+    }
     add(state.performance_launching.scenes.size());
     add(state.parameters.size()); add(state.sample_slots.size());
     add(state.modulation.modulator_count); add(state.modulation.route_count);
@@ -613,13 +617,7 @@ bool SlintFrontendAdapter::refresh() {
             if (effective != snapshot.performance_macros.effective_values.end())
                 presented.value = effective->second;
         }
-        const auto context_name = state_.shell.page_id == "sample"
-            ? std::string_view("samples")
-            : state_.shell.page_id == "sound" ? std::string_view("parameters")
-            : state_.shell.page_id == "mixer" ? std::string_view("mixer")
-            : state_.shell.page_id == "fx" ? std::string_view("parameters")
-            : state_.shell.page_id == "performance" ? std::string_view("performance")
-                                                     : std::string_view("sequencer");
+        const auto context_name = state_.context.identity;
         const auto context = resolve_controller_context(
             snapshot, context_name, snapshot.modifiers);
         for (std::size_t i = 0; i < 8; ++i) {
@@ -764,17 +762,14 @@ bool SlintFrontendAdapter::refresh() {
         }
     }
 
-    const auto context_name = next.shell.page_id == "sample"
-        ? std::string_view("samples")
-        : next.shell.page_id == "sound" ? std::string_view("parameters")
-        : next.shell.page_id == "mixer" ? std::string_view("mixer")
-        : next.shell.page_id == "fx" && state_.fx.subview == "modulation"
-            ? std::string_view("modulation")
-        : next.shell.page_id == "fx" && state_.fx.subview == "macros"
-            ? std::string_view("performance")
-        : next.shell.page_id == "fx" ? std::string_view("parameters")
-        : next.shell.page_id == "performance" ? std::string_view("performance")
-                                                : std::string_view("sequencer");
+    const auto context_page = next.shell.page_id == "sample" ? "samples"
+        : next.shell.page_id == "sound" ? "sound"
+        : next.shell.page_id == "fx" ? "fx"
+        : next.shell.page_id;
+    next.context.bank = context_bank_ == 0 ? "Primary" : "Secondary";
+    next.context.identity = std::string(context_page) +
+                            (context_bank_ == 0 ? ":primary" : ":secondary");
+    const auto &context_name = next.context.identity;
     const auto context =
         resolve_controller_context(snapshot, context_name, snapshot.modifiers);
     for (std::size_t i = 0; i < 8; ++i) {
@@ -792,18 +787,23 @@ bool SlintFrontendAdapter::refresh() {
         next.context.functions[i] = copy(context[8 + i]);
     }
 
-    // The sixteen visual positions are filled by ascending stable slot ID.
-    // Collection order is deliberately ignored and unfilled positions remain
-    // unavailable, so project serialization order cannot change pad meaning.
-    auto slots = snapshot.performance_launching.slots;
-    std::sort(slots.begin(), slots.end(),
-              [](const auto &a, const auto &b) { return a.id < b.id; });
+    // The current reference surface exposes sixteen positions, but assignments
+    // are explicit logical metadata rather than collection order or protocol
+    // control IDs. Other clients may expose a different position count.
+    const auto &slots = snapshot.performance_launching.slots;
+    for (const auto &slot : slots)
+        if (slot.logical_position < 0)
+            next.performance.unassigned_slots.push_back(slot.id);
     for (std::size_t i = 0; i < next.performance.pads.size(); ++i) {
         auto &pad = next.performance.pads[i];
         pad.label = std::to_string(i + 1);
         pad.selected = snapshot.selected_pad == i;
-        if (i < slots.size()) {
-            const auto &slot = slots[i];
+        const auto assigned = std::find_if(
+            slots.begin(), slots.end(), [&](const auto &slot) {
+                return slot.logical_position == static_cast<std::int32_t>(i);
+            });
+        if (assigned != slots.end()) {
+            const auto &slot = *assigned;
             pad.slot_id = slot.id;
             pad.available = true;
             pad.label = "Slot " + std::to_string(slot.id);
@@ -1507,6 +1507,12 @@ bool SlintFrontendAdapter::refresh() {
     else if (next.browser.category == "projects")
         next.browser.destination = "Current application session";
     next.setup = state_.setup;
+    next.setup.mapping_targets.clear();
+    for (const auto &action : snapshot.available_actions)
+        next.setup.mapping_targets.push_back({"action", action, action, false});
+    for (const auto &parameter : snapshot.parameters)
+        next.setup.mapping_targets.push_back(
+            {"parameter", parameter.id, parameter.name, false});
     if (setup_runtime) {
         const auto &runtime = *setup_runtime;
         next.setup.audio_backend = runtime.audio_backend;
@@ -1540,6 +1546,11 @@ bool SlintFrontendAdapter::refresh() {
         next.setup.selected_mapping = 0;
     for (std::size_t i = 0; i < next.setup.mappings.size(); ++i)
         next.setup.mappings[i].selected = i == next.setup.selected_mapping;
+    if (next.setup.selected_mapping_target >= next.setup.mapping_targets.size())
+        next.setup.selected_mapping_target = 0;
+    for (std::size_t i = 0; i < next.setup.mapping_targets.size(); ++i)
+        next.setup.mapping_targets[i].selected =
+            i == next.setup.selected_mapping_target;
     if (!next.setup.controllers.empty())
         next.setup.controller_learn_status =
             next.setup.controllers[next.setup.selected_controller].learn_status;
@@ -1599,6 +1610,8 @@ bool SlintFrontendAdapter::execute(ApplicationCommand command) {
         return false;
     }
     command.source_id = "slint-development-ui";
+    if (command.source_sequence == 0)
+        command.source_sequence = ++local_revision_;
     const auto result = application_.execute(command);
     last_error_ = result.accepted ? std::string{} : result.error;
     (void)refresh();
@@ -1655,6 +1668,13 @@ bool SlintFrontendAdapter::invoke_function(std::size_t index) {
                     state_.context.functions[index].arguments, {}, 0});
 }
 
+bool SlintFrontendAdapter::change_context_bank(int direction) {
+    if (direction == 0) return true;
+    context_bank_ = context_bank_ == 0 ? 1 : 0;
+    ++local_revision_;
+    return refresh();
+}
+
 bool SlintFrontendAdapter::press_pad(std::size_t index, bool pressed) {
     if (index >= state_.performance.pads.size()) {
         last_error_ = "Pad index is out of range";
@@ -1683,6 +1703,26 @@ bool SlintFrontendAdapter::press_pad(std::size_t index, bool pressed) {
     return execute(*command);
 }
 
+bool SlintFrontendAdapter::assign_performance_pad(std::size_t position,
+                                                  std::uint64_t slot_id) {
+    if (position >= state_.performance.pads.size()) {
+        last_error_ = "Logical pad position is unavailable on this surface";
+        return false;
+    }
+    return execute({"performance.pad-assign.v1",
+                    {{"position", static_cast<std::int64_t>(position)},
+                     {"slot", static_cast<std::int64_t>(slot_id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::clear_performance_pad(std::size_t position) {
+    if (position >= state_.performance.pads.size()) {
+        last_error_ = "Logical pad position is unavailable on this surface";
+        return false;
+    }
+    return execute({"performance.pad-clear.v1",
+                    {{"position", static_cast<std::int64_t>(position)}}, {}, 0});
+}
+
 bool SlintFrontendAdapter::select_page(std::size_t index) {
     if (index >= pages.size()) {
         last_error_ = "Page is unavailable";
@@ -1691,6 +1731,7 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
+    context_bank_ = 0;
     state_.shell.notification.clear();
     last_error_ = state_.shell.notification;
     ++local_revision_;
@@ -3975,6 +4016,65 @@ bool SlintFrontendAdapter::remove_setup_mapping() {
     ++local_revision_;
     (void)refresh();
     return result;
+}
+
+bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
+                                              std::string target_id,
+                                              bool pickup, bool invert,
+                                              double fine_scale,
+                                              double acceleration) {
+    if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
+        !setup_services_.set_controller_binding) {
+        last_error_ = "Select an editable MIDI mapping first";
+        return false;
+    }
+    const auto mapping = state_.setup.mappings[state_.setup.selected_mapping];
+    ControlBinding binding;
+    binding.control_id = mapping.control_id;
+    binding.pickup = pickup;
+    binding.invert = invert;
+    binding.fine_scale = fine_scale;
+    binding.acceleration = acceleration;
+    if (target_id == mapping.target_id)
+        binding.arguments = mapping.arguments;
+    if (target_kind == "action")
+        binding.action_id = std::move(target_id);
+    else if (target_kind == "parameter")
+        binding.parameter_id = std::move(target_id);
+    else {
+        last_error_ = "Mapping target must be a discovered action or parameter";
+        return false;
+    }
+    std::string error;
+    const auto result = setup_services_.set_controller_binding(
+        mapping.endpoint_id, mapping.controller_binding_index,
+        std::move(binding), error);
+    last_error_ = result ? std::string{} : std::move(error);
+    ++local_revision_;
+    (void)refresh();
+    return result;
+}
+
+bool SlintFrontendAdapter::select_setup_mapping_target(std::size_t index) {
+    if (index >= state_.setup.mapping_targets.size()) return false;
+    state_.setup.selected_mapping_target = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::apply_setup_mapping_target() {
+    if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
+        state_.setup.selected_mapping_target >=
+            state_.setup.mapping_targets.size()) {
+        last_error_ = "Select a mapping and compatible target first";
+        return false;
+    }
+    const auto &mapping = state_.setup.mappings[state_.setup.selected_mapping];
+    const auto &target =
+        state_.setup.mapping_targets[state_.setup.selected_mapping_target];
+    return edit_setup_mapping(target.kind, target.id, mapping.pickup,
+                              mapping.invert, mapping.fine_scale,
+                              mapping.acceleration);
 }
 
 bool SlintFrontendAdapter::save_setup_controller_profile(std::string path) {

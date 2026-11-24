@@ -20,6 +20,17 @@ int main(int argc, char **argv) {
         timeline_data.tracks.front().pattern.events.push_back(
             {1, ticks_per_quarter * 4, MusicalEventType::note, 60, 0.8F,
              ticks_per_quarter / 4});
+        PatternDefinition rendered_pattern;
+        rendered_pattern.id = 70;
+        rendered_pattern.name = "Rendered Pattern";
+        rendered_pattern.length = ticks_per_quarter * 4;
+        rendered_pattern.tracks.push_back(
+            {1, timeline_data.tracks.front().pattern});
+        timeline_data.arrangement.patterns.push_back(rendered_pattern);
+        timeline_data.arrangement.launch_slots.push_back(
+            {77, 1, LaunchSourceType::pattern, 70, LaunchBehavior::loop,
+             LaunchQuantization::bar});
+        timeline_data.arrangement.launch_slots.back().logical_position = 0;
         TimelineService timeline([&](const Timeline &value, std::string &error) {
             return engine.queue_timeline(value, error);
         }, timeline_data);

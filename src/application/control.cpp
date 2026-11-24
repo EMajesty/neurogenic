@@ -214,6 +214,11 @@ ActionRegistry::ActionRegistry() {
                {"source", ValueType::integer}, {"behavior", ValueType::text, false}}));
     add(action("performance.slot-clear.v1", "Clear performance launch slot",
                "Performance", {{"slot", ValueType::integer}}));
+    add(action("performance.pad-assign.v1", "Assign logical performance pad",
+               "Performance", {{"position", ValueType::integer},
+               {"slot", ValueType::integer}}));
+    add(action("performance.pad-clear.v1", "Clear logical performance pad",
+               "Performance", {{"position", ValueType::integer}}));
     add(action("performance.slot-launch.v1", "Launch performance slot",
                "Performance", {{"slot", ValueType::integer}}));
     add(action("performance.slot-stop.v1", "Stop performance slot",
@@ -5106,10 +5111,35 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         } else if (command.action_id == "performance.slot-assign.v1" ||
                    command.action_id == "performance.slot-clear.v1" ||
                    command.action_id == "performance.slot-duplicate.v1" ||
+                   command.action_id == "performance.pad-assign.v1" ||
+                   command.action_id == "performance.pad-clear.v1" ||
                    command.action_id == "performance.velocity-policy.v1") {
             auto transaction = timeline_.edit();
             auto &arrangement = transaction.timeline().arrangement;
-            if (command.action_id == "performance.slot-clear.v1") {
+            if (command.action_id == "performance.pad-assign.v1" ||
+                command.action_id == "performance.pad-clear.v1") {
+                const auto position = *argument<std::int64_t>(command, "position");
+                if (position < 0 || position > 65535)
+                    error = "logical pad position is out of range";
+                else {
+                    for (auto &slot : arrangement.launch_slots)
+                        if (slot.logical_position == position)
+                            slot.logical_position = -1;
+                    if (command.action_id == "performance.pad-assign.v1") {
+                        const auto id = static_cast<LaunchSlotId>(
+                            *argument<std::int64_t>(command, "slot"));
+                        const auto found = std::find_if(
+                            arrangement.launch_slots.begin(),
+                            arrangement.launch_slots.end(),
+                            [=](const auto &slot) { return slot.id == id; });
+                        if (found == arrangement.launch_slots.end())
+                            error = "launch slot does not exist";
+                        else
+                            found->logical_position =
+                                static_cast<std::int32_t>(position);
+                    }
+                }
+            } else if (command.action_id == "performance.slot-clear.v1") {
                 const auto id = static_cast<LaunchSlotId>(*argument<std::int64_t>(command, "slot"));
                 const auto before = arrangement.launch_slots.size();
                 std::erase_if(arrangement.launch_slots, [=](const auto &slot) { return slot.id == id; });
@@ -5129,7 +5159,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 if (source == arrangement.launch_slots.end()) error = "source launch slot does not exist";
                 else if (!new_id || std::any_of(arrangement.launch_slots.begin(), arrangement.launch_slots.end(),
                     [&](const auto &slot) { return slot.id == new_id; })) error = "destination launch slot already exists";
-                else { auto copy = *source; copy.id = new_id; arrangement.launch_slots.push_back(copy); }
+                else { auto copy = *source; copy.id = new_id;
+                    copy.logical_position = -1;
+                    arrangement.launch_slots.push_back(copy); }
             } else if (command.action_id == "performance.velocity-policy.v1") {
                 const auto &policy = *argument<std::string>(command, "policy");
                 if (policy == "fixed") arrangement.velocity_policy = VelocityPolicy::fixed;
@@ -5161,7 +5193,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     const auto found = std::find_if(arrangement.launch_slots.begin(), arrangement.launch_slots.end(),
                         [&](const auto &slot) { return slot.id == value.id; });
                     if (found == arrangement.launch_slots.end()) arrangement.launch_slots.push_back(value);
-                    else *found = value;
+                    else { value.logical_position = found->logical_position; *found = value; }
                 }
             }
             if (error.empty()) {

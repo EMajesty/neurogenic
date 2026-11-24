@@ -55,6 +55,7 @@ struct SlintShellState {
 };
 
 struct SlintContextState {
+    std::string identity{"performance:primary"}, bank{"Primary"};
     std::array<SlintContextItem, 8> encoders;
     std::array<SlintContextItem, 8> functions;
 };
@@ -64,6 +65,7 @@ struct SlintPerformancePageState {
         track_owner{"Arrangement"}, launch_quantization{"Bar"};
     std::vector<SlintSceneItem> scenes;
     std::array<SlintPadItem, 16> pads;
+    std::vector<std::uint64_t> unassigned_slots;
 };
 
 struct SlintStepItem {
@@ -369,6 +371,15 @@ struct SlintSetupMappingItem {
     std::string endpoint_id, control_id, source, mode;
     std::size_t binding_index{};
     bool feedback{}, selected{};
+    std::size_t controller_binding_index{};
+    std::string target_kind, target_id, target_label;
+    bool pickup{}, invert{};
+    double fine_scale{0.1}, acceleration{2.0};
+    std::map<std::string, ApplicationValue> arguments;
+};
+struct SlintSetupMappingTargetItem {
+    std::string kind, id, label;
+    bool selected{};
 };
 
 // Copy-only runtime data supplied by the appliance.  This deliberately keeps
@@ -399,6 +410,8 @@ struct SlintSetupServices {
     std::function<bool(std::string_view, std::string &)> confirm_midi_learn;
     std::function<bool(std::string_view, std::size_t, std::string &)>
         remove_midi_binding;
+    std::function<bool(std::string_view, std::size_t, ControlBinding,
+                       std::string &)> set_controller_binding;
     std::function<bool(std::string_view, std::string_view, std::string &)>
         save_controller_profile;
     std::function<bool()> request_exit;
@@ -422,11 +435,13 @@ struct SlintSetupPageState {
     std::string startup_project;
     std::size_t selected_controller{};
     std::size_t selected_mapping{};
+    std::size_t selected_mapping_target{};
     std::size_t selected_midi_route{};
     std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
         midi_inputs, midi_outputs;
     std::vector<SlintSetupControllerItem> controllers;
     std::vector<SlintSetupMappingItem> mappings;
+    std::vector<SlintSetupMappingTargetItem> mapping_targets;
     std::vector<SlintSetupMidiRouteItem> midi_routes;
     std::vector<std::string> warnings;
 };
@@ -481,7 +496,11 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool turn_encoder(std::size_t index, double steps,
                                     bool fine = false);
     [[nodiscard]] bool invoke_function(std::size_t index);
+    [[nodiscard]] bool change_context_bank(int direction);
     [[nodiscard]] bool press_pad(std::size_t index, bool pressed = true);
+    [[nodiscard]] bool assign_performance_pad(std::size_t position,
+                                              std::uint64_t slot_id);
+    [[nodiscard]] bool clear_performance_pad(std::size_t position);
     [[nodiscard]] bool select_page(std::size_t index);
     [[nodiscard]] bool select_track(int direction);
     [[nodiscard]] bool launch_scene(std::size_t index);
@@ -615,6 +634,13 @@ class SlintFrontendAdapter {
                                         std::string mode = {});
     [[nodiscard]] bool select_setup_mapping(std::size_t index);
     [[nodiscard]] bool remove_setup_mapping();
+    [[nodiscard]] bool edit_setup_mapping(std::string target_kind,
+                                          std::string target_id,
+                                          bool pickup, bool invert,
+                                          double fine_scale,
+                                          double acceleration);
+    [[nodiscard]] bool select_setup_mapping_target(std::size_t index);
+    [[nodiscard]] bool apply_setup_mapping_target();
     [[nodiscard]] bool save_setup_controller_profile(std::string path);
     [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;
@@ -639,6 +665,7 @@ class SlintFrontendAdapter {
     std::string last_error_;
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};
+    std::size_t context_bank_{};
     std::vector<std::string> browser_recent_locations_;
     class BrowserWorker;
     std::unique_ptr<BrowserWorker> browser_worker_;

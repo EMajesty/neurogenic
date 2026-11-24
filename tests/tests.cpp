@@ -3107,6 +3107,16 @@ void test_live_sample_management_and_resampling() {
                   i % 2 ? wav44 : wav96),
               "concurrent sample command");
     concurrent_manager.wait_idle();
+    // Worker-idle means decoding/publication preparation is complete; the
+    // audio callback still owns the bounded activation acknowledgement. Wait
+    // for that authoritative state instead of racing the render thread stop.
+    for (int attempt = 0; attempt < 10'000; ++attempt) {
+        const auto observed = concurrent_manager.states();
+        if (observed.size() == 2 && observed[0].has_sample &&
+            observed[1].has_sample)
+            break;
+        std::this_thread::yield();
+    }
     rendering = false;
     audio.join();
     concurrent_manager.shutdown();
@@ -5901,7 +5911,7 @@ void test_controller_agnostic_sessions() {
     ControllerSession first(application, session_descriptor, profile, "first", 64);
     ControllerSession second(application, session_descriptor, profile, "second", 64);
     check(first.valid() && second.valid(), "controller sessions valid");
-    check(first.input({"page.3", 1, 0, true, 1}, error) &&
+    check(first.input({"page.4", 1, 0, true, 1}, error) &&
               first.state().context == "mixer" &&
               second.state().context == "sequencer",
           "controller contexts are session-local");
@@ -5913,11 +5923,17 @@ void test_controller_agnostic_sessions() {
     check(!first.input({"missing", 1, 0, true, 4}, error) && !error.empty(),
           "unknown controller control rejected");
 
+    profile.bindings.front().invert = true;
+    profile.bindings.front().fine_scale = 0.025;
+    profile.bindings.front().acceleration = 4.0;
     const auto serialized = serialize_controller_profile(profile);
     ControllerProfile reparsed;
     check(parse_controller_profile(serialized, reparsed, error) &&
               validate_profile(reparsed, application.actions(), error) &&
               reparsed.profile_id == profile.profile_id &&
+              reparsed.bindings.front().invert &&
+              std::fabs(reparsed.bindings.front().fine_scale - 0.025) < 0.0001 &&
+              std::fabs(reparsed.bindings.front().acceleration - 4.0) < 0.0001 &&
               std::any_of(reparsed.bindings.begin(), reparsed.bindings.end(),
                           [](const auto &binding) {
                               return binding.control_id == "performance.0" &&

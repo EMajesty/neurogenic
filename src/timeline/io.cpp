@@ -148,6 +148,8 @@ Timeline load_timeline(const std::filesystem::path &path) {
                 slot.quantization = static_cast<LaunchQuantization>(quantization);
                 slot.follow = static_cast<SlotFollowAction>(follow);
                 slot.quantization_override = override != 0;
+                if (version >= 11 && !(line >> slot.logical_position))
+                    throw std::runtime_error("invalid launch slot logical position");
                 timeline.arrangement.launch_slots.push_back(slot);
                 require_end(line);
             } else if (kind == "performance_scene") {
@@ -420,6 +422,22 @@ Timeline load_timeline(const std::filesystem::path &path) {
                 targeted.push_back(event.target_event_id);
             }
     }
+    // Versions through 10 presented launch slots by ascending stable ID. Make
+    // that implicit behavior explicit on load without rewriting the source
+    // file, so later slot creation cannot reorder an existing surface.
+    if (version < 11) {
+        std::vector<LaunchSlot *> ordered;
+        ordered.reserve(timeline.arrangement.launch_slots.size());
+        for (auto &slot : timeline.arrangement.launch_slots)
+            ordered.push_back(&slot);
+        std::sort(ordered.begin(), ordered.end(), [](const auto *left,
+                                                     const auto *right) {
+            return left->id < right->id;
+        });
+        for (std::size_t position = 0; position < ordered.size(); ++position)
+            ordered[position]->logical_position =
+                static_cast<std::int32_t>(position);
+    }
     PlaybackPlan validation;
     std::string error;
     if (!compile_timeline(timeline, validation, error))
@@ -463,7 +481,8 @@ void save_timeline(const Timeline &timeline,
                << static_cast<unsigned>(slot.quantization) << ' ' << slot.subdivision_ticks
                << ' ' << static_cast<unsigned>(slot.follow) << ' ' << slot.follow_target
                << ' ' << slot.follow_repetitions << ' ' << slot.random_seed << ' '
-               << (slot.quantization_override ? 1 : 0) << '\n';
+               << (slot.quantization_override ? 1 : 0) << ' '
+               << slot.logical_position << '\n';
     for (const auto &scene : a.performance_scenes) {
         output << "performance_scene " << scene.id << ' '
                << static_cast<unsigned>(scene.quantization) << ' '

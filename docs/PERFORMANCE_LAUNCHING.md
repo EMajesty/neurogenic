@@ -68,3 +68,15 @@ audio thread; playback uses only existing prepared timeline publication.
 
 Task 065 keeps arrangement material running on unaffected tracks and adds
 quantized one/all-track return. See [Hybrid playback](HYBRID_PLAYBACK.md).
+## Logical surface assignments
+
+Launch slots have stable musical identities and an optional logical surface
+position. Positions are explicit project data; they are not inferred from slot
+sort order and are not MIDI notes or dedicated-controller control IDs. Any
+surface count is valid. The provisional Slint/reference profile presents the
+first sixteen positions, leaving unassigned positions inert.
+
+Schema 10 and earlier projects migrate their previous ascending-ID presentation
+to explicit positions on load. New and duplicated slots remain unassigned until
+the musician places them, so unrelated slot creation never changes an existing
+performance layout.

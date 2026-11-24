@@ -605,3 +605,20 @@ Only the active page receives telemetry model rows, equal-size vector models
 retain identity, and page activation refreshes authoritative state. This adds no
 frontend dependency, allocation or lock to the audio callback. Complete snapshot
 construction remains control-side and is a measured future optimization boundary.
+### Shared contextual interaction grammar
+
+`resolve_controller_context()` is the single presentation-neutral resolver for
+Slint and controller sessions. Context identities are `page:bank` strings;
+profiles select them, and unsupported banks fall back to the page's safe
+defaults. Encoders adjust discovered parameters, function controls invoke
+validated semantic commands, and pads address page-specific musical material.
+`ContextControl::arguments` carries typed stable identities through feedback,
+Slint copies and dispatch. Argument values participate in feedback cache keys,
+so changing a target with the same value type cannot leave stale labels or
+commands.
+
+Logical launch-surface positions belong to project musical presentation data,
+not controller profiles or protocols. A dedicated or generic controller maps a
+physical input to a logical position; `LaunchSlot` maps that position to a
+stable launch identity. The current Slint surface shows positions 0..15 only as
+a provisional profile.

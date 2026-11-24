@@ -49,6 +49,7 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
     std::shared_ptr<slint::VectorModel<SetupMidiRouteItem>> midi_routes;
     std::shared_ptr<slint::VectorModel<SetupMappingItem>> mappings;
+    std::shared_ptr<slint::VectorModel<SetupMappingTargetItem>> mapping_targets;
     std::shared_ptr<slint::VectorModel<LiveLoopItem>> live_loops;
 };
 
@@ -153,6 +154,8 @@ void publish(const SlintUiState &state,
             functions.push_back({text(item.label), text(item.value), text(item.unit), item.available});
         publish_model(models.encoders, std::move(encoders), [&](auto value) { window->set_encoders(value); });
         publish_model(models.functions, std::move(functions), [&](auto value) { window->set_functions(value); });
+        window->set_context_identity(text(state.context.identity));
+        window->set_context_bank(text(state.context.bank));
         if (state.shell.page_id == "performance") {
             std::vector<PadItem> pads;
             for (const auto &pad : state.performance.pads)
@@ -294,6 +297,8 @@ void publish(const SlintUiState &state,
     publish_model(models.scenes, std::move(scenes), [&](auto value) { window->set_scenes(value); });
     publish_model(models.encoders, std::move(encoders), [&](auto value) { window->set_encoders(value); });
     publish_model(models.functions, std::move(functions), [&](auto value) { window->set_functions(value); });
+    window->set_context_identity(text(state.context.identity));
+    window->set_context_bank(text(state.context.bank));
     publish_model(models.pads, std::move(pads), [&](auto value) { window->set_pads(value); });
     std::vector<StepItem> steps;
     for (const auto &step : state.sequencer.steps)
@@ -598,6 +603,12 @@ void publish(const SlintUiState &state,
             mapping.selected});
     publish_model(models.mappings, std::move(mappings),
         [&](auto value) { window->set_setup_mappings(value); });
+    std::vector<SetupMappingTargetItem> mapping_targets;
+    for (const auto &target : state.setup.mapping_targets)
+        mapping_targets.push_back({text(target.kind), text(target.id),
+                                   text(target.label), target.selected});
+    publish_model(models.mapping_targets, std::move(mapping_targets),
+        [&](auto value) { window->set_setup_mapping_targets(value); });
 }
 } // namespace
 
@@ -646,8 +657,23 @@ int run_slint_frontend(ApplicationService &application,
             (void)adapter.invoke_function(static_cast<std::size_t>(index));
             publish(adapter.state(), window);
         });
+        window->on_context_bank_changed([&](int direction) {
+            (void)adapter.change_context_bank(direction);
+            publish(adapter.state(), window);
+        });
         window->on_pad_invoked([&](int index, bool pressed) {
             (void)adapter.press_pad(static_cast<std::size_t>(index), pressed);
+            publish(adapter.state(), window);
+        });
+        window->on_pad_assignment([&](int position, int slot) {
+            (void)adapter.assign_performance_pad(
+                static_cast<std::size_t>(position),
+                static_cast<std::uint64_t>(slot));
+            publish(adapter.state(), window);
+        });
+        window->on_pad_assignment_clear([&](int position) {
+            (void)adapter.clear_performance_pad(
+                static_cast<std::size_t>(position));
             publish(adapter.state(), window);
         });
         window->on_keyboard_input([&](slint::SharedString key, bool pressed) {
@@ -1114,6 +1140,15 @@ int run_slint_frontend(ApplicationService &application,
         window->on_setup_mapping_remove([&] {
             (void)adapter.remove_setup_mapping(); publish(adapter.state(), window);
         });
+        window->on_setup_mapping_target_selected([&](int index) {
+            (void)adapter.select_setup_mapping_target(
+                static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_setup_mapping_target_apply([&] {
+            (void)adapter.apply_setup_mapping_target();
+            publish(adapter.state(), window);
+        });
         window->on_setup_profile_save([&](slint::SharedString path) {
             (void)adapter.save_setup_controller_profile(path.data()); publish(adapter.state(), window);
         });
@@ -1222,6 +1257,11 @@ int run_slint_frontend(ApplicationService &application,
                         throw std::runtime_error("generated MIDI route callback did not publish");
                     window->invoke_setup_midi_route_selected(0);
                     window->invoke_setup_midi_route_action("delete");
+                    if (window->get_setup_mapping_targets() &&
+                        window->get_setup_mapping_targets()->row_count() > 0) {
+                        window->invoke_setup_mapping_target_selected(0);
+                        window->invoke_setup_mapping_target_apply();
+                    }
                     break;
                 }
                 if (!options.screenshot_path.empty())
@@ -1229,6 +1269,20 @@ int run_slint_frontend(ApplicationService &application,
                                      std::string(page_ids[static_cast<std::size_t>(page)]) +
                                      ".ppm");
             }
+            window->invoke_page_selected(0);
+            window->invoke_pad_assignment_clear(0);
+            window->invoke_pad_assignment(0, 77);
+            const auto assigned_pad = window->get_pads()
+                ? window->get_pads()->row_data(0) : std::optional<PadItem>{};
+            if (!assigned_pad || !assigned_pad->available)
+                throw std::runtime_error(
+                    "generated logical pad assignment did not publish");
+            window->invoke_context_bank_changed(1);
+            if (std::string_view(window->get_context_identity().data()) !=
+                "performance:secondary")
+                throw std::runtime_error(
+                    "generated contextual bank callback did not publish");
+            window->invoke_context_bank_changed(-1);
             window->invoke_transport_invoked("record");
             if (!window->get_recording_visible())
                 throw std::runtime_error("recording modal did not become visible");

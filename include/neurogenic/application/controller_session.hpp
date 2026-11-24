@@ -65,6 +65,10 @@ class ControllerSession {
     }
     void reconnect() noexcept;
     void set_context(std::string context);
+    bool set_binding(std::size_t index, ControlBinding, std::string &error);
+    [[nodiscard]] const ControllerProfile &profile() const noexcept {
+        return profile_;
+    }
 
   private:
     const ControlBinding *binding(std::string_view control) const;

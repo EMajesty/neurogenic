@@ -301,3 +301,14 @@ touchscreen/controller checklist in [SLINT_UI.md](SLINT_UI.md). Automated
 software-renderer PPMs verify generated layout and bindings only; they do not
 validate touch calibration, compositor scaling, display latency, controller
 ergonomics or physical readability.
+### Task 093 provisional-panel validation (NOT RUN)
+
+- Verify each page/bank label against the eventual encoder and function-button
+  placement; the software reference counts are not a panel freeze.
+- Verify logical pad assignment, reassignment and reconnect feedback without
+  assuming MIDI-note or LED-chain ordering.
+- Verify rapid relative encoders, Shift fine mode, inversion, pickup and
+  acceleration on representative generic MIDI surfaces.
+- Verify modal confirm/cancel event isolation and stale-event rejection on the
+  final navigation controls. Software tests do not establish switch ergonomics
+  or physical debounce behavior.

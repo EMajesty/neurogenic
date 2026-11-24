@@ -49,6 +49,8 @@ int main() {
         initial.arrangement.launch_slots.push_back(
             {3, 2, LaunchSourceType::pattern, 1, LaunchBehavior::loop,
              LaunchQuantization::bar});
+        initial.arrangement.launch_slots[0].logical_position = 1;
+        initial.arrangement.launch_slots[1].logical_position = 0;
         initial.arrangement.clips.push_back(
             {31, 1, 0, ticks_per_quarter * 4, true, 0, 1.0F, true});
         initial.arrangement.performance_scenes.push_back(
@@ -90,7 +92,8 @@ int main() {
         setup_runtime.requested.audio_output = "Output A";
         setup_runtime.requested.audio_input = "Input A";
         setup_runtime.requested.audio_buffer_frames = 128;
-        bool preferences_saved{}, learn_started{}, learn_cancelled{}, mapping_removed{}, exit_requested{};
+        bool preferences_saved{}, learn_started{}, learn_cancelled{},
+            mapping_removed{}, mapping_target_applied{}, exit_requested{};
         SlintSetupServices setup_services;
         setup_services.snapshot = [&] { return setup_runtime; };
         setup_services.save = [&](const AppliancePreferences &value,
@@ -121,6 +124,13 @@ int main() {
                 }
                 return mapping_removed;
             };
+        setup_services.set_controller_binding =
+            [&](std::string_view id, std::size_t index,
+                ControlBinding binding, std::string &) {
+                mapping_target_applied = id == "surface.1" && index == 0 &&
+                    binding.parameter_id == "synth.cutoff";
+                return mapping_target_applied;
+            };
         setup_services.request_exit = [&] {
             exit_requested = true;
             return true;
@@ -141,7 +151,27 @@ int main() {
         require(adapter.state().performance.pads[0].available &&
                     adapter.state().performance.pads[0].slot_id == 3 &&
                     adapter.state().performance.pads[1].slot_id == 11,
-                "performance slots map to pads by ascending stable ID");
+                "performance slots map to explicit logical positions");
+        require(adapter.assign_performance_pad(0, 11) &&
+                    adapter.state().performance.pads[0].slot_id == 11 &&
+                    !adapter.state().performance.pads[1].available,
+                "logical pad reassignment is explicit and unique");
+        engine.process(ack_left, ack_right);
+        require(adapter.clear_performance_pad(0) &&
+                    !adapter.state().performance.pads[0].available,
+                "logical pad assignment can be cleared without deleting slot");
+        engine.process(ack_left, ack_right);
+        require(adapter.assign_performance_pad(0, 3),
+                ("logical pad 0 restore: " + adapter.last_error()).c_str());
+        engine.process(ack_left, ack_right);
+        require(adapter.assign_performance_pad(1, 11),
+                ("logical pad 1 restore: " + adapter.last_error()).c_str());
+        engine.process(ack_left, ack_right);
+        require(adapter.state().context.identity == "performance:primary" &&
+                    adapter.change_context_bank(1) &&
+                    adapter.state().context.identity == "performance:secondary" &&
+                    adapter.change_context_bank(-1),
+                "contextual bank identity is stable and selectable");
         require(adapter.state().performance.scenes.size() == 1 &&
                     adapter.state().performance.scenes[0].label == "UI Scene",
                 "performance scenes use authoritative launcher state");
@@ -956,6 +986,22 @@ int main() {
                     learn_started && adapter.setup_midi_learn("cancel") &&
                     learn_cancelled,
                 "controller learn is delegated to the coordinator-facing service");
+        const auto cutoff_target = std::find_if(
+            adapter.state().setup.mapping_targets.begin(),
+            adapter.state().setup.mapping_targets.end(),
+            [](const auto &target) {
+                return target.kind == "parameter" &&
+                       target.id == "synth.cutoff";
+            });
+        require(cutoff_target != adapter.state().setup.mapping_targets.end(),
+                "discovered cutoff target exists");
+        const auto cutoff_index = static_cast<std::size_t>(cutoff_target -
+            adapter.state().setup.mapping_targets.begin());
+        require(adapter.select_setup_mapping(0), "manual mapping selection");
+        require(adapter.select_setup_mapping_target(cutoff_index),
+                "manual mapping target selection");
+        require(adapter.apply_setup_mapping_target() && mapping_target_applied,
+                ("manual mapping target apply: " + adapter.last_error()).c_str());
         require(adapter.select_setup_mapping(0) && adapter.remove_setup_mapping() &&
                     mapping_removed && adapter.state().setup.mappings.empty(),
                 "controller mappings are removed through coordinator services");

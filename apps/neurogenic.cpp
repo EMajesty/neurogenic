@@ -830,6 +830,28 @@ int main(int argc, char **argv) {
                                         std::to_string(binding.channel + 1) + " / " +
                                         std::to_string(binding.number),
                                     std::move(mode), i, binding.feedback, false});
+                                auto &presented = result.mappings.back();
+                                const auto target = std::find_if(
+                                    profile->controller.bindings.begin(),
+                                    profile->controller.bindings.end(),
+                                    [&](const auto &candidate) {
+                                        return candidate.control_id == binding.control_id;
+                                    });
+                                if (target != profile->controller.bindings.end()) {
+                                    presented.controller_binding_index =
+                                        static_cast<std::size_t>(target -
+                                            profile->controller.bindings.begin());
+                                    presented.target_kind = target->action_id.empty()
+                                        ? "parameter" : "action";
+                                    presented.target_id = target->action_id.empty()
+                                        ? target->parameter_id : target->action_id;
+                                    presented.target_label = presented.target_id;
+                                    presented.pickup = target->pickup;
+                                    presented.invert = target->invert;
+                                    presented.fine_scale = target->fine_scale;
+                                    presented.acceleration = target->acceleration;
+                                    presented.arguments = target->arguments;
+                                }
                             }
                         }
                     }
@@ -892,6 +914,13 @@ int main(int argc, char **argv) {
                         std::string &remove_error) {
                         return controllers.remove_midi_binding(endpoint, index,
                                                                remove_error);
+                    };
+                slint_options.setup.set_controller_binding =
+                    [&](std::string_view endpoint, std::size_t index,
+                        neurogenic::ControlBinding binding,
+                        std::string &mapping_error) {
+                        return controllers.set_controller_binding(
+                            endpoint, index, std::move(binding), mapping_error);
                     };
                 slint_options.setup.save_controller_profile =
                     [&](std::string_view endpoint, std::string_view path,

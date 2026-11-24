@@ -134,3 +134,12 @@ scheduling, routing, phase following, SPP, jitter, holdover/loss/recovery,
 priority overflow, panic, exact-name reconnect policy, and persistence. They do
 not measure physical DIN/USB MIDI jitter, backend latency, OS hotplug timing, or
 device interoperability.
+### Manual control-surface mapping
+
+Setup separates MIDI source capture from the semantic target. MIDI learn or an
+existing binding supplies endpoint/channel/message/mode; a descriptor-backed
+chooser supplies an application action or parameter. Controller profiles
+persist pickup, inversion, fine scaling, acceleration, feedback and validated
+typed action arguments. Unknown targets and actions missing required arguments
+are rejected transactionally. Ordinary unmatched musical MIDI remains routed
+under the musical-routing policy.

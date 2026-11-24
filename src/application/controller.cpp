@@ -427,6 +427,26 @@ bool parse_controller_profile(std::string_view source,
                 }
                 else if (fields[i] == "pickup")
                     binding.pickup = true;
+                else if (fields[i] == "invert")
+                    binding.invert = true;
+                else if (fields[i].rfind("fine=", 0) == 0 ||
+                         fields[i].rfind("acceleration=", 0) == 0) {
+                    const bool fine = fields[i].rfind("fine=", 0) == 0;
+                    const auto value = std::string_view(fields[i]).substr(
+                        fine ? 5 : 13);
+                    double parsed_value{};
+                    const auto converted = std::from_chars(
+                        value.data(), value.data() + value.size(), parsed_value);
+                    if (converted.ec != std::errc{} ||
+                        converted.ptr != value.data() + value.size() ||
+                        !std::isfinite(parsed_value) || parsed_value <= 0) {
+                        error = "line " + std::to_string(number) +
+                                ": invalid binding scale";
+                        return false;
+                    }
+                    (fine ? binding.fine_scale : binding.acceleration) =
+                        parsed_value;
+                }
                 else if (fields[i].rfind("arg:", 0) == 0) {
                     const auto separator = fields[i].find('=', 4);
                     if (separator == std::string::npos || separator + 3 > fields[i].size() ||
@@ -538,6 +558,11 @@ std::string serialize_controller_profile(const ControllerProfile &profile) {
         if (!binding.context.empty()) output << "|context=" << binding.context;
         if (binding.index >= 0) output << "|index=" << binding.index;
         if (binding.pickup) output << "|pickup";
+        if (binding.invert) output << "|invert";
+        if (binding.fine_scale != 0.1)
+            output << "|fine=" << binding.fine_scale;
+        if (binding.acceleration != 2.0)
+            output << "|acceleration=" << binding.acceleration;
         for (const auto &[name, value] : binding.arguments) {
             output << "|arg:" << name << '=';
             if (const auto *text = std::get_if<std::string>(&value))
@@ -700,8 +725,8 @@ ControllerProfile full_performance_profile() {
         profile.bindings.push_back(std::move(function));
     }
     static constexpr std::string_view contexts[]{
-        "sequencer", "samples", "parameters", "mixer",
-        "modulation", "routing", "recording", "midi"};
+        "performance", "sequencer", "samples", "sound",
+        "mixer", "fx", "browser", "setup"};
     for (int i = 0; i < 8; ++i) {
         ControlBinding page;
         page.control_id = "page." + std::to_string(i);

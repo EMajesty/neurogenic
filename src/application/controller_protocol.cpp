@@ -188,23 +188,30 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             ++i;
         }
     };
-    if (context == "mixer")
+    // A context identity may include a configurable bank suffix (for example
+    // "sequencer:advanced"). Base-page fallback keeps profiles compatible
+    // while allowing future panel layouts to select richer banks.
+    const auto separator = context.find(':');
+    const auto page = context.substr(0, separator);
+    const auto bank = separator == std::string_view::npos
+        ? std::string_view("primary") : context.substr(separator + 1);
+    if (page == "mixer")
         set_parameters({"mixer.selected.gain", "mixer.selected.pan",
                         "mixer.track.aux-1", "mixer.track.aux-2",
                         "mixer.aux.return", "mixer.master.gain",
                         "external-fx.send-gain", "external-fx.return-gain"});
-    else if (context == "samples")
+    else if (page == "samples")
         set_parameters({"sample.pitch", "sample.gain", "sample.pan",
                         "effect.delay.mix", "effect.delay.time",
                         "effect.delay.feedback"});
-    else if (context == "modulation")
+    else if (page == "modulation" || page == "fx")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.pitch",
                         "synth.gain", "sample.pitch", "sample.gain",
                         "mixer.track.pan", "external-fx.wet"});
-    else if (context == "routing")
+    else if (page == "routing" || page == "setup")
         set_parameters({"external-fx.wet", "external-fx.send-gain",
                         "external-fx.return-gain", "mixer.master.gain"});
-    else if (context == "parameters")
+    else if (page == "parameters" || page == "sound")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.attack",
                         "synth.decay", "synth.sustain", "synth.release",
                         "synth.gain", "effect.delay.mix"});
@@ -221,13 +228,13 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
          {"ENTER", "navigation.confirm.v1"},
          {"PAGE+", "step.page-next.v1"},
          {"PLAY", "transport.play.v1"}}};
-    if (context == "samples") {
+    if (page == "samples") {
         lower[0] = {"PREVIEW", "slice.preview.v1"};
         lower[1] = {"STOP PREV", "slice.preview-stop.v1"};
-    } else if (context == "mixer") {
+    } else if (page == "mixer") {
         lower[0] = {"MUTE", "mixer.mute-toggle.v1"};
         lower[1] = {"SOLO", "mixer.solo-toggle.v1"};
-    } else if (context == "sequencer") {
+    } else if (page == "sequencer") {
         lower[0] = {"PAGE-", "step.page-previous.v1"};
         lower[1] = {"PAGE+", "step.page-next.v1"};
         lower[2] = {"RESET STEP", "step.trigger-reset.v1"};
@@ -236,7 +243,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[5] = {"REDO", "edit.redo.v1"};
         lower[6] = {"PATTERN-", "pattern.previous.v1"};
         lower[7] = {"PATTERN+", "pattern.next.v1"};
-    } else if (context == "modulation" && state.selected_modulation_route) {
+    } else if ((page == "modulation" || page == "fx") && state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -250,7 +257,16 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             lower[2] = {route->enabled ? "DISABLE" : "ENABLE",
                         "modulation.route-enable.v1"};
         }
-    } else if (context == "performance" && !state.live_loops.empty()) {
+    } else if (page == "browser") {
+        lower = {{{"PREVIOUS", "navigation.focus-previous.v1"},
+                  {"NEXT", "navigation.focus-next.v1"},
+                  {"PARENT", "navigation.cancel.v1"},
+                  {"OPEN", "navigation.confirm.v1"},
+                  {"BACK", "navigation.cancel.v1"},
+                  {"CONFIRM", "navigation.confirm.v1"},
+                  {"PAGE-", "step.page-previous.v1"},
+                  {"PAGE+", "step.page-next.v1"}}};
+    } else if (page == "performance" && !state.live_loops.empty()) {
         const auto session = std::find_if(
             state.live_loops.begin(), state.live_loops.end(),
             [](const auto &candidate) {
@@ -284,7 +300,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                                        std::string(lower[i].second), available);
         result[8 + i].feedback_revision = state.revision;
     }
-    if (context == "modulation" && state.selected_modulation_route) {
+    if ((page == "modulation" || page == "fx") && state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -305,7 +321,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             result[10].arguments = {{"route_id", route_id},
                                     {"enabled", !route->enabled}};
         }
-    } else if (context == "performance" && !state.live_loops.empty()) {
+    } else if (page == "performance" && !state.live_loops.empty()) {
         const auto session = std::find_if(
             state.live_loops.begin(), state.live_loops.end(),
             [](const auto &candidate) {
@@ -331,6 +347,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                             loop.state == LiveLoopState::waiting ||
                             result[9].active;
     }
+    (void)bank;
     return result;
 }
 std::array<ContextControl, 16>

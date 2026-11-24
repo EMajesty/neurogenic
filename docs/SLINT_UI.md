@@ -357,3 +357,22 @@ activation; scrolling to every essential action; focus/back behavior; recording
 confirmation/cancellation; contextual labels against the physical controller;
 clipping; and readable meters/playheads. Repeat mouse-only and touchscreen-only.
 Automated software rendering is not physical touchscreen validation.
+## Context banks and performance assignments
+
+The shell displays the authoritative context bank beside the eight provisional
+encoder labels and provides explicit previous/next bank controls. The lower
+function labels are copied with their typed bound arguments; invoking the Slint
+label and invoking the corresponding physical context control therefore use
+the same semantic command.
+
+Performance pads use persisted logical-position assignments rather than the
+first sixteen sorted launch slots. Unassigned positions are visibly
+unavailable, unrelated slot creation cannot reorder a surface, and assignment
+edits use `performance.pad-assign.v1`/`performance.pad-clear.v1`. The generated
+component exposes assignment callbacks for the compact editor integration.
+
+Setup lists discovered semantic actions and parameters as mapping targets and
+applies the selected target through the coordinator-facing profile service.
+Opaque target IDs are not the primary UI. MIDI learn remains available for
+source capture. Complex typed action-argument editing and modal physical focus
+remain intentionally touch-assisted in this iteration.

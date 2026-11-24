@@ -25,6 +25,7 @@ bool PerformanceLauncher::configure(const Timeline &timeline, std::string &error
         return false;
     }
     std::set<LaunchSlotId> slots;
+    std::set<std::int32_t> logical_positions;
     for (const auto &value : a.launch_slots) {
         const bool track_exists = std::any_of(timeline.tracks.begin(), timeline.tracks.end(),
             [&](const auto &track) { return track.id == value.track; });
@@ -38,6 +39,8 @@ bool PerformanceLauncher::configure(const Timeline &timeline, std::string &error
                     (value.source_type == LaunchSourceType::live_loop || clip.track == value.track); });
         if (!value.id || !value.track || !value.source_id || !track_exists ||
             !source_exists || !slots.insert(value.id).second ||
+            (value.logical_position >= 0 &&
+             !logical_positions.insert(value.logical_position).second) ||
             !value.follow_repetitions || value.subdivision_ticks <= 0) {
             error = "invalid performance launch slot";
             return false;

@@ -323,6 +323,27 @@ bool ControllerCoordinator::remove_midi_binding(std::string_view id,
     if (!endpoint) { error = "unknown MIDI controller endpoint"; return false; }
     return endpoint->adapter->remove(index, error);
 }
+
+bool ControllerCoordinator::set_controller_binding(std::string_view id,
+                                                   std::size_t index,
+                                                   ControlBinding binding,
+                                                   std::string &error) {
+    std::shared_ptr<MidiEndpoint> endpoint;
+    {
+        const std::lock_guard lock(mutex_);
+        const auto found = std::find_if(midi_.begin(), midi_.end(),
+            [&](const auto &value) { return value->id == id; });
+        if (found != midi_.end()) endpoint = *found;
+    }
+    if (!endpoint) {
+        error = "unknown MIDI controller endpoint";
+        return false;
+    }
+    if (!endpoint->session.set_binding(index, std::move(binding), error))
+        return false;
+    endpoint->profile.controller = endpoint->session.profile();
+    return true;
+}
 void ControllerCoordinator::shutdown() noexcept {
     std::vector<std::shared_ptr<SerialEndpoint>> serial;
     std::vector<std::shared_ptr<MidiEndpoint>> midi;
