@@ -1,5 +1,34 @@
 # Implementation status
 
+## Task 080 audit summary
+
+The evidence-based audit in [`docs/audit/`](audit/IMPLEMENTATION_AUDIT.md)
+classifies engine, semantic API, Slint, controller, persistence, test and
+appliance behavior independently. The engine/application layer is broad and
+well covered by deterministic host tests, and all eight Slint destinations are
+real components rather than blank placeholders. The Slint surface is not yet a
+complete standalone-instrument workflow: recording/resampling/live-loop setup,
+sequence pages beyond 16 steps, advanced step properties, processing-result
+publication, modulator and macro creation, preset authoring, MIDI routing,
+controller-map editing, missing-asset recovery and touchscreen text entry remain
+incomplete or backend-only.
+
+No P0 data-loss, crash or callback-safety defect was confirmed. P1 blockers and
+evidence are tracked with stable IDs in
+[`PRIORITIZED_BACKLOG.md`](audit/PRIORITIZED_BACKLOG.md). Notable P2 risks are
+full Slint model reconstruction on frequent revisions, synchronous Browser I/O,
+controller coordinator callbacks under its global mutex, lack of rendered/touch
+interaction tests, and the fact that the primary Nix/CI package disables Slint.
+These are not presented as measured failures. Physical N150/Raspberry Pi 5,
+audio/MIDI interfaces, RP2040 controller, touchscreen and soak validation remain
+explicit hardware work.
+
+The recommended sequence begins with Task 081 (recording and sample-result
+workflow completion), followed by measured Slint publication/render testing,
+Sequencer completion, touch-only path/relink workflows, preset authoring, MIDI
+and controller configuration, then reference-appliance deployment validation.
+The shared granular DSP investigation remains deferred and unchanged.
+
 Task 079 completes the initial eight-page Slint rollout with an independent
 Setup component. It distinguishes active audio configuration from requested
 and pending preferences, presents fixed 48 kHz operation, marks device/channel/
