@@ -28,3 +28,20 @@ if(NOT launcher MATCHES "NEUROGENIC_FRONTEND:-slint" OR
    NOT launcher MATCHES "NEUROGENIC_MAINTENANCE")
   message(FATAL_ERROR "launcher is not Slint-first with maintenance recovery")
 endif()
+file(WRITE "${root}/bin/neurogenic"
+  "#!/bin/sh\nprintf '%s\\n' \"$*\"\n")
+file(CHMOD "${root}/bin/neurogenic"
+  PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+execute_process(
+  COMMAND ${CMAKE_COMMAND} -E env
+    HOME=${root}/home NEUROGENIC_BIN=${root}/bin/neurogenic
+    bash ${NEUROGENIC_SOURCE_DIR}/packaging/neurogenic-appliance
+      --headless --list-devices
+  RESULT_VARIABLE launcher_status OUTPUT_VARIABLE launcher_output
+  ERROR_VARIABLE launcher_error)
+if(NOT launcher_status EQUAL 0 OR
+   NOT launcher_output STREQUAL "--headless --list-devices\n")
+  message(FATAL_ERROR
+    "launcher inspection arguments are not bounded/pass-through: "
+    "${launcher_output}${launcher_error}")
+endif()

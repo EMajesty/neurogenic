@@ -8,25 +8,38 @@ recorded on the target machine.
 ## Build and install
 
 Dependencies are pinned by `flake.lock`, `cmake/Dependencies.cmake` and Slint
-`v1.19.0`. A production source build is:
+`v1.19.0`. The default flake package is the production Slint appliance:
+
+```sh
+nix build
+./result/bin/neurogenic-preflight --prepare
+nix run
+```
+
+`packages.<system>.headless` is the lightweight engine/test package and
+`packages.<system>.sdl` retains the SDL-compatible package. A production source
+build remains available:
 
 ```sh
 nix develop --command cmake --preset production
 nix develop --command cmake --build --preset production
 nix develop --command ctest --preset production
 cmake --install build/production --prefix "$HOME/.local"
-install -m755 build/appliance-stage/share/neurogenic/appliance/neurogenic-appliance "$HOME/.local/bin/"
-install -m755 build/appliance-stage/share/neurogenic/appliance/neurogenic-preflight "$HOME/.local/bin/"
 install -m644 build/appliance-stage/share/neurogenic/appliance/neurogenic-appliance.service "$HOME/.config/systemd/user/"
 ```
 
 `production` is Release, C++20, Slint-enabled, SDL-compatible and includes the
-diagnostic programs and runtime resources. Runtime operation needs neither a
-compiler nor a source checkout. The default Nix package remains the bounded
-headless/SDL test package; Slint's Rust/Cargo source build is verified through
-the pinned production preset and CI. A fully sandboxed Slint flake package is a
-remaining packaging limitation. Native AArch64 uses the same commands. The
-x86_64 cross check proves portable compilation, not Pi 5 runtime behavior.
+diagnostic/discovery programs, launcher, preflight, user-service template and
+runtime resources. Runtime operation needs neither a compiler nor a source
+checkout. Slint and Corrosion sources plus the complete Cargo vendor closure
+are fixed by `flake.lock` and the Cargo hash in `flake.nix`; derivation build
+phases run offline. To update Slint, change the input tag, refresh `flake.lock`,
+replace the Cargo vendor hash from Nix's mismatch report, review the narrowly
+scoped jemalloc patch and run every production check.
+
+Native AArch64 exposes the same production package output. Hosted native ARM CI
+is the intended validation path; the x86_64 AArch64 check remains
+compilation-only and does not establish Raspberry Pi 5 runtime behavior.
 
 ## Storage and configuration
 
@@ -48,7 +61,7 @@ Example `~/.config/neurogenic/appliance.env`:
 
 ```sh
 NEUROGENIC_BIN=/home/instrument/.local/bin/neurogenic
-NEUROGENIC_DIAGNOSTICS_BIN=/home/instrument/.local/bin/neurogenic-diagnostics
+# Optional overrides; installed launchers discover sibling binaries by default.
 NEUROGENIC_FRONTEND=slint
 ```
 
@@ -90,7 +103,24 @@ stopping the service and running the launcher with
 project, and a separate temporary preference file; normal configuration remains
 untouched.
 
+Libremidi 5.4.2's optional udev metadata helper is disabled deliberately. In a
+restricted service it asserts when a udev netlink monitor cannot be created.
+ALSA sequencer enumeration, exact endpoint matching and sequencer announce-port
+hotplug remain enabled. Missing `/dev/snd/seq`, permissions or endpoints are
+reported as unavailable; no configured endpoint is redirected. This is a
+software hardening measure, not physical MIDI validation.
+
 ## Failure and recovery
+
+| Condition | Runtime behavior | Operator action |
+|---|---|---|
+| No audio hardware | Explicit headless/maintenance uses Null; normal exact selection degrades with an issue | Connect/configure an exact device |
+| No ALSA sequencer or permission | MIDI backend reports compiled-but-unavailable; audio/UI may continue | Restore `/dev/snd/seq` access, then reconnect |
+| No MIDI endpoints | Empty available list; configured names remain unavailable | Connect the same endpoint; no substitution |
+| No udev monitor | No dependency on the optional monitor | None; udev metadata is intentionally absent |
+| Missing dedicated controller | Session remains reconnecting for the exact path | Reconnect or enter maintenance |
+| Invalid controller profile | Profile validation fails without replacing the active mapping | Select a valid profile in maintenance/Setup |
+| Device disconnect | Active connection becomes unavailable; bounded reconnect retains identity | Restore the same device or explicitly reconfigure |
 
 - Missing devices: use degraded Setup, correct the exact binding, reconnect.
 - Invalid configuration/profile: retain the bad file for diagnosis and recover

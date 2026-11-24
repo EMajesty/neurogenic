@@ -1,10 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-neurogenic_bin="${NEUROGENIC_BIN:-neurogenic}"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+installed_neurogenic="$script_dir/neurogenic"
+if [[ ! -x "$installed_neurogenic" ]]; then installed_neurogenic="neurogenic"; fi
+neurogenic_bin="${NEUROGENIC_BIN:-$installed_neurogenic}"
 preferences_path="${NEUROGENIC_PREFERENCES:-${XDG_CONFIG_HOME:-$HOME/.config}/neurogenic/appliance.conf}"
 frontend="${NEUROGENIC_FRONTEND:-slint}"
 arguments=(--frontend "$frontend" --fullscreen --shutdown-dirty save --preferences "$preferences_path")
+
+# Inspection commands must remain bounded and must not inherit the normal GUI,
+# project-restoration or supervision defaults.
+for argument in "$@"; do
+  if [[ "$argument" == "--list-devices" || "$argument" == "--help" ]]; then
+    exec "$neurogenic_bin" "$@"
+  fi
+done
 
 # Maintenance mode deliberately ignores the normal preferences and last project.
 # It gives an operator a known-safe, headless configuration recovery path without
@@ -28,5 +39,9 @@ if [[ -n "${NEUROGENIC_EXTRA_ARGS:-}" ]]; then
   read -r -a extra_arguments <<< "$NEUROGENIC_EXTRA_ARGS"
   arguments+=("${extra_arguments[@]}")
 fi
+# Positional arguments are appended last so `nix run . -- --headless
+# --list-devices` and operator diagnostics can override normal launch behavior
+# without editing the installed launcher.
+arguments+=("$@")
 
 exec "$neurogenic_bin" "${arguments[@]}"

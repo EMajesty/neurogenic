@@ -1,5 +1,20 @@
 # MIDI routing, clock, and external sequencing
 
+## Linux backend availability
+
+Production Linux builds use the ALSA sequencer backend. Absence or
+inaccessibility of `/dev/snd/seq`, an empty endpoint set, or an exact-name
+mismatch is an observable unavailable state and never triggers fallback to
+another physical endpoint. The application can continue without MIDI.
+
+Libremidi 5.4.2's optional udev metadata integration is disabled because its
+monitor constructor asserts under restricted netlink environments. This does
+not disable ALSA sequencer enumeration, connections, or sequencer announce-port
+hotplug; it does mean udev-derived manufacturer/serial/path metadata is not
+available. Stable matching therefore remains limited to the backend identities
+documented for ALSA. Permission and physical reconnect behavior still require
+target-host validation.
+
 Task 086 exposes the existing bounded `MidiRoute` graph in Setup: logical
 ports, omni/channel remapping, note/CC/clock/transport filters, enable and
 removal. Controller profiles remain separate. Learn accepts eligible note/CC

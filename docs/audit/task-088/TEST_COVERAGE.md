@@ -2,6 +2,10 @@
 
 ## Commands executed at `d8172a7`
 
+Task 090 superseding validation is recorded in
+[`TASK_090_VALIDATION.md`](TASK_090_VALIDATION.md). The historical results below
+remain the evidence that reproduced AUD2-004 before correction.
+
 | Command | Result |
 |---|---|
 | `ctest --preset dev --output-on-failure` | 31/31 passed, 3.66 s |

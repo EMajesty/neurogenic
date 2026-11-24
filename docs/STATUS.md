@@ -1,5 +1,23 @@
 # Implementation status
 
+## Task 090 missing-device runtime and production packaging
+
+The libremidi abort was reproduced at `udev.hpp:101`: the Slint Nix environment
+made `libudev.h` discoverable, enabling an optional helper that asserts when a
+restricted process cannot create its netlink monitor. The supported
+`LIBREMIDI_NO_UDEV` configuration now disables only that metadata path; ALSA
+sequencer MIDI, exact endpoint matching and announce-event hotplug remain.
+Missing MIDI infrastructure is diagnostic rather than process-fatal, with a
+dedicated construction/exact-match regression test.
+
+The default flake package is now the pinned, sandboxed Slint 1.19.0 production
+appliance. It uses fixed Slint/Corrosion inputs and a fixed-output Cargo vendor
+closure, installs the frontend, diagnostics, discovery, launcher, preflight and
+service resource, and performs installed-runtime checks. Explicit `headless`
+and `sdl` packages preserve lightweight development. x86_64 sandbox build and
+virtual-X11 installed frontend execution pass; physical hardware and native
+Raspberry Pi 5 validation remain **NOT RUN**.
+
 ## Task 089 reusable patterns and arrangement authoring
 
 Reusable `PatternDefinition` content is now the explicit edit authority whenever

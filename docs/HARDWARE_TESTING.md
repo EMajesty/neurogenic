@@ -32,10 +32,10 @@ The focused N150 runbook is [N150_BRINGUP.md](N150_BRINGUP.md).
 ## Initial N150 procedure
 
 ```sh
-nix develop
-cmake --preset dev && cmake --build --preset dev
-./build/dev/neurogenic-diagnostics --json > n150-inventory.json
-./build/dev/neurogenic --headless --list-devices
+nix build
+./result/bin/neurogenic-diagnostics --json > n150-inventory.json
+./result/bin/neurogenic --headless --list-devices
+./result/bin/neurogenic-preflight --prepare
 ```
 
 The inventory reports architecture, CPU, kernel/distribution, RAM, build
@@ -45,6 +45,12 @@ summary. `nix build` installs `result/bin/neurogenic-diagnostics`. A pure
 `path:.` flake input cannot observe `.git` and labels itself
 `local-path-unversioned`; normal Git-flake builds and local CMake builds record
 their source revision.
+
+The default package includes Slint. Use `nix build .#headless` for the smaller
+engine/test closure. Installed-runtime software validation includes a genuine
+Slint launch under virtual X11; it does not validate physical touch, compositor
+latency or GPU drivers. On the target, run the installed launcher in the real
+graphical session and retain its lifecycle report.
 
 Confirm that the chosen interface advertises 48 kHz and the required channels.
 NEUROGENIC requests 48 kHz and rejects a different negotiated rate rather than
@@ -169,6 +175,11 @@ or controller hardware behavior.
 
 Use `neurogenic --list-devices` for ALSA sequencer ports. Simulated tests cover
 clock, SPP, dropout/recovery, and congestion; physical jitter needs loopback.
+Production builds intentionally omit libremidi's optional udev metadata helper
+because v5.4.2 asserts when a restricted service cannot create its monitor.
+Verify ALSA sequencer enumeration, announce-event hotplug and exact reconnect on
+real hardware; udev manufacturer/serial enrichment is not part of the host
+contract.
 
 The event inspector accepts `CONTROL TYPE RAW [ACTION]` per line:
 

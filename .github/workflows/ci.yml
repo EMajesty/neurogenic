@@ -10,8 +10,7 @@ permissions:
 jobs:
   slint-production-build-and-test:
     # Compiles generated .slint C++, links the production appliance frontend,
-    # and runs the renderer-independent Slint adapter suite. Rendering tests
-    # remain intentionally separate from this dependency/build gate.
+    # and runs adapter plus deterministic software-rendered component tests.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -52,6 +51,12 @@ jobs:
         run: nix flake check --no-update-lock-file --print-build-logs
       - name: Build package
         run: nix build --no-update-lock-file --print-build-logs
+      - name: Verify production package closure and installed resources
+        run: |
+          test -x result/bin/neurogenic-slint
+          test -x result/bin/neurogenic-appliance
+          test -x result/bin/neurogenic-preflight
+          test -f result/share/neurogenic/appliance/neurogenic-appliance.service
       - name: Headless device-enumeration smoke test
         run: nix run --no-update-lock-file . -- --headless --list-devices
       - name: Configure sanitizer build

@@ -1,5 +1,19 @@
 # Architecture
 
+The default Nix package is the production Slint appliance. Pinned Slint 1.19.0
+and Corrosion sources enter CMake through disconnected FetchContent overrides;
+Cargo resolves only against a fixed-output vendored closure. The installed ELF
+closure carries Slint, X11/Wayland, font, xkbcommon and ALSA dependencies in
+Nix store paths without `LD_LIBRARY_PATH`. Headless and SDL packages remain
+separate outputs so engine work does not rebuild the Rust frontend closure.
+
+Linux MIDI uses libremidi's ALSA sequencer backend without its optional udev
+metadata enrichment. Libremidi 5.4.2 constructs that helper eagerly and asserts
+if netlink monitor creation is denied. ALSA port enumeration and announce
+events provide the required runtime behavior; unavailable sequencer/device
+states stay control-side diagnostics and cannot terminate or enter the audio
+callback.
+
 Deployment policy stays outside the musical engine. The installed launcher
 selects the frontend and explicit persistence paths; a graphical-session user
 service owns supervision. Preflight performs control-side storage checks and

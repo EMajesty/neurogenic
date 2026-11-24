@@ -2,10 +2,24 @@
 #ifdef NEUROGENIC_HAS_LIBREMIDI
 #include <libremidi/libremidi.hpp>
 #endif
+#ifdef NEUROGENIC_HAS_ALSA
+#include <alsa/asoundlib.h>
+#endif
 #include <algorithm>
 #include <array>
 
 namespace neurogenic {
+namespace {
+#ifdef NEUROGENIC_HAS_LIBREMIDI
+bool alsa_compiled() {
+#if defined(LIBREMIDI_ALSA)
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
+} // namespace
 struct MidiOutput::Impl {
 #ifdef NEUROGENIC_HAS_LIBREMIDI
 #ifdef __linux__
@@ -23,18 +37,28 @@ MidiOutput::MidiOutput() : impl_(std::make_unique<Impl>()) {}
 MidiOutput::~MidiOutput() = default;
 std::string MidiOutput::backend() const {
 #ifdef NEUROGENIC_HAS_LIBREMIDI
-    return std::string(
-        libremidi::get_api_display_name(impl_->observer.get_current_api()));
+    const auto api = impl_->observer.get_current_api();
+    if (api == libremidi::API::DUMMY) {
+        if (!alsa_compiled())
+            return "not compiled (ALSA sequencer backend missing)";
+#ifdef NEUROGENIC_HAS_ALSA
+        return "ALSA sequencer compiled and libasound " +
+               std::string(snd_asoundlib_version()) +
+               " linked, but unavailable";
 #else
-    return "not compiled";
+        return "ALSA sequencer compiled, but runtime library unavailable";
+#endif
+    }
+    return std::string(libremidi::get_api_display_name(api));
+#else
+    return "not compiled (configure with NEUROGENIC_FETCH_DEPENDENCIES=ON)";
 #endif
 }
 std::vector<MidiPortInfo> MidiOutput::outputs() const {
     std::vector<MidiPortInfo> result;
 #ifdef NEUROGENIC_HAS_LIBREMIDI
     const auto ports = impl_->observer.get_output_ports();
-    for (std::size_t i = 0;
-         i < std::min(ports.size(), maximum_midi_ports); ++i)
+    for (std::size_t i = 0; i < std::min(ports.size(), maximum_midi_ports); ++i)
         result.push_back(
             {static_cast<MidiPortId>(i + 1),
              ports[i].display_name.empty() ? ports[i].port_name
@@ -60,10 +84,18 @@ bool MidiOutput::connect_impl(MidiPortId logical, const std::string &selector,
     }
     impl_->ports[logical - 1].reset();
     impl_->configured_names[logical - 1].clear();
+    if (impl_->observer.get_current_api() == libremidi::API::DUMMY) {
+        error =
+            alsa_compiled()
+                ? "ALSA sequencer backend was compiled, but is unavailable "
+                  "(is /dev/snd/seq accessible?)"
+                : "libremidi was compiled without the ALSA sequencer backend";
+        return false;
+    }
     const auto available = impl_->observer.get_output_ports();
     auto selected = available.end();
-    const bool numeric = !exact &&
-        !selector.empty() &&
+    const bool numeric =
+        !exact && !selector.empty() &&
         std::all_of(selector.begin(), selector.end(),
                     [](unsigned char c) { return c >= '0' && c <= '9'; });
     if (numeric) {
@@ -83,10 +115,9 @@ bool MidiOutput::connect_impl(MidiPortId logical, const std::string &selector,
                                         std::string::npos);
             });
     if (selected == available.end()) {
-        error = available.empty()
-                    ? "no MIDI outputs discovered"
-                    : exact ? "no exact MIDI output match"
-                            : "no matching MIDI output";
+        error = available.empty() ? "no MIDI outputs discovered"
+                : exact           ? "no exact MIDI output match"
+                                  : "no matching MIDI output";
         return false;
     }
     try {
@@ -154,10 +185,10 @@ std::size_t MidiOutput::reconnect_missing(std::string &error) noexcept {
             impl_->ports[i].reset();
         if (impl_->ports[i] || impl_->configured_names[i].empty())
             continue;
-        const auto found = std::find_if(available.begin(), available.end(),
-                                        [&](const auto &port) {
-            return port.port_name == impl_->configured_names[i];
-        });
+        const auto found = std::find_if(
+            available.begin(), available.end(), [&](const auto &port) {
+                return port.port_name == impl_->configured_names[i];
+            });
         if (found == available.end())
             continue;
         try {

@@ -159,7 +159,7 @@ install(FILES examples/generate.lua examples/timeline_drums.lua examples/timelin
   examples/timeline_polyrhythm.lua examples/timeline_variation.lua DESTINATION share/neurogenic/examples)
 install(DIRECTORY examples/controllers DESTINATION share/neurogenic/examples)
 install(PROGRAMS packaging/neurogenic-appliance packaging/neurogenic-preflight
-  DESTINATION share/neurogenic/appliance)
+  DESTINATION bin)
 install(FILES packaging/neurogenic-appliance.service DESTINATION share/neurogenic/appliance)
 
 if(NEUROGENIC_BUILD_TESTS)
@@ -375,5 +375,12 @@ if(NEUROGENIC_BUILD_TESTS)
     add_test(NAME neurogenic_alsa_runtime_link COMMAND ${CMAKE_COMMAND}
       -DNEUROGENIC_EXECUTABLE=$<TARGET_FILE:neurogenic>
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyAlsaRuntime.cmake)
+    add_executable(neurogenic_midi_runtime_tests tests/midi_runtime_tests.cpp)
+    target_link_libraries(neurogenic_midi_runtime_tests PRIVATE neurogenic_live)
+    add_test(NAME neurogenic_midi_missing_infrastructure
+      COMMAND neurogenic_midi_runtime_tests)
+    set_tests_properties(neurogenic_midi_missing_infrastructure PROPERTIES
+      PASS_REGULAR_EXPRESSION "neurogenic.midi-runtime-tests.v1 passed"
+      TIMEOUT 10)
   endif()
 endif()

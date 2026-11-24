@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-diagnostics_bin="${NEUROGENIC_DIAGNOSTICS_BIN:-neurogenic-diagnostics}"
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+installed_diagnostics="$script_dir/neurogenic-diagnostics"
+if [[ ! -x "$installed_diagnostics" ]]; then installed_diagnostics="neurogenic-diagnostics"; fi
+diagnostics_bin="${NEUROGENIC_DIAGNOSTICS_BIN:-$installed_diagnostics}"
 config_root="${XDG_CONFIG_HOME:-$HOME/.config}/neurogenic"
 data_root="${XDG_DATA_HOME:-$HOME/.local/share}/neurogenic"
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/neurogenic"

@@ -20,6 +20,13 @@ set(LIBREMIDI_NO_JACK ON CACHE BOOL "" FORCE)
 set(LIBREMIDI_NO_PIPEWIRE ON CACHE BOOL "" FORCE)
 set(LIBREMIDI_NO_NETWORK ON CACHE BOOL "" FORCE)
 set(LIBREMIDI_NO_KEYBOARD ON CACHE BOOL "" FORCE)
+# libremidi 5.4.2's optional ALSA/udev metadata helper asserts when the udev
+# netlink monitor cannot be created (for example in a Nix sandbox or restricted
+# service). ALSA sequencer enumeration and announce-port hotplug do not require
+# this helper, so keep MIDI functional while avoiding a process-fatal optional
+# metadata path. Remove this only after the pinned upstream handles a missing
+# monitor without asserting.
+set(LIBREMIDI_NO_UDEV ON CACHE BOOL "" FORCE)
 set(LIBREMIDI_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LIBREMIDI_TESTS OFF CACHE BOOL "" FORCE)
 set(LIBREMIDI_SLIM_MESSAGE 32 CACHE STRING "" FORCE)

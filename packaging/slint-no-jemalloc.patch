@@ -1,0 +1,14 @@
+diff --git a/api/cpp/CMakeLists.txt b/api/cpp/CMakeLists.txt
+index 82b13867c..2dc59b5e2 100644
+--- a/api/cpp/CMakeLists.txt
++++ b/api/cpp/CMakeLists.txt
+@@ -141,10 +141,6 @@ if(SLINT_FEATURE_COMPILER AND NOT SLINT_COMPILER)
+         list(APPEND slint_compiler_features "sdf-fonts")
+     endif()
+-    # Enable jemalloc, except when cross-compiling. (#7463)
+-    if(NOT CMAKE_CROSSCOMPILING)
+-        list(APPEND slint_compiler_features "jemalloc")
+-    endif()
+     set_property(
+         TARGET slint-compiler
+         PROPERTY CORROSION_FEATURES

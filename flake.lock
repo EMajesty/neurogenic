@@ -1,5 +1,22 @@
 {
   "nodes": {
+    "corrosion": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1768646807,
+        "narHash": "sha256-ppuDNObfKhneD9AlnPAvyCRHKW3BidXKglD1j/LE9CM=",
+        "owner": "corrosion-rs",
+        "repo": "corrosion",
+        "rev": "1499b14e4906a2890f5cee1547c8848db261753d",
+        "type": "github"
+      },
+      "original": {
+        "owner": "corrosion-rs",
+        "ref": "v0.6.1",
+        "repo": "corrosion",
+        "type": "github"
+      }
+    },
     "libremidi": {
       "flake": false,
       "locked": {
@@ -65,11 +82,30 @@
     },
     "root": {
       "inputs": {
+        "corrosion": "corrosion",
         "libremidi": "libremidi",
         "lua": "lua",
         "miniaudio": "miniaudio",
         "nixpkgs": "nixpkgs",
+        "slint": "slint",
         "sol2": "sol2"
+      }
+    },
+    "slint": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794817165,
+        "narHash": "sha256-IVBiKEQsPgdnEVVgvEOC/6cOFOtdvIm0lUS/RhSEKSY=",
+        "owner": "slint-ui",
+        "repo": "slint",
+        "rev": "e436f546f71481d786cbc2a74316b1be1ef678c1",
+        "type": "github"
+      },
+      "original": {
+        "owner": "slint-ui",
+        "ref": "v1.19.0",
+        "repo": "slint",
+        "type": "github"
       }
     },
     "sol2": {
