@@ -118,8 +118,10 @@ services; touch is optional and keyboard/data-wheel navigation must work.
 For Slint, validate the 1920x1200 reference mode and 1024x600 minimum: all
 eight page labels, upper context fields, lower function labels and both rows of
 eight performance slots must remain visible and touchable. On the Sample page,
-verify waveform marker insertion, zoom, region boundary controls, preview stop
-and path-entry keyboard use at both resolutions. Headless model tests
+verify waveform marker insertion, zoom, region boundary controls, preview stop,
+Browser-based WAV selection and export filename entry at both resolutions.
+Exercise lowercase/uppercase/symbol keyboard layers, UTF-8 backspace/cursor
+movement, cancel, invalid-name feedback and overwrite confirmation. Headless model tests
 do not establish physical touch alignment, latency, readability or visual
 quality.
 
@@ -132,6 +134,11 @@ external-processor latency.
 On the Browser page, verify touch scrolling and selection with large bounded
 directories, filter text entry, dirty-project confirmation, removable-media
 errors, destination display and preset compatibility at both display targets.
+While a deliberately slow removable device is listing, switch directories and
+confirm the newer location remains selected; remove the device during listing
+and confirm the error remains recoverable. Exercise later pages beyond the
+first 128 rows. For missing assets, select an explicit replacement, reject an
+incompatible file, relink, save, reopen and audition expected PCM.
 Temporary-directory tests do not establish physical touchscreen behavior or
 filesystem latency.
 

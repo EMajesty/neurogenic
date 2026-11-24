@@ -646,3 +646,16 @@ publication path updates playhead telemetry without replacing the structural
 step, track or pattern models. Generated software-rendered Sequencer coverage
 runs at both target resolutions. Touch text entry, reusable-pattern-track
 content authoring and full Arrangement editing remain deferred.
+
+Task 084 adds shell-level UTF-8 touch text entry and a reusable asynchronous
+filesystem picker. New project/save-as, track and pattern naming, sample
+selection, recording/processing export naming and controller-profile save no
+longer require typed absolute paths. Browser enumeration and preset parsing run
+on a joined, stoppable control worker with generation-based stale-result
+rejection, deterministic 128-row pages and an 8192-entry scan bound. Project
+missing-sample identities are visible and can be transactionally relinked to an
+explicit compatible file; folder assistance proposes the original filename
+only. Atomic multi-asset prefix relinking and preset-package recovery remain
+open. Generated software-rendered coverage includes the keyboard at both
+target resolutions; physical touch and removable-media validation remain
+outstanding.

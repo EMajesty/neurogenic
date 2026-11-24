@@ -206,9 +206,11 @@ invents absent hardware channels.
 `browser_page.slint` consumes `SlintBrowserPageState`; it never owns project,
 sample or preset data. Projects, WAV samples, instrument presets and FX presets
 are capability-backed categories. Listings are non-recursive, permission
-errors are reported, unsupported files are filtered, and each listing is
-capped at 512 entries. Filtering, sorting, parent navigation and recent
-locations are page state and update without unrelated application revisions.
+errors are reported, unsupported files are filtered, and a control-side worker
+publishes deterministic 128-row pages. Requests carry generation IDs, so a
+slow result cannot replace a newer path; the bounded scan limit is 8192
+entries. Filtering, sorting, parent navigation and refresh update only Browser
+state.
 
 Project open/save uses the project lifecycle service and dirty replacement
 requires explicit confirmation. Loading a WAV targets the selected sample slot
@@ -216,10 +218,30 @@ and opens Sample only after dispatch through the immutable publication path.
 Preset rows come from `PresetLibrary`; validation and prepared activation use
 the existing semantic actions and show their destination before activation.
 
-Directory enumeration is bounded and control-side, never audio-callback work.
-It is currently synchronous within that bound. Background pagination,
-removable-media watching, native file picking, recursive indexing and preset
-rename/delete/save actions remain deferred.
+Directory and preset enumeration run away from both the UI and audio threads.
+The single bounded worker accepts a superseding request, drops stale results,
+and is joined on frontend shutdown. Recursive indexing, removable-media
+watching and preset rename/delete/save actions remain deferred.
+
+## Standalone text and file selection
+
+`TouchKeyboard` is a shell-level modal shared by Browser, Sequencer, Sample and
+Setup. Its temporary UTF-8 buffer supports insertion, code-point-safe cursor
+movement/backspace, clear, case/symbol layers, confirm and cancel. Confirm
+validates the operation and dispatches the authoritative semantic action;
+cancel never mutates project state. Filenames reject path separators and the
+special `.`/`..` values. Existing files require explicit confirmation.
+
+Project open/save-as, new-project naming, sample selection, track/pattern
+renaming, processing/recording export names and controller-profile save use the
+shared Browser/keyboard workflow. Sample loading is initiated from Browser and
+targets the already selected slot, avoiding raw absolute-path entry.
+
+Missing project samples appear in the Browser inspector. The user explicitly
+selects a missing identity and a candidate WAV before invoking the existing
+transactional relink action. “Map this folder” proposes only
+`selected-directory/original-filename`; it does not silently search by name or
+perform an atomic multi-asset prefix rewrite.
 
 ## Current limits
 
@@ -227,8 +249,8 @@ This is a functional shell, not a replacement-complete frontend. Macro services
 are represented by contextual mappings but do not yet have dedicated widgets.
 Pattern-length editing is not exposed because the semantic API has no matching
 action; arrangement clip movement and resizing are also deferred. The Sample
-page uses path entry because no portable native picker is available, and
-processing-job results require the existing explicit save/publish workflow.
+page uses the shared Browser instead of raw path entry, and processing-job
+results use the explicit keyboard-named save/publish workflow.
 Preset rename, delete and save remain unavailable until those operations have
 semantic application actions. Modulation creation and
 detailed graph editing remain deferred to the FX page.

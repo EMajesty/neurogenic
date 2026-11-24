@@ -86,6 +86,13 @@ save/publication, and waits for audio-active acknowledgement.
 
 ### AUD-006 — No touchscreen text-entry/path-selection workflow
 
+**Resolved for core standalone naming and path selection by Task 084.** The
+shared shell owns a UTF-8 editing buffer and reusable touch keyboard; Browser
+selection now supplies project/sample locations and export/profile filenames
+without absolute-path entry. Track/pattern renames and new-project naming
+commit only through semantic actions. Preset authoring names remain Task 085,
+and the general controller mapping editor remains Task 086.
+
 - **Impact:** project paths, samples, preset IDs and controller configuration
   require a keyboard or terminal.
 - **Evidence:** multiple `LineEdit` fields; no on-screen keyboard component or
@@ -146,6 +153,12 @@ reduction and asserts no structural rebuild during playback. Complete
 
 ### AUD-010 — Browser performs synchronous bounded filesystem work
 
+**Resolved by Task 084.** A dedicated control-side worker performs bounded,
+non-recursive enumeration and preset parsing. Generation IDs reject stale
+results, shutdown joins the worker, and deterministic 128-row pages expose up
+to the documented 8192-entry scan bound. Tests cover 270 entries and rapid
+superseding navigation. Removable-media timing still requires hardware QA.
+
 - **Impact:** slow/removable media can freeze the UI; truncation has no next
   page.
 - **Evidence:** `navigate_browser()` enumerates and parses presets directly in
@@ -174,6 +187,12 @@ input, physical touch, focus ergonomics and readability remain hardware QA.
   remains separately labeled.
 
 ### AUD-012 — Missing-asset recovery is backend-only
+
+**Partially resolved by Task 084.** Browser now presents project missing-sample
+paths and invokes the existing transactional `project.relink-sample.v1` action
+for an explicitly selected replacement. Folder-assisted lookup only proposes
+the same filename for the selected dependency; an atomic multi-dependency
+prefix transaction and preset-package recovery remain follow-up work.
 
 - **Impact:** relocated projects/presets cannot be repaired standalone.
 - **Evidence:** relink actions/services exist; Browser exposes no missing

@@ -26,11 +26,10 @@ export component SetupPage inherits Rectangle {
     in property <[SetupDeviceItem]> midi-inputs; in property <[SetupDeviceItem]> midi-outputs;
     in property <[SetupControllerItem]> controllers;
     in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
-    in-out property <string> profile-path: "";
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
     callback preferences-action(string); callback controller-selected(int);
-    callback midi-learn(string, string, string); callback profile-save(string); callback exit-requested();
+    callback midi-learn(string, string, string); callback text-requested(string, string); callback exit-requested();
 
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
@@ -89,8 +88,7 @@ export component SetupPage inherits Rectangle {
                 LineEdit { text <=> root.learn-control; placeholder-text: "Logical control ID"; }
                 LineEdit { text <=> root.learn-mode; placeholder-text: "cc-absolute / relative / note"; }
                 HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
-                LineEdit { text <=> root.profile-path; placeholder-text: "Profile .ngc path"; }
-                PageButton { text: "Save Profile"; implemented: root.controllers.length > 0 && root.profile-path != ""; clicked => { root.profile-save(root.profile-path); } }
+                PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }
                 Text { text: "Mapping targets come from the selected profile and application discovery. Graphical layout editing is intentionally not provided."; color: Theme.muted; wrap: word-wrap; }
             } }
         }

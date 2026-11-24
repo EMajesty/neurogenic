@@ -1,4 +1,3 @@
-import { LineEdit } from "std-widgets.slint";
 import { PageButton, ParameterDisplay, WaveformOverview } from "components.slint";
 import { Theme } from "theme.slint";
 
@@ -12,13 +11,12 @@ export component SamplePage inherits VerticalLayout {
     in property <string> processing-status; in property <bool> sample-ready;
     in property <float> processing-progress; in property <bool> processing-can-cancel;
     in property <bool> processing-can-publish; in property <bool> processing-audio-active;
-    in-out property <string> processing-result-path;
     in property <bool> sample-stereo; in property <float> waveform-zoom;
     in property <[float]> waveform-left; in property <[float]> waveform-right;
     in property <[float]> slice-markers; in property <float> region-start;
     in property <float> region-end; in property <[SliceItem]> sample-slices;
-    in property <[RegionItem]> sample-regions; in-out property <string> sample-path;
-    callback sample-slot-selected(int); callback sample-load(string);
+    in property <[RegionItem]> sample-regions;
+    callback sample-slot-selected(int); callback browse-samples(); callback text-requested(string, string);
     callback waveform-selected(float); callback waveform-zoomed(float);
     callback slice-selected(int); callback slice-action(string);
     callback region-selected(int); callback region-action(string);
@@ -30,8 +28,7 @@ export component SamplePage inherits VerticalLayout {
         PageButton { text: "<"; implemented: true; clicked => { root.sample-slot-selected(-1); } }
         PageButton { text: "Slot " + root.sample-slot + ": " + root.sample-name; implemented: true; clicked => { } }
         PageButton { text: root.sample-status; implemented: root.sample-ready; clicked => { } }
-        LineEdit { horizontal-stretch: 3; text <=> root.sample-path; placeholder-text: "/path/to/sample.wav"; }
-        PageButton { text: "Load / Replace"; implemented: root.sample-path != ""; clicked => { root.sample-load(root.sample-path); } }
+        PageButton { horizontal-stretch: 3; text: "Browse sample files…"; clicked => { root.browse-samples(); } }
         PageButton { text: ">"; implemented: true; clicked => { root.sample-slot-selected(1); } }
     }
     WaveformOverview { vertical-stretch: 3; left-peaks: root.waveform-left; right-peaks: root.waveform-right; markers: root.slice-markers; stereo: root.sample-stereo; zoom: root.waveform-zoom; region-start: root.region-start; region-end: root.region-end; position-selected(value) => { root.waveform-selected(value); } zoom-requested(value) => { root.waveform-zoomed(value); } }
@@ -54,7 +51,7 @@ export component SamplePage inherits VerticalLayout {
             HorizontalLayout { PageButton { text: "Detect"; implemented: root.sample-ready; clicked => { root.sample-analysis("start"); } } PageButton { text: "Accept"; implemented: root.analysis-status == "completed"; clicked => { root.sample-analysis("accept"); } } PageButton { text: "Reject"; implemented: root.analysis-status != "Idle"; clicked => { root.sample-analysis("reject"); } } }
             HorizontalLayout { PageButton { text: "Normalize"; implemented: root.sample-ready; clicked => { root.sample-processing("normalize-peak"); } } PageButton { text: "Reverse"; implemented: root.sample-ready; clicked => { root.sample-processing("reverse"); } } PageButton { text: "Trim"; implemented: root.sample-regions.length > 0; clicked => { root.sample-processing("trim"); } } }
             HorizontalLayout { PageButton { text: "Cancel Job"; implemented: root.processing-can-cancel; clicked => { root.processing-lifecycle("cancel", ""); } } PageButton { text: "Publish to Slot"; implemented: root.processing-can-publish; clicked => { root.processing-lifecycle("publish", ""); } } PageButton { text: "Preview Result"; implemented: root.processing-audio-active; clicked => { root.sample-preview("sample"); } } }
-            HorizontalLayout { LineEdit { horizontal-stretch: 2; text <=> root.processing-result-path; placeholder-text: "/path/to/result.wav"; } PageButton { text: "Save Result"; implemented: root.processing-can-publish && root.processing-result-path != ""; clicked => { root.processing-lifecycle("save", root.processing-result-path); } } }
+            PageButton { text: "Save Result As…"; implemented: root.processing-can-publish; clicked => { root.text-requested("processing-export", "processed.wav"); } }
         }
     }
 }

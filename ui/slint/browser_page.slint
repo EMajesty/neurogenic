@@ -1,6 +1,6 @@
 import { PageButton, EmptyState, ParameterDisplay } from "components.slint";
 import { Theme } from "theme.slint";
-import { LineEdit, ScrollView } from "std-widgets.slint";
+import { ScrollView } from "std-widgets.slint";
 
 export struct BrowserEntryItem { name: string, kind: string, metadata: string, directory: bool, compatible: bool, selected: bool }
 
@@ -9,12 +9,16 @@ export component BrowserPage inherits Rectangle {
     in property <string> category: "projects"; in property <string> location;
     in property <string> destination; in property <string> preview;
     in property <string> sort-mode: "name"; in property <string> error;
-    in property <bool> truncated: false; in property <[BrowserEntryItem]> entries;
-    in-out property <string> filter-text;
-    in-out property <string> project-path;
+    in property <bool> truncated: false; in property <bool> loading: false;
+    in property <string> page-label: "Page 1/1";
+    in property <bool> can-previous-page: false; in property <bool> can-next-page: false;
+    in property <[BrowserEntryItem]> entries; in property <[string]> missing-assets;
+    in property <int> selected-missing: 0; in property <string> filter-text;
     callback category-selected(string); callback parent-requested(); callback entry-selected(int);
     callback entry-activated(); callback filter-requested(string); callback sort-requested();
     callback project-action(string, string); callback preset-action(string);
+    callback page-requested(int); callback refresh-requested(); callback text-requested(string, string);
+    callback missing-selected(int); callback relink-requested(bool);
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
             PageButton { text: "Projects"; selected: root.category == "projects"; clicked => { root.category-selected("projects"); } }
@@ -25,9 +29,9 @@ export component BrowserPage inherits Rectangle {
         }
         HorizontalLayout { height: 40px; spacing: 4px;
             PageButton { text: "Parent"; clicked => { root.parent-requested(); } }
-            LineEdit { horizontal-stretch: 3; text <=> root.filter-text; placeholder-text: "Filter current location"; accepted => { root.filter-requested(self.text); } }
-            PageButton { text: "Apply Filter"; clicked => { root.filter-requested(root.filter-text); } }
+            PageButton { horizontal-stretch: 3; text: root.filter-text == "" ? "Filter…" : "Filter: " + root.filter-text; clicked => { root.text-requested("browser-filter", root.filter-text); } }
             PageButton { text: "Sort: " + root.sort-mode; clicked => { root.sort-requested(); } }
+            PageButton { text: "Refresh"; clicked => { root.refresh-requested(); } }
         }
         Text { height: 26px; text: root.location; color: Theme.muted; overflow: elide; }
         HorizontalLayout { vertical-stretch: 1; spacing: 6px;
@@ -43,11 +47,14 @@ export component BrowserPage inherits Rectangle {
                     ParameterDisplay { name: "Destination"; value: root.destination; }
                     PageButton { text: "Open / Apply"; implemented: root.entries.length > 0; clicked => { root.entry-activated(); } }
                     if root.category == "projects": PageButton { text: "Save"; clicked => { root.project-action("save", ""); } }
-                    if root.category == "projects": LineEdit { text <=> root.project-path; placeholder-text: "Save As project directory"; }
-                    if root.category == "projects": PageButton { text: "Save As"; implemented: root.project-path != ""; clicked => { root.project-action("save-as", root.project-path); } }
-                    if root.category == "projects": PageButton { text: "New Project"; clicked => { root.project-action("new", ""); } }
+                    if root.category == "projects": PageButton { text: "Save As…"; clicked => { root.text-requested("project-save-as", ""); } }
+                    if root.category == "projects": PageButton { text: "New Project…"; clicked => { root.text-requested("project-new", "Untitled"); } }
                     if root.category == "instrument-presets" || root.category == "fx-presets": PageButton { text: "Validate"; implemented: root.entries.length > 0; clicked => { root.preset-action("validate"); } }
-                    Text { text: root.truncated ? "Listing limited to 512 entries." : ""; color: Theme.muted; wrap: word-wrap; }
+                    HorizontalLayout { height: 34px; PageButton { text: "Previous"; implemented: root.can-previous-page; clicked => { root.page-requested(-1); } } Text { text: root.page-label; color: Theme.foreground; vertical-alignment: center; horizontal-alignment: center; } PageButton { text: "Next"; implemented: root.can-next-page; clicked => { root.page-requested(1); } } }
+                    Text { text: root.loading ? "Loading…" : root.truncated ? "Listing limited to 8192 entries." : ""; color: Theme.muted; wrap: word-wrap; }
+                    if root.missing-assets.length > 0: Text { text: "Missing assets"; color: Theme.warning; }
+                    for missing[i] in root.missing-assets: PageButton { height: 32px; text: missing; selected: i == root.selected-missing; clicked => { root.missing-selected(i); } }
+                    if root.missing-assets.length > 0: HorizontalLayout { height: 36px; PageButton { text: "Use selected file"; implemented: root.entries.length > 0; clicked => { root.relink-requested(false); } } PageButton { text: "Map this folder"; clicked => { root.relink-requested(true); } } }
                     Text { text: root.error; color: #ff8080; wrap: word-wrap; }
                 }
             }

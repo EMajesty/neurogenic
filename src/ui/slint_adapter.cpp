@@ -2,14 +2,18 @@
 #include "neurogenic/audio/slicing.hpp"
 #include "neurogenic/project/preset.hpp"
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <chrono>
 #include <cctype>
 #include <cmath>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
+#include <thread>
 
 namespace neurogenic {
 namespace {
@@ -63,7 +67,8 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
     return value;
 }
 
-constexpr std::size_t browser_entry_limit = 512;
+constexpr std::size_t browser_page_size = 128;
+constexpr std::size_t browser_scan_limit = 8192;
 constexpr std::array<std::pair<std::string_view, std::string_view>, 8> pages{{
     {"performance", "Performance"}, {"sequencer", "Sequencer"},
     {"sample", "Sample"},           {"sound", "Sound"},
@@ -119,7 +124,207 @@ bool project_directory(const std::filesystem::path &path) {
     unsigned version{};
     return (manifest >> magic >> version) && magic == "NEUROGENIC_PROJECT";
 }
+
+std::size_t utf8_previous(std::string_view text, std::size_t cursor) {
+    cursor = std::min(cursor, text.size());
+    if (cursor == 0) return 0;
+    do { --cursor; } while (cursor > 0 &&
+        (static_cast<unsigned char>(text[cursor]) & 0xc0U) == 0x80U);
+    return cursor;
+}
+
+std::size_t utf8_next(std::string_view text, std::size_t cursor) {
+    cursor = std::min(cursor, text.size());
+    if (cursor == text.size()) return cursor;
+    ++cursor;
+    while (cursor < text.size() &&
+        (static_cast<unsigned char>(text[cursor]) & 0xc0U) == 0x80U) ++cursor;
+    return cursor;
+}
+
+bool valid_filename(std::string_view value) {
+    return !value.empty() && value != "." && value != ".." &&
+        value.find('/') == std::string_view::npos &&
+        value.find('\0') == std::string_view::npos;
+}
 } // namespace
+
+class SlintFrontendAdapter::BrowserWorker {
+  public:
+    struct Request {
+        std::uint64_t id{};
+        std::string category, location, filter, sort;
+        std::size_t page{};
+    };
+    struct Result {
+        std::uint64_t id{};
+        SlintBrowserPageState state;
+    };
+
+    BrowserWorker() : thread_([this](std::stop_token stop) { run(stop); }) {}
+    ~BrowserWorker() { shutdown(); }
+
+    void submit(Request request) {
+        std::lock_guard lock(mutex_);
+        latest_id_.store(request.id, std::memory_order_release);
+        request_ = std::move(request);
+        condition_.notify_all();
+    }
+    std::optional<Result> take() {
+        std::lock_guard lock(mutex_);
+        auto result = std::move(result_);
+        result_.reset();
+        return result;
+    }
+    void shutdown() noexcept {
+        if (!thread_.joinable()) return;
+        thread_.request_stop();
+        condition_.notify_all();
+        thread_.join();
+    }
+
+  private:
+    static Result enumerate(const Request &request, std::stop_token stop,
+                            const std::atomic<std::uint64_t> &latest_id) {
+        namespace fs = std::filesystem;
+        Result result;
+        result.id = request.id;
+        auto &next = result.state;
+        next.request_id = request.id;
+        next.category = request.category;
+        next.location = request.location;
+        next.filter = request.filter;
+        next.sort = request.sort;
+        next.page = request.page;
+        next.categories = {"projects", "samples", "instrument-presets",
+                           "fx-presets", "other"};
+        std::vector<SlintBrowserEntry> all;
+        try {
+            std::error_code error;
+            const auto location = fs::absolute(request.location, error).lexically_normal();
+            if (error || !fs::is_directory(location, error))
+                throw std::runtime_error(error ? error.message()
+                                               : "Browser location is not a directory");
+            next.location = location.string();
+            const auto filter = lower(request.filter);
+            if (request.category == "instrument-presets" ||
+                request.category == "fx-presets") {
+                PresetLibrary library(location);
+                const auto type = request.category == "fx-presets"
+                    ? std::optional<PresetType>(PresetType::fx_chain) : std::nullopt;
+                for (const auto &metadata : library.enumerate(type)) {
+                    if (stop.stop_requested() ||
+                        latest_id.load(std::memory_order_acquire) != request.id)
+                        return result;
+                    if (request.category == "instrument-presets" &&
+                        metadata.type == PresetType::fx_chain) continue;
+                    if (!filter.empty() &&
+                        lower(metadata.name).find(filter) == std::string::npos &&
+                        lower(metadata.id).find(filter) == std::string::npos) continue;
+                    all.push_back({metadata.id, metadata.name,
+                        (location / metadata.id).string(),
+                        request.category == "fx-presets" ? "FX preset" : "Instrument preset",
+                        metadata.author, request.category == "fx-presets"
+                            ? SlintBrowserEntryKind::fx_preset
+                            : SlintBrowserEntryKind::instrument_preset,
+                        0, 0, false, true, false});
+                    if (all.size() == browser_scan_limit) { next.truncated = true; break; }
+                }
+            } else {
+                fs::directory_iterator iterator(location,
+                    fs::directory_options::skip_permission_denied, error), end;
+                for (; !error && iterator != end; iterator.increment(error)) {
+                    if (stop.stop_requested() ||
+                        latest_id.load(std::memory_order_acquire) != request.id)
+                        return result;
+                    const auto &entry = *iterator;
+                    if (!browser_file_matches(request.category, entry)) continue;
+                    const auto name = entry.path().filename().string();
+                    if (!filter.empty() && lower(name).find(filter) == std::string::npos)
+                        continue;
+                    SlintBrowserEntry item;
+                    item.id = entry.path().lexically_normal().string();
+                    item.name = name; item.path = item.id;
+                    std::error_code entry_error;
+                    item.directory = entry.is_directory(entry_error);
+                    if (entry_error) continue;
+                    if (item.directory) {
+                        item.kind = SlintBrowserEntryKind::directory; item.type = "Folder";
+                        if (request.category == "projects" && project_directory(entry.path())) {
+                            item.kind = SlintBrowserEntryKind::project; item.type = "Project";
+                        }
+                    } else if (request.category == "samples") {
+                        item.kind = SlintBrowserEntryKind::sample; item.type = "WAV sample";
+                        item.size = entry.file_size(entry_error);
+                    } else {
+                        item.kind = SlintBrowserEntryKind::other;
+                        item.type = entry.path().extension().string();
+                        item.size = entry.file_size(entry_error);
+                    }
+                    entry_error.clear();
+                    const auto modified = entry.last_write_time(entry_error);
+                    if (!entry_error) item.modified = static_cast<std::int64_t>(
+                        modified.time_since_epoch().count());
+                    item.compatible = item.directory ||
+                        item.kind == SlintBrowserEntryKind::sample ||
+                        item.kind == SlintBrowserEntryKind::project;
+                    all.push_back(std::move(item));
+                    if (all.size() == browser_scan_limit) { next.truncated = true; break; }
+                }
+                if (error) throw fs::filesystem_error("directory listing", location, error);
+            }
+            const auto compare = [&](const auto &a, const auto &b) {
+                if (a.directory != b.directory) return a.directory > b.directory;
+                if (request.sort == "type" && a.type != b.type) return a.type < b.type;
+                if (request.sort == "date" && a.modified != b.modified)
+                    return a.modified > b.modified;
+                return lower(a.name) < lower(b.name);
+            };
+            std::stable_sort(all.begin(), all.end(), compare);
+            next.total_entries = all.size();
+            next.page_count = std::max<std::size_t>(1,
+                (all.size() + browser_page_size - 1) / browser_page_size);
+            next.page = std::min(next.page, next.page_count - 1);
+            const auto begin = std::min(all.size(), next.page * browser_page_size);
+            const auto finish = std::min(all.size(), begin + browser_page_size);
+            next.entries.assign(std::make_move_iterator(all.begin() + begin),
+                                std::make_move_iterator(all.begin() + finish));
+            next.can_previous_page = next.page > 0;
+            next.can_next_page = next.page + 1 < next.page_count;
+            if (!next.entries.empty()) {
+                next.entries.front().selected = true;
+                next.preview = next.entries.front().name + " — " + next.entries.front().type;
+            }
+        } catch (const std::exception &exception) {
+            next.error = exception.what();
+        }
+        next.loading = false;
+        return result;
+    }
+
+    void run(std::stop_token stop) {
+        while (!stop.stop_requested()) {
+            Request request;
+            {
+                std::unique_lock lock(mutex_);
+                condition_.wait(lock, stop, [&] { return request_.has_value(); });
+                if (stop.stop_requested()) return;
+                request = std::move(*request_); request_.reset();
+            }
+            auto result = enumerate(request, stop, latest_id_);
+            if (stop.stop_requested()) return;
+            std::lock_guard lock(mutex_);
+            if (!request_ || request_->id <= result.id) result_ = std::move(result);
+        }
+    }
+
+    std::mutex mutex_;
+    std::condition_variable_any condition_;
+    std::optional<Request> request_;
+    std::optional<Result> result_;
+    std::atomic<std::uint64_t> latest_id_{};
+    std::jthread thread_;
+};
 
 std::string format_slint_musical_position(MusicalTick tick,
                                           std::uint16_t numerator,
@@ -146,7 +351,7 @@ SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application,
                                            SlintSetupServices setup)
     : application_(application), bindings_(application),
       recording_workflow_(application),
-      setup_services_(std::move(setup)) {
+      setup_services_(std::move(setup)), browser_worker_(std::make_unique<BrowserWorker>()) {
     if (setup_services_.snapshot) {
         const auto runtime = setup_services_.snapshot();
         staged_preferences_ = runtime.requested;
@@ -154,6 +359,13 @@ SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application,
     }
     (void)refresh();
     (void)navigate_browser(std::filesystem::current_path().string());
+}
+
+SlintFrontendAdapter::~SlintFrontendAdapter() { shutdown(); }
+
+void SlintFrontendAdapter::shutdown() noexcept {
+    active_ = false;
+    if (browser_worker_) browser_worker_->shutdown();
 }
 
 bool SlintFrontendAdapter::refresh() {
@@ -169,6 +381,24 @@ bool SlintFrontendAdapter::refresh() {
     };
     if (!active_)
         return false;
+    if (browser_worker_)
+        if (auto completed = browser_worker_->take();
+            completed && completed->id == state_.browser.request_id) {
+            const auto missing = state_.browser.missing_assets;
+            const auto selected_missing = state_.browser.selected_missing;
+            const auto confirmation_pending = state_.browser.confirmation_pending;
+            const auto confirmation_action = state_.browser.confirmation_action;
+            const auto confirmation_message = state_.browser.confirmation_message;
+            state_.browser = std::move(completed->state);
+            state_.browser.missing_assets = missing;
+            state_.browser.selected_missing = std::min(
+                selected_missing, missing.empty() ? std::size_t{} : missing.size() - 1);
+            state_.browser.confirmation_pending = confirmation_pending;
+            state_.browser.confirmation_action = confirmation_action;
+            state_.browser.confirmation_message = confirmation_message;
+            last_error_ = state_.browser.error;
+            ++local_revision_;
+        }
     const auto snapshot_started = std::chrono::steady_clock::now();
     const auto snapshot = application_.snapshot();
     refresh_diagnostics_.snapshot_nanoseconds += static_cast<std::uint64_t>(
@@ -361,6 +591,7 @@ bool SlintFrontendAdapter::refresh() {
     }
     const auto construction_started = std::chrono::steady_clock::now();
     SlintUiState next;
+    next.text_entry = state_.text_entry;
     next.shell.revision = snapshot.revision;
     next.shell.playing = snapshot.playing;
     next.shell.record_armed = snapshot.recording.state == RecordingState::armed;
@@ -1041,6 +1272,11 @@ bool SlintFrontendAdapter::refresh() {
     if (!next.fx.macros.empty()) next.fx.macros[next.fx.selected_macro].selected = true;
     next.fx.error = last_error_;
     next.browser = state_.browser;
+    next.browser.missing_assets.clear();
+    for (const auto &path : snapshot.missing_assets)
+        next.browser.missing_assets.push_back(path.string());
+    if (next.browser.selected_missing >= next.browser.missing_assets.size())
+        next.browser.selected_missing = 0;
     if (next.browser.categories.empty())
         next.browser.categories = {"projects", "samples", "instrument-presets",
                                    "fx-presets", "other"};
@@ -1240,124 +1476,20 @@ bool SlintFrontendAdapter::select_browser_category(std::string category) {
 }
 
 bool SlintFrontendAdapter::navigate_browser(std::string path) {
-    namespace fs = std::filesystem;
-    std::error_code error;
-    auto location = fs::absolute(fs::path(std::move(path)), error).lexically_normal();
-    if (error || !fs::is_directory(location, error)) {
-        last_error_ = error ? error.message() : "Browser location is not a directory";
-        state_.browser.error = last_error_;
-        return false;
-    }
-    auto category = state_.browser.category.empty() ? std::string("projects")
-                                                     : state_.browser.category;
-    auto filter = lower(state_.browser.filter);
-    auto sort = state_.browser.sort.empty() ? std::string("name") : state_.browser.sort;
-    SlintBrowserPageState next;
-    next.category = category;
-    next.location = location.string();
-    next.filter = state_.browser.filter;
-    next.sort = sort;
-    next.loading = true;
-    next.categories = {"projects", "samples", "instrument-presets",
-                       "fx-presets", "other"};
-    try {
-        if (category == "instrument-presets" || category == "fx-presets") {
-            PresetLibrary library(location);
-            const auto type = category == "fx-presets"
-                ? std::optional<PresetType>(PresetType::fx_chain) : std::nullopt;
-            for (const auto &metadata : library.enumerate(type)) {
-                if (category == "instrument-presets" &&
-                    metadata.type == PresetType::fx_chain) continue;
-                if (!filter.empty() && lower(metadata.name).find(filter) == std::string::npos &&
-                    lower(metadata.id).find(filter) == std::string::npos)
-                    continue;
-                next.entries.push_back({metadata.id, metadata.name,
-                    (location / metadata.id).string(),
-                    category == "fx-presets" ? "FX preset" : "Instrument preset",
-                    metadata.author, category == "fx-presets"
-                        ? SlintBrowserEntryKind::fx_preset
-                        : SlintBrowserEntryKind::instrument_preset,
-                    0, 0, false, true, false});
-                if (next.entries.size() == browser_entry_limit) {
-                    next.truncated = true;
-                    break;
-                }
-            }
-        } else {
-            fs::directory_iterator iterator(location, fs::directory_options::skip_permission_denied,
-                                            error), end;
-            for (; !error && iterator != end; iterator.increment(error)) {
-                const auto &entry = *iterator;
-                if (!browser_file_matches(category, entry)) continue;
-                const auto name = entry.path().filename().string();
-                if (!filter.empty() && lower(name).find(filter) == std::string::npos)
-                    continue;
-                SlintBrowserEntry item;
-                item.id = entry.path().lexically_normal().string();
-                item.name = name;
-                item.path = item.id;
-                std::error_code entry_error;
-                item.directory = entry.is_directory(entry_error);
-                if (entry_error) continue;
-                if (item.directory) {
-                    item.kind = SlintBrowserEntryKind::directory;
-                    item.type = "Folder";
-                    if (category == "projects" && project_directory(entry.path())) {
-                        item.kind = SlintBrowserEntryKind::project;
-                        item.type = "Project";
-                    }
-                } else if (category == "samples") {
-                    item.kind = SlintBrowserEntryKind::sample;
-                    item.type = "WAV sample";
-                    item.size = entry.file_size(entry_error);
-                } else {
-                    item.kind = SlintBrowserEntryKind::other;
-                    item.type = entry.path().extension().string();
-                    item.size = entry.file_size(entry_error);
-                }
-                entry_error.clear();
-                const auto modified = entry.last_write_time(entry_error);
-                if (!entry_error)
-                    item.modified = static_cast<std::int64_t>(
-                        modified.time_since_epoch().count());
-                item.compatible = item.directory || item.kind == SlintBrowserEntryKind::sample ||
-                                  item.kind == SlintBrowserEntryKind::project;
-                next.entries.push_back(std::move(item));
-                if (next.entries.size() == browser_entry_limit) {
-                    next.truncated = true;
-                    break;
-                }
-            }
-            if (error) throw fs::filesystem_error("directory listing", location, error);
-        }
-        const auto compare = [&](const auto &a, const auto &b) {
-            if (a.directory != b.directory) return a.directory > b.directory;
-            if (sort == "type" && a.type != b.type) return a.type < b.type;
-            if (sort == "date" && a.modified != b.modified) return a.modified > b.modified;
-            return lower(a.name) < lower(b.name);
-        };
-        std::stable_sort(next.entries.begin(), next.entries.end(), compare);
-        next.loading = false;
-        if (!next.entries.empty()) {
-            next.entries.front().selected = true;
-            next.preview = next.entries.front().name + " — " + next.entries.front().type;
-        }
-        browser_recent_locations_.erase(
-            std::remove(browser_recent_locations_.begin(), browser_recent_locations_.end(),
-                        next.location), browser_recent_locations_.end());
-        browser_recent_locations_.insert(browser_recent_locations_.begin(), next.location);
-        if (browser_recent_locations_.size() > 8) browser_recent_locations_.resize(8);
-        next.recent_locations = browser_recent_locations_;
-        state_.browser = std::move(next);
-        ++local_revision_;
-        return refresh();
-    } catch (const std::exception &exception) {
-        last_error_ = exception.what();
-        state_.browser.error = last_error_;
-        state_.browser.loading = false;
-        ++local_revision_;
-        return false;
-    }
+    if (!active_ || !browser_worker_) return false;
+    state_.browser.location = std::move(path);
+    state_.browser.loading = true;
+    state_.browser.error.clear();
+    state_.browser.entries.clear();
+    state_.browser.selected = 0;
+    state_.browser.page = 0;
+    ++state_.browser.request_id;
+    browser_worker_->submit({state_.browser.request_id,
+        state_.browser.category.empty() ? "projects" : state_.browser.category,
+        state_.browser.location, state_.browser.filter,
+        state_.browser.sort.empty() ? "name" : state_.browser.sort, 0});
+    ++local_revision_;
+    return refresh();
 }
 
 bool SlintFrontendAdapter::browser_parent() {
@@ -1385,6 +1517,34 @@ bool SlintFrontendAdapter::cycle_browser_sort() {
     state_.browser.sort = state_.browser.sort == "name" ? "type" :
                           state_.browser.sort == "type" ? "date" : "name";
     return navigate_browser(state_.browser.location);
+}
+
+bool SlintFrontendAdapter::change_browser_page(int direction) {
+    if (!browser_worker_ || direction == 0) return false;
+    const auto target = direction < 0
+        ? (state_.browser.page == 0 ? 0 : state_.browser.page - 1)
+        : std::min(state_.browser.page + 1, state_.browser.page_count - 1);
+    if (target == state_.browser.page) return false;
+    state_.browser.loading = true;
+    state_.browser.entries.clear();
+    state_.browser.page = target;
+    ++state_.browser.request_id;
+    browser_worker_->submit({state_.browser.request_id, state_.browser.category,
+        state_.browser.location, state_.browser.filter, state_.browser.sort, target});
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::refresh_browser() {
+    if (!browser_worker_ || state_.browser.location.empty()) return false;
+    state_.browser.loading = true;
+    state_.browser.error.clear();
+    ++state_.browser.request_id;
+    browser_worker_->submit({state_.browser.request_id, state_.browser.category,
+        state_.browser.location, state_.browser.filter, state_.browser.sort,
+        state_.browser.page});
+    ++local_revision_;
+    return refresh();
 }
 
 bool SlintFrontendAdapter::activate_browser_entry() {
@@ -1466,7 +1626,164 @@ bool SlintFrontendAdapter::confirm_browser_action(bool accept) {
     if (action == "new")
         return execute({"project.new.v1", {{"name", std::string("Untitled")},
                                             {"discard", true}}, {}, 0});
+    if (action == "new-named")
+        return execute({"project.new.v1", {{"name", path},
+                                            {"discard", true}}, {}, 0});
+    if (action == "save-as-overwrite")
+        return execute({"project.save-as.v1",
+            {{"path", path},
+             {"name", std::filesystem::path(path).filename().string()}}, {}, 0});
+    if (action == "recording-export-overwrite")
+        return execute({"recording.save.v1",
+            {{"path", path}, {"format", std::string("float32")}}, {}, 0});
+    if (action == "processing-export-overwrite")
+        return processing_action("save", path);
+    if (action == "profile-save-overwrite")
+        return save_setup_controller_profile(path);
     return false;
+}
+
+bool SlintFrontendAdapter::select_missing_asset(std::size_t index) {
+    if (index >= state_.browser.missing_assets.size()) return false;
+    state_.browser.selected_missing = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::relink_missing_asset(bool map_directory) {
+    if (state_.browser.selected_missing >= state_.browser.missing_assets.size() ||
+        state_.browser.selected >= state_.browser.entries.size()) return false;
+    const auto missing = std::filesystem::path(
+        state_.browser.missing_assets[state_.browser.selected_missing]);
+    auto replacement = std::filesystem::path(
+        state_.browser.entries[state_.browser.selected].path);
+    if (map_directory) replacement = std::filesystem::path(
+        state_.browser.location) / missing.filename();
+    if (!std::filesystem::is_regular_file(replacement)) {
+        last_error_ = "Replacement must be an existing compatible file";
+        state_.browser.error = last_error_;
+        return false;
+    }
+    return execute({"project.relink-sample.v1",
+        {{"missing", missing.string()}, {"replacement", replacement.string()}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::request_text_entry(std::string operation,
+                                               std::string current) {
+    static constexpr std::array<std::string_view, 8> supported{
+        "project-new", "project-save-as", "track-rename", "pattern-rename",
+        "recording-export", "processing-export", "profile-save", "browser-filter"};
+    if (std::find(supported.begin(), supported.end(), operation) == supported.end())
+        return false;
+    state_.text_entry = {};
+    state_.text_entry.visible = true;
+    state_.text_entry.operation = std::move(operation);
+    state_.text_entry.text = std::move(current);
+    state_.text_entry.cursor = state_.text_entry.text.size();
+    state_.text_entry.title = state_.text_entry.operation == "browser-filter"
+        ? "Filter content" : state_.text_entry.operation.find("rename") != std::string::npos
+            ? "Rename" : state_.text_entry.operation.find("export") != std::string::npos
+                ? "Export filename" : "Name";
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::text_entry_insert(std::string text) {
+    if (!state_.text_entry.visible || text.empty()) return false;
+    state_.text_entry.text.insert(state_.text_entry.cursor, text);
+    state_.text_entry.cursor += text.size();
+    state_.text_entry.error.clear();
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::text_entry_action(std::string action) {
+    auto &entry = state_.text_entry;
+    if (!entry.visible) return false;
+    if (action == "left") entry.cursor = utf8_previous(entry.text, entry.cursor);
+    else if (action == "right") entry.cursor = utf8_next(entry.text, entry.cursor);
+    else if (action == "backspace") {
+        const auto previous = utf8_previous(entry.text, entry.cursor);
+        entry.text.erase(previous, entry.cursor - previous); entry.cursor = previous;
+    } else if (action == "clear") { entry.text.clear(); entry.cursor = 0; }
+    else if (action == "uppercase") entry.uppercase = !entry.uppercase;
+    else if (action == "symbols") entry.symbols = !entry.symbols;
+    else if (action == "cancel") { entry = {}; ++local_revision_; return refresh(); }
+    else if (action == "confirm") {
+        const auto operation = entry.operation;
+        const auto value = entry.text;
+        const bool filename = operation == "project-save-as" ||
+            operation == "recording-export" || operation == "processing-export" ||
+            operation == "profile-save";
+        if ((filename && !valid_filename(value)) || (!filename && value.empty())) {
+            entry.error = filename ? "Enter a valid filename without '/'" : "Text is required";
+            ++local_revision_; return refresh();
+        }
+        entry.visible = false;
+        bool accepted{};
+        if (operation == "track-rename")
+            accepted = execute({"track.rename.v1", {{"name", value}}, {}, 0});
+        else if (operation == "pattern-rename")
+            accepted = execute({"pattern.rename.v1",
+                {{"id", static_cast<std::int64_t>(state_.sequencer.selected_pattern_id)},
+                 {"name", value}}, {}, 0});
+        else if (operation == "project-new") {
+            if (application_.snapshot().project_dirty) {
+                state_.browser.confirmation_pending = true;
+                state_.browser.confirmation_action = "new-named\n" + value;
+                state_.browser.confirmation_message =
+                    "The current project has unsaved changes. Discard them?";
+                accepted = true;
+            } else
+                accepted = execute({"project.new.v1",
+                    {{"name", value}, {"discard", false}}, {}, 0});
+        } else if (operation == "browser-filter")
+            accepted = set_browser_filter(value);
+        else {
+            auto path = std::filesystem::path(state_.browser.location) / value;
+            if (operation == "project-save-as") {
+                if (std::filesystem::exists(path)) {
+                    state_.browser.confirmation_pending = true;
+                    state_.browser.confirmation_action =
+                        "save-as-overwrite\n" + path.string();
+                    state_.browser.confirmation_message =
+                        "The selected project file already exists. Replace it?";
+                    accepted = true;
+                } else {
+                    accepted = execute({"project.save-as.v1",
+                        {{"path", path.string()},
+                         {"name", path.filename().string()}}, {}, 0});
+                }
+            }
+            else if (operation == "recording-export" ||
+                     operation == "processing-export" ||
+                     operation == "profile-save") {
+                if (std::filesystem::exists(path)) {
+                    state_.browser.confirmation_pending = true;
+                    state_.browser.confirmation_action = operation +
+                        "-overwrite\n" + path.string();
+                    state_.browser.confirmation_message =
+                        "The selected file already exists. Replace it?";
+                    accepted = true;
+                } else if (operation == "recording-export")
+                    accepted = execute({"recording.save.v1",
+                        {{"path", path.string()},
+                         {"format", std::string("float32")}}, {}, 0});
+                else if (operation == "processing-export")
+                    accepted = processing_action("save", path.string());
+                else
+                    accepted = save_setup_controller_profile(path.string());
+            }
+        }
+        if (!accepted) {
+            state_.text_entry.visible = true;
+            state_.text_entry.error = last_error_;
+        }
+        ++local_revision_;
+        return refresh() || accepted;
+    } else return false;
+    ++local_revision_;
+    return refresh();
 }
 
 bool SlintFrontendAdapter::select_track(int direction) {

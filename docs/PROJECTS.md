@@ -160,9 +160,13 @@ Start explicitly with:
 
 `--project` cannot be combined with standalone sample or timeline inputs. In
 the Display view the current project, dirty marker, path, and missing-asset
-count are visible; Shift+Enter invokes Save. Open, Save As, and relinking are
-available through semantic actions, while a complete embedded filesystem
-browser is still deferred.
+count are visible; Shift+Enter invokes Save. Open, Save As and explicit sample
+relinking are available through semantic actions and the production Slint
+Browser. Its worker enumerates deterministic pages and the touch keyboard
+supplies names without a typed absolute path. Relinking never substitutes by
+filename alone: the user selects both the missing identity and replacement.
+Folder assistance checks only the original filename in the selected directory;
+atomic multi-asset prefix relinking remains deferred.
 
 Version-1 projects may include `modulation.ngm`. Its current metadata version 3
 stores source definitions, deterministic seeds, explicit scopes, and stable

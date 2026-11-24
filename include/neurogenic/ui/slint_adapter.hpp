@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -278,10 +279,19 @@ struct SlintBrowserPageState {
     std::string category{"projects"}, location, filter, sort{"name"},
         destination{"Current project"}, preview{"No selection"}, error,
         confirmation_action, confirmation_message;
-    std::size_t selected{};
-    bool loading{}, confirmation_pending{}, truncated{};
+    std::size_t selected{}, page{}, page_count{1}, total_entries{}, selected_missing{};
+    std::uint64_t request_id{};
+    bool loading{}, confirmation_pending{}, truncated{}, can_previous_page{},
+        can_next_page{};
     std::vector<std::string> categories, recent_locations;
+    std::vector<std::string> missing_assets;
     std::vector<SlintBrowserEntry> entries;
+};
+
+struct SlintTextEntryState {
+    std::string title, text, operation, error;
+    std::size_t cursor{};
+    bool visible{}, uppercase{}, symbols{};
 };
 
 struct SlintSetupDeviceItem {
@@ -358,6 +368,7 @@ struct SlintUiState {
     SlintBrowserPageState browser;
     SlintSetupPageState setup;
     SlintRecordingWorkflowState recording;
+    SlintTextEntryState text_entry;
 };
 
 enum class SlintRefreshKind : std::uint8_t { none, full, telemetry };
@@ -383,6 +394,7 @@ class SlintFrontendAdapter {
   public:
     explicit SlintFrontendAdapter(ApplicationService &application,
                                   SlintSetupServices setup = {});
+    ~SlintFrontendAdapter();
     [[nodiscard]] bool refresh();
     [[nodiscard]] const SlintUiState &state() const noexcept {
         return state_;
@@ -489,11 +501,19 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool select_browser_entry(std::size_t index);
     [[nodiscard]] bool set_browser_filter(std::string filter);
     [[nodiscard]] bool cycle_browser_sort();
+    [[nodiscard]] bool change_browser_page(int direction);
+    [[nodiscard]] bool refresh_browser();
     [[nodiscard]] bool activate_browser_entry();
     [[nodiscard]] bool browser_project_action(std::string action,
                                               std::string path = {});
     [[nodiscard]] bool browser_preset_action(std::string action);
     [[nodiscard]] bool confirm_browser_action(bool accept);
+    [[nodiscard]] bool select_missing_asset(std::size_t index);
+    [[nodiscard]] bool relink_missing_asset(bool map_directory);
+    [[nodiscard]] bool request_text_entry(std::string operation,
+                                          std::string current = {});
+    [[nodiscard]] bool text_entry_insert(std::string text);
+    [[nodiscard]] bool text_entry_action(std::string action);
     [[nodiscard]] bool select_setup_subview(std::string subview);
     [[nodiscard]] bool select_setup_device(std::string kind,
                                            std::size_t index);
@@ -508,7 +528,7 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
-    void shutdown() noexcept { active_ = false; }
+    void shutdown() noexcept;
     [[nodiscard]] bool active() const noexcept { return active_; }
     [[nodiscard]] const std::string &last_error() const noexcept {
         return last_error_;
@@ -529,6 +549,8 @@ class SlintFrontendAdapter {
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};
     std::vector<std::string> browser_recent_locations_;
+    class BrowserWorker;
+    std::unique_ptr<BrowserWorker> browser_worker_;
 };
 
 struct SlintOptions {

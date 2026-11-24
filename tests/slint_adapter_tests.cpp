@@ -17,6 +17,15 @@ void require(bool value, const char *message) {
     if (!value)
         throw std::runtime_error(message);
 }
+
+bool await_browser(neurogenic::SlintFrontendAdapter &adapter) {
+    for (int attempt = 0; attempt < 200; ++attempt) {
+        (void)adapter.refresh();
+        if (!adapter.state().browser.loading) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    return false;
+}
 } // namespace
 
 int main() {
@@ -693,7 +702,8 @@ int main() {
                     adapter.state().shell.pages[6].implemented,
                 "Browser page is an implemented independent destination");
         require(adapter.select_browser_category("projects") &&
-                    adapter.navigate_browser(browser_root.string()),
+                    adapter.navigate_browser(browser_root.string()) &&
+                    await_browser(adapter),
                 "project browser accepts a temporary location");
         const auto project_entry = std::find_if(
             adapter.state().browser.entries.begin(),
@@ -711,6 +721,7 @@ int main() {
                 "activating a project enters dirty-session confirmation instead of folder navigation");
         require(adapter.select_browser_category("samples") &&
                     adapter.navigate_browser(browser_root.string()) &&
+                    await_browser(adapter) &&
                     adapter.state().browser.entries.size() == 4 &&
                     std::none_of(adapter.state().browser.entries.begin(),
                         adapter.state().browser.entries.end(), [](const auto &entry) {
@@ -726,15 +737,19 @@ int main() {
                     sample_entry->name == "kick.wav",
                 "sample content exposes compatible typed metadata");
         require(adapter.set_browser_filter("kick") &&
+                    await_browser(adapter) &&
                     adapter.state().browser.entries.size() == 1 &&
                     adapter.cycle_browser_sort() &&
+                    await_browser(adapter) &&
                     adapter.state().browser.sort == "type",
                 "Browser filtering and sorting are page-local and revisioned");
-        require(!adapter.navigate_browser((browser_root / "missing").string()) &&
+        require(adapter.navigate_browser((browser_root / "missing").string()) &&
+                    await_browser(adapter) &&
                     !adapter.state().browser.error.empty(),
                 "missing browser locations return an actionable error");
         require(adapter.select_browser_category("instrument-presets") &&
                     adapter.navigate_browser((browser_root / "presets").string()) &&
+                    await_browser(adapter) &&
                     adapter.state().browser.entries.size() == 1 &&
                     adapter.state().browser.entries[0].id == "browser-synth" &&
                     adapter.browser_preset_action("validate"),
@@ -744,6 +759,50 @@ int main() {
                     adapter.confirm_browser_action(false) &&
                     !adapter.state().browser.confirmation_pending,
                 "dirty-project replacement requires explicit confirmation and can cancel");
+        require(adapter.request_text_entry("track-rename", "Kick") &&
+                    adapter.text_entry_insert(" ") &&
+                    adapter.text_entry_insert("\xC3\x84") &&
+                    adapter.text_entry_action("left") &&
+                    adapter.text_entry_action("right") &&
+                    adapter.text_entry_action("confirm") &&
+                    timeline.snapshot().timeline.tracks.front().name == "Kick \xC3\x84",
+                "touch text entry commits UTF-8 names through semantic actions");
+        require(adapter.request_text_entry("track-rename", "Uncommitted") &&
+                    adapter.text_entry_action("backspace") &&
+                    adapter.text_entry_action("cancel") &&
+                    timeline.snapshot().timeline.tracks.front().name == "Kick \xC3\x84",
+                "touch text entry cancellation preserves the authoritative value");
+        require(adapter.request_text_entry("project-save-as", "../unsafe.ngp") &&
+                    adapter.text_entry_action("confirm") &&
+                    adapter.state().text_entry.visible &&
+                    !adapter.state().text_entry.error.empty() &&
+                    adapter.text_entry_action("cancel"),
+                "filename validation rejects path traversal before dispatch");
+
+        const auto large_root = browser_root / "large";
+        std::filesystem::create_directory(large_root);
+        for (int index = 0; index < 270; ++index)
+            std::ofstream(large_root / ("sample-" + std::to_string(index) + ".wav"),
+                          std::ios::binary) << "RIFF";
+        require(adapter.select_browser_category("samples") &&
+                    adapter.navigate_browser(large_root.string()) &&
+                    await_browser(adapter) &&
+                    adapter.state().browser.total_entries == 270 &&
+                    adapter.state().browser.entries.size() == 128 &&
+                    adapter.state().browser.can_next_page &&
+                    adapter.change_browser_page(1) && await_browser(adapter) &&
+                    adapter.state().browser.page == 1 &&
+                    adapter.state().browser.entries.size() == 128 &&
+                    adapter.change_browser_page(1) && await_browser(adapter) &&
+                    adapter.state().browser.page == 2 &&
+                    adapter.state().browser.entries.size() == 14,
+                "bounded asynchronous pagination exposes entries beyond the legacy cap");
+        require(adapter.navigate_browser(large_root.string()) &&
+                    adapter.navigate_browser((browser_root / "folder").string()) &&
+                    await_browser(adapter) &&
+                    std::filesystem::path(adapter.state().browser.location).filename() == "folder" &&
+                    adapter.state().browser.entries.empty(),
+                "superseded results cannot replace newer navigation state");
         require(adapter.select_page(7) &&
                     adapter.state().shell.page_id == "setup" &&
                     adapter.state().shell.pages[7].implemented &&

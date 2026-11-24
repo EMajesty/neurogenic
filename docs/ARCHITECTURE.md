@@ -347,8 +347,15 @@ model derives instrument identity, parameter descriptors and local modulation
 routes from one copied application snapshot. Writes remain semantic actions,
 including instance-aware synth parameters and transactional preset activation.
 The Browser model contains only bounded directory/preset metadata and stable
-paths/IDs. Filesystem work stays control-side; project replacement, sample
+paths/IDs. A frontend-owned `BrowserWorker` performs non-recursive enumeration
+and preset parsing on one stoppable control thread. Requests and results carry
+monotonic IDs; only the current request can publish a 128-row page, and worker
+shutdown is joined before adapter destruction. Filesystem work never holds an
+application lock or enters the audio callback. Project replacement, sample
 publication and preset activation retain their transactional semantic services.
+The shared text-entry modal is presentation-local until confirmation; UTF-8
+edits cannot alter application state, and confirmation invokes the same typed
+semantic actions used by controllers and other clients.
 The Setup model adds a narrow copy-only appliance bridge. Runtime audio/MIDI
 and controller objects remain appliance-owned; the bridge copies device
 capabilities, active configuration, endpoint status, lifecycle warnings and

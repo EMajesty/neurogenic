@@ -109,6 +109,47 @@ export component EmptyState inherits Rectangle {
     }
 }
 
+export component TouchKeyboard inherits Rectangle {
+    in property <string> title; in property <string> value;
+    in property <int> cursor-position; in property <string> error;
+    in property <bool> uppercase; in property <bool> symbols;
+    callback insert(string); callback action(string);
+    background: #101820ee; border-color: Theme.accent; border-width: 2px;
+    border-radius: Theme.radius;
+    VerticalLayout { padding: 10px; spacing: 6px;
+        Text { height: 28px; text: root.title; color: Theme.accent; font-size: 18px; }
+        Rectangle { height: 42px; background: Theme.background; border-radius: Theme.radius;
+            Text { text: root.value + "  [" + root.cursor-position + "]"; color: Theme.foreground; vertical-alignment: center; horizontal-alignment: center; overflow: elide; }
+        }
+        HorizontalLayout { height: 42px; spacing: 4px;
+            for key in root.symbols ? ["1","2","3","4","5","6","7","8","9","0"] : root.uppercase ? ["Q","W","E","R","T","Y","U","I","O","P"] : ["q","w","e","r","t","y","u","i","o","p"]:
+                PageButton { text: key; clicked => { root.insert(self.text); } }
+        }
+        HorizontalLayout { height: 42px; spacing: 4px;
+            for key in root.symbols ? ["-","_",".",",","/","(",")","[","]"] : root.uppercase ? ["A","S","D","F","G","H","J","K","L"] : ["a","s","d","f","g","h","j","k","l"]:
+                PageButton { text: key; clicked => { root.insert(self.text); } }
+        }
+        HorizontalLayout { height: 42px; spacing: 4px;
+            for key in root.symbols ? ["@","#","%","+","=",":",";"] : root.uppercase ? ["Z","X","C","V","B","N","M"] : ["z","x","c","v","b","n","m"]:
+                PageButton { text: key; clicked => { root.insert(self.text); } }
+        }
+        HorizontalLayout { height: 42px; spacing: 4px;
+            PageButton { text: "Shift"; selected: root.uppercase; clicked => { root.action("uppercase"); } }
+            PageButton { text: "Symbols"; selected: root.symbols; clicked => { root.action("symbols"); } }
+            PageButton { text: "←"; clicked => { root.action("left"); } }
+            PageButton { text: "→"; clicked => { root.action("right"); } }
+            PageButton { text: "Space"; clicked => { root.insert(" "); } }
+            PageButton { text: "Backspace"; clicked => { root.action("backspace"); } }
+            PageButton { text: "Clear"; clicked => { root.action("clear"); } }
+        }
+        Text { height: 24px; text: root.error; color: #ff8080; horizontal-alignment: center; overflow: elide; }
+        HorizontalLayout { height: 46px; spacing: 8px;
+            PageButton { text: "Cancel"; clicked => { root.action("cancel"); } }
+            PageButton { text: "Confirm"; selected: true; clicked => { root.action("confirm"); } }
+        }
+    }
+}
+
 export component ParameterDisplay inherits Rectangle {
     in property <string> name: "Unavailable";
     in property <string> value: "--";

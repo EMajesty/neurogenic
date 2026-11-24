@@ -38,6 +38,7 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<FxRouteItem>> fx_routes;
     std::shared_ptr<slint::VectorModel<FxMacroItem>> fx_macros;
     std::shared_ptr<slint::VectorModel<BrowserEntryItem>> browser_entries;
+    std::shared_ptr<slint::VectorModel<slint::SharedString>> browser_missing_assets;
     std::shared_ptr<slint::VectorModel<SetupDeviceItem>> audio_inputs,
         audio_outputs, midi_inputs, midi_outputs;
     std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
@@ -427,6 +428,12 @@ void publish(const SlintUiState &state,
     window->set_browser_filter(text(state.browser.filter));
     window->set_browser_error(text(state.browser.error));
     window->set_browser_truncated(state.browser.truncated);
+    window->set_browser_loading(state.browser.loading);
+    window->set_browser_page_label(text("Page " + std::to_string(state.browser.page + 1) +
+        "/" + std::to_string(state.browser.page_count)));
+    window->set_browser_can_previous_page(state.browser.can_previous_page);
+    window->set_browser_can_next_page(state.browser.can_next_page);
+    window->set_browser_selected_missing(static_cast<int>(state.browser.selected_missing));
     window->set_browser_confirmation_pending(state.browser.confirmation_pending);
     window->set_browser_confirmation_message(text(state.browser.confirmation_message));
     std::vector<BrowserEntryItem> browser_entries;
@@ -435,6 +442,18 @@ void publish(const SlintUiState &state,
         browser_entries.push_back({text(entry.name), text(entry.type),
             text(entry.metadata), entry.directory, entry.compatible, entry.selected});
     publish_model(models.browser_entries, std::move(browser_entries), [&](auto value) { window->set_browser_entries(value); });
+    std::vector<slint::SharedString> missing_assets;
+    for (const auto &missing : state.browser.missing_assets)
+        missing_assets.push_back(text(missing));
+    publish_model(models.browser_missing_assets, std::move(missing_assets),
+        [&](auto value) { window->set_browser_missing_assets(value); });
+    window->set_text_entry_visible(state.text_entry.visible);
+    window->set_text_entry_title(text(state.text_entry.title));
+    window->set_text_entry_value(text(state.text_entry.text));
+    window->set_text_entry_cursor(static_cast<int>(state.text_entry.cursor));
+    window->set_text_entry_error(text(state.text_entry.error));
+    window->set_text_entry_uppercase(state.text_entry.uppercase);
+    window->set_text_entry_symbols(state.text_entry.symbols);
     window->set_setup_subview(text(state.setup.subview));
     window->set_setup_audio_backend(text(state.setup.audio_backend));
     window->set_setup_audio_status(text(state.setup.audio_status));
@@ -647,6 +666,11 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_sample_load([&](slint::SharedString path) {
             (void)adapter.load_sample(path.data());
+            publish(adapter.state(), window);
+        });
+        window->on_sample_browse_requested([&] {
+            (void)adapter.select_page(6);
+            (void)adapter.select_browser_category("samples");
             publish(adapter.state(), window);
         });
         window->on_waveform_selected([&](float normalized) {
@@ -897,6 +921,30 @@ int run_slint_frontend(ApplicationService &application,
         window->on_browser_confirm([&](bool accept) {
             (void)adapter.confirm_browser_action(accept); publish(adapter.state(), window);
         });
+        window->on_browser_page_requested([&](int direction) {
+            (void)adapter.change_browser_page(direction); publish(adapter.state(), window);
+        });
+        window->on_browser_refresh_requested([&] {
+            (void)adapter.refresh_browser(); publish(adapter.state(), window);
+        });
+        window->on_browser_missing_selected([&](int index) {
+            (void)adapter.select_missing_asset(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_browser_relink_requested([&](bool prefix) {
+            (void)adapter.relink_missing_asset(prefix); publish(adapter.state(), window);
+        });
+        window->on_text_entry_requested(
+            [&](slint::SharedString operation, slint::SharedString current) {
+                (void)adapter.request_text_entry(operation.data(), current.data());
+                publish(adapter.state(), window);
+            });
+        window->on_text_entry_insert([&](slint::SharedString value) {
+            (void)adapter.text_entry_insert(value.data()); publish(adapter.state(), window);
+        });
+        window->on_text_entry_action([&](slint::SharedString action) {
+            (void)adapter.text_entry_action(action.data()); publish(adapter.state(), window);
+        });
         window->on_setup_subview_selected([&](slint::SharedString value) {
             (void)adapter.select_setup_subview(value.data()); publish(adapter.state(), window);
         });
@@ -991,6 +1039,18 @@ int run_slint_frontend(ApplicationService &application,
                 capture_headless(options.screenshot_path + "-recording.ppm");
             window->invoke_recording_action("cancel");
             window->invoke_recording_closed();
+            window->invoke_text_entry_requested("browser-filter", "kick");
+            window->invoke_text_entry_insert(" ");
+            window->invoke_text_entry_insert("\xC3\x84");
+            if (!window->get_text_entry_visible())
+                throw std::runtime_error("touch keyboard did not become visible");
+            if (!options.screenshot_path.empty())
+                capture_headless(options.screenshot_path + "-keyboard.ppm");
+            window->invoke_text_entry_action("left");
+            window->invoke_text_entry_action("backspace");
+            window->invoke_text_entry_action("cancel");
+            if (window->get_text_entry_visible())
+                throw std::runtime_error("touch keyboard cancellation did not close overlay");
             if (options.interaction_test_backend && headless_window)
                 headless_window->render();
             const auto pixels = options.interaction_test_backend

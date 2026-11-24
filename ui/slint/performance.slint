@@ -1,4 +1,4 @@
-import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay } from "components.slint";
+import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay, TouchKeyboard } from "components.slint";
 import { Theme } from "theme.slint";
 import { PerformancePage, PadItem, SceneItem } from "performance_page.slint";
 import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from "sequencer_page.slint";
@@ -114,8 +114,15 @@ export component PerformanceWindow inherits Window {
     in property <string> browser-destination: "Current project"; in property <string> browser-preview: "No selection";
     in property <string> browser-sort: "name"; in property <string> browser-error: "";
     in property <bool> browser-truncated: false; in property <[BrowserEntryItem]> browser-entries;
+    in property <bool> browser-loading: false; in property <string> browser-page-label: "Page 1/1";
+    in property <bool> browser-can-previous-page: false; in property <bool> browser-can-next-page: false;
+    in property <[string]> browser-missing-assets; in property <int> browser-selected-missing: 0;
     in property <bool> browser-confirmation-pending: false; in property <string> browser-confirmation-message: "";
     in-out property <string> browser-filter: ""; in-out property <string> browser-project-path: "";
+    in property <bool> text-entry-visible: false; in property <string> text-entry-title: "";
+    in property <string> text-entry-value: ""; in property <int> text-entry-cursor: 0;
+    in property <string> text-entry-error: ""; in property <bool> text-entry-uppercase: false;
+    in property <bool> text-entry-symbols: false;
     in property <string> setup-subview: "audio"; in property <string> setup-audio-backend: "Unavailable";
     in property <string> setup-audio-status: "Unavailable"; in property <string> setup-active-input: "Unavailable";
     in property <string> setup-active-output: "Unavailable"; in property <string> setup-requested-input: "";
@@ -164,7 +171,7 @@ export component PerformanceWindow inherits Window {
     callback advanced-step-edit(string, int); callback condition-cycle();
     callback lock-parameter-cycle(int); callback lock-edit(string, int);
     callback track-item-selected(int); callback track-manage(string); callback pattern-manage(string);
-    callback sample-slot-selected(int); callback sample-load(string);
+    callback sample-slot-selected(int); callback sample-load(string); callback sample-browse-requested();
     callback waveform-selected(float); callback waveform-zoomed(float);
     callback slice-selected(int); callback slice-action(string);
     callback region-selected(int); callback region-action(string);
@@ -191,6 +198,10 @@ export component PerformanceWindow inherits Window {
     callback browser-activate(); callback browser-filter-requested(string); callback browser-sort-requested();
     callback browser-project-action(string, string); callback browser-preset-action(string);
     callback browser-confirm(bool);
+    callback browser-page-requested(int); callback browser-refresh-requested();
+    callback browser-missing-selected(int); callback browser-relink-requested(bool);
+    callback text-entry-requested(string, string); callback text-entry-insert(string);
+    callback text-entry-action(string);
     callback setup-subview-selected(string); callback setup-device-selected(string, int);
     callback setup-value-adjusted(string, int); callback setup-preference-toggled(string);
     callback setup-preferences-action(string); callback setup-controller-selected(int);
@@ -242,6 +253,7 @@ export component PerformanceWindow inherits Window {
             lock-edit(operation, direction) => { root.lock-edit(operation, direction); }
             track-item-selected(index) => { root.track-item-selected(index); } track-manage(operation) => { root.track-manage(operation); }
             pattern-manage(operation) => { root.pattern-manage(operation); }
+            text-requested(operation, current) => { root.text-entry-requested(operation, current); }
         }
         if root.page-id == "sample": SamplePage {
             vertical-stretch: 1; sample-slot: root.sample-slot; sample-name: root.sample-name; sample-status: root.sample-status;
@@ -249,17 +261,17 @@ export component PerformanceWindow inherits Window {
             processing-status: root.processing-status; sample-ready: root.sample-ready; sample-stereo: root.sample-stereo;
             processing-progress: root.processing-progress; processing-can-cancel: root.processing-can-cancel;
             processing-can-publish: root.processing-can-publish; processing-audio-active: root.processing-audio-active;
-            processing-result-path <=> root.processing-result-path;
             waveform-zoom: root.waveform-zoom; waveform-left: root.waveform-left; waveform-right: root.waveform-right;
             slice-markers: root.slice-markers; region-start: root.region-start; region-end: root.region-end;
-            sample-slices: root.sample-slices; sample-regions: root.sample-regions; sample-path <=> root.sample-path;
-            sample-slot-selected(direction) => { root.sample-slot-selected(direction); } sample-load(path) => { root.sample-load(path); }
+            sample-slices: root.sample-slices; sample-regions: root.sample-regions;
+            sample-slot-selected(direction) => { root.sample-slot-selected(direction); } browse-samples => { root.sample-browse-requested(); }
             waveform-selected(value) => { root.waveform-selected(value); } waveform-zoomed(value) => { root.waveform-zoomed(value); }
             slice-selected(index) => { root.slice-selected(index); } slice-action(action) => { root.slice-action(action); }
             region-selected(index) => { root.region-selected(index); } region-action(action) => { root.region-action(action); }
             sample-preview(target) => { root.sample-preview(target); } sample-analysis(action) => { root.sample-analysis(action); }
             sample-processing(action) => { root.sample-processing(action); }
             processing-lifecycle(action, value) => { root.processing-lifecycle(action, value); }
+            text-requested(operation, current) => { root.text-entry-requested(operation, current); }
         }
         if root.page-id == "sound": SoundPage {
             vertical-stretch: 1; track: root.sound-track; instrument: root.sound-instrument; instrument-id: root.sound-instrument-id;
@@ -295,11 +307,17 @@ export component PerformanceWindow inherits Window {
         if root.page-id == "browser": BrowserPage {
             vertical-stretch: 1; category: root.browser-category; location: root.browser-location; destination: root.browser-destination;
             preview: root.browser-preview; sort-mode: root.browser-sort; error: root.browser-error; truncated: root.browser-truncated;
-            entries: root.browser-entries; filter-text <=> root.browser-filter; project-path <=> root.browser-project-path;
+            loading: root.browser-loading; page-label: root.browser-page-label;
+            can-previous-page: root.browser-can-previous-page; can-next-page: root.browser-can-next-page;
+            missing-assets: root.browser-missing-assets; selected-missing: root.browser-selected-missing;
+            entries: root.browser-entries; filter-text: root.browser-filter;
             category-selected(value) => { root.browser-category-selected(value); } parent-requested => { root.browser-parent(); }
             entry-selected(index) => { root.browser-entry-selected(index); } entry-activated => { root.browser-activate(); }
             filter-requested(value) => { root.browser-filter-requested(value); } sort-requested => { root.browser-sort-requested(); }
             project-action(action, path) => { root.browser-project-action(action, path); } preset-action(action) => { root.browser-preset-action(action); }
+            page-requested(direction) => { root.browser-page-requested(direction); } refresh-requested => { root.browser-refresh-requested(); }
+            text-requested(operation, current) => { root.text-entry-requested(operation, current); }
+            missing-selected(index) => { root.browser-missing-selected(index); } relink-requested(prefix) => { root.browser-relink-requested(prefix); }
         }
         if root.page-id == "setup": SetupPage {
             vertical-stretch: 1; subview: root.setup-subview; audio-backend: root.setup-audio-backend; audio-status: root.setup-audio-status;
@@ -313,12 +331,12 @@ export component PerformanceWindow inherits Window {
             callback-peak: root.setup-callback-peak; xruns: root.setup-xruns; xruns-available: root.setup-xruns-available;
             error: root.setup-error; learn-status: root.setup-learn-status; audio-inputs: root.setup-audio-inputs; audio-outputs: root.setup-audio-outputs;
             midi-inputs: root.setup-midi-inputs; midi-outputs: root.setup-midi-outputs; controllers: root.setup-controllers;
-            learn-control <=> root.setup-learn-control; learn-mode <=> root.setup-learn-mode; profile-path <=> root.setup-profile-path;
+            learn-control <=> root.setup-learn-control; learn-mode <=> root.setup-learn-mode;
             subview-selected(value) => { root.setup-subview-selected(value); } device-selected(kind, index) => { root.setup-device-selected(kind, index); }
             value-adjusted(property, direction) => { root.setup-value-adjusted(property, direction); }
             preference-toggled(property) => { root.setup-preference-toggled(property); } preferences-action(action) => { root.setup-preferences-action(action); }
             controller-selected(index) => { root.setup-controller-selected(index); } midi-learn(action, control, mode) => { root.setup-midi-learn(action, control, mode); }
-            profile-save(path) => { root.setup-profile-save(path); } exit-requested => { root.setup-exit(); }
+            text-requested(operation, current) => { root.text-entry-requested(operation, current); } exit-requested => { root.setup-exit(); }
         }
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
@@ -363,4 +381,7 @@ export component PerformanceWindow inherits Window {
         }
     }
     if root.modal-visible || root.browser-confirmation-pending: Rectangle { x: 0; y: 0; background: #88111111; ModalDialog { width: min(520px, parent.width - 48px); height: 210px; x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: "Confirm"; message: root.browser-confirmation-pending ? root.browser-confirmation-message : "Confirm this operation."; accepted => { if (root.browser-confirmation-pending) { root.browser-confirm(true); } root.modal-visible = false; } rejected => { if (root.browser-confirmation-pending) { root.browser-confirm(false); } root.modal-visible = false; } } }
+    if root.text-entry-visible: Rectangle { x: 0; y: 0; background: #aa111111;
+        TouchKeyboard { width: min(900px, parent.width - 24px); height: min(560px, parent.height - 24px); x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; title: root.text-entry-title; value: root.text-entry-value; cursor-position: root.text-entry-cursor; error: root.text-entry-error; uppercase: root.text-entry-uppercase; symbols: root.text-entry-symbols; insert(value) => { root.text-entry-insert(value); } action(value) => { root.text-entry-action(value); } }
+    }
 }
