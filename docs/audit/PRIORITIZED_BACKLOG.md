@@ -24,6 +24,17 @@ recording families. Detailed live-loop overdub/replace UX remains limited.
 
 ### AUD-002 — Sequencer cannot edit beyond 16 steps or core step properties
 
+**Task 083 status: resolved for the essential standalone workflow.** The
+production Sequencer has absolute 16-step pages, partial-page validation,
+optional playhead following, descriptor-backed parameter locks, an advanced
+step inspector, and transactional track/pattern lifecycle controls. Deterministic
+adapter tests exercise a 17-step pattern, authoritative trigger-property and
+lock round trips, safe shortening rejection, stable-ID duplication/deletion,
+and stale-selection recovery. Generated Slint states render the populated
+second page at both supported resolutions. Pattern event editing remains based
+on the selected timeline track; detailed reusable-pattern-track authoring and
+DAW-style Arrangement editing are intentionally deferred.
+
 - **Impact:** common patterns are impossible touch-only.
 - **Evidence:** `sequencer_page.slint` has no page controls; registry has
   `step.page-*`, probability, condition, ratchet and lock actions.

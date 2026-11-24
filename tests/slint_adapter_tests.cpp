@@ -174,9 +174,149 @@ int main() {
                     application.snapshot().selected_event->duration ==
                         ticks_per_quarter / 2,
                 "selected step length edits through semantic action");
+        const auto long_length = application.snapshot().step_ticks * 17;
+        require(application.execute({"track.pattern-length-set.v1",
+                    {{"length", static_cast<std::int64_t>(long_length)}}}).accepted &&
+                    adapter.refresh() && adapter.state().sequencer.step_page_count == 2 &&
+                    adapter.change_step_page(1) &&
+                    adapter.state().sequencer.step_page == 1 &&
+                    adapter.state().sequencer.steps[0].label == "17" &&
+                    adapter.state().sequencer.steps[0].available &&
+                    !adapter.state().sequencer.steps[1].available,
+                "long patterns expose absolute positions and partial final pages");
+        require(adapter.select_step(0), "page-two step insertion");
+        require(application.snapshot().selected_event &&
+                    application.snapshot().selected_event->step == 16,
+                "page-two absolute event selection");
+        const auto page_two_pitch = application.snapshot().selected_event->pitch;
+        const auto page_two_timing =
+            application.snapshot().selected_event->timing_offset;
+        require(adapter.edit_step_property("probability", -1),
+                "page-two probability edit");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        if (!adapter.edit_step_property("ratchet", 1))
+            throw std::runtime_error("page-two ratchet edit: " +
+                                     adapter.state().shell.notification);
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.cycle_step_condition(), "page-two condition edit");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.edit_step_property("pitch", 1),
+                "page-two pitch edit");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.edit_step_property("timing", 1),
+                "page-two microtiming edit");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(application.snapshot().selected_event->trigger_probability == 0.95F &&
+                    application.snapshot().selected_event->ratchet_count == 2 &&
+                    application.snapshot().selected_event->trigger_condition ==
+                        TriggerCondition::first_loop &&
+                    application.snapshot().selected_event->pitch ==
+                        page_two_pitch + 1 &&
+                    application.snapshot().selected_event->timing_offset ==
+                        page_two_timing + 1,
+                "advanced step properties round trip through authoritative state");
+        require(application.execute({"step.lock-set.v1",
+                    {{"parameter_id", std::string("sample.gain")},
+                     {"value", 0.75}}}).accepted && adapter.refresh() &&
+                    application.snapshot().selected_step_locks.size() == 1,
+                "parameter lock creation targets a discoverable parameter");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(
+                    application.execute({"step.lock-remove.v1",
+                    {{"parameter_id", std::string("sample.gain")}}}).accepted &&
+                    adapter.refresh() &&
+                    application.snapshot().selected_step_locks.empty(),
+                "parameter locks create and remove against discoverable targets");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(application.execute({"edit.undo.v1", {}}).accepted,
+                "parameter lock removal participates in Undo");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(application.snapshot().selected_step_locks.size() == 1 &&
+                    application.snapshot().selected_step_locks.front().parameter_id ==
+                        "sample.gain",
+                "Undo restores the selected parameter lock");
+        require(application.execute({"step.lock-remove.v1",
+                    {{"parameter_id", std::string("sample.gain")}}}).accepted,
+                "restored parameter lock remains editable");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(!application.execute({"track.pattern-length-set.v1",
+                    {{"length", static_cast<std::int64_t>(
+                        application.snapshot().step_ticks * 16)}}}).accepted,
+                "shortening refuses to discard events beyond the new length");
+        const auto tracks_before = application.snapshot().tracks.size();
+        require(adapter.manage_track("duplicate") &&
+                    application.snapshot().tracks.size() == tracks_before + 1,
+                "track duplication preserves stable lifecycle state");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.manage_track("delete") &&
+                    adapter.state().sequencer.confirm_delete_track &&
+                    adapter.manage_track("confirm-delete") &&
+                    application.snapshot().tracks.size() == tracks_before,
+                "track duplication and confirmed deletion preserve stable lifecycle state");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.manage_track("create-synth") &&
+                    application.snapshot().tracks.back().instrument_id ==
+                        subtractive_instrument_id,
+                "standalone track creation selects a supported instrument type");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.manage_track("delete") &&
+                    adapter.manage_track("confirm-delete"),
+                "created track can be removed with confirmation");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
         require(adapter.select_pattern(0) &&
                     application.snapshot().selected_pattern == 1,
                 "pattern selection uses semantic action");
+        const auto pattern_length_before = application.snapshot().patterns[0].length;
+        require(adapter.manage_pattern("length-up") &&
+                    application.snapshot().patterns[0].length > pattern_length_before,
+                "pattern length uses transactional semantic action");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        require(adapter.create_pattern(true),
+                "pattern duplication uses transactional semantic action");
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        const auto duplicated_pattern = application.snapshot().patterns.back().id;
+        require(application.execute({"pattern.select.v1",
+                    {{"pattern_id", static_cast<std::int64_t>(duplicated_pattern)}}}).accepted &&
+                    adapter.refresh() && adapter.manage_pattern("delete") &&
+                    adapter.state().sequencer.confirm_delete_pattern,
+                "pattern deletion requires confirmation");
+        if (!adapter.manage_pattern("confirm-delete"))
+            throw std::runtime_error("pattern deletion: " +
+                                     adapter.state().shell.notification);
+        engine.process(ack_left, ack_right);
+        (void)adapter.refresh();
+        const auto post_delete_timeline = timeline.snapshot();
+        if (!std::none_of(post_delete_timeline.timeline.arrangement.patterns.begin(),
+                        post_delete_timeline.timeline.arrangement.patterns.end(),
+                        [&](const auto &pattern) { return pattern.id == duplicated_pattern; }))
+            throw std::runtime_error("timeline pattern remained after confirmed deletion");
+        const auto post_delete_application = application.snapshot();
+        if (!std::none_of(post_delete_application.patterns.begin(),
+                        post_delete_application.patterns.end(), [&](const auto &pattern) {
+                            return pattern.id == duplicated_pattern;
+                        }))
+            throw std::runtime_error("pattern remained after confirmed deletion: selected=" +
+                std::to_string(adapter.state().sequencer.selected_pattern_id) +
+                " duplicate=" + std::to_string(duplicated_pattern));
+        require(application.snapshot().selected_pattern == 1 &&
+                    !application.execute({"pattern.select.v1",
+                        {{"pattern_id", static_cast<std::int64_t>(999'999)}}}).accepted,
+                "deleted and unknown pattern selections recover without stale identities");
         const auto prior_resolution = application.snapshot().step_resolution;
         require(adapter.cycle_step_resolution() &&
                     application.snapshot().step_resolution != prior_resolution,

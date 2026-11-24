@@ -89,11 +89,35 @@ application revision. Shutdown stops the timer before releasing the adapter.
 
 The Step subview displays the selected track and pattern, length, resolution,
 sixteen steps for the current page, playhead, selection and note presence.
-Step presses invoke `step.toggle.v1`; pattern selection, creation/duplication,
-resolution, velocity and duration changes use existing semantic actions. The
-same 2x8 positions are the step-entry surface. The Arrangement subview reads
-existing pattern and audio clips plus the loop range. It supports clip
-selection only; unavailable DAW-style edits are intentionally absent.
+Previous/next controls navigate arbitrary-length patterns in absolute 16-step
+pages; a partial final page exposes unavailable cells instead of editable fake
+steps. Optional playhead follow changes pages only when the playhead crosses a
+page boundary. Manual paging disables follow so telemetry cannot steal the
+editor's focus.
+
+Step presses invoke `step.toggle.v1`. The compact inspector edits the selected
+event's velocity, duration, pitch, probability, trigger condition, ratchet
+count and timing offset through existing semantic actions. Parameter locks are
+selected from discoverable modulatable parameter descriptors, then set,
+adjusted or removed through `step.lock-*.v1`; the UI never asks for an internal
+parameter string. Values are refreshed from authoritative snapshots.
+
+Track controls select stable IDs, create sample or synth tracks, duplicate the
+selected track, toggle mute and confirm deletion. Pattern controls select,
+create, duplicate, queue, resize and confirm deletion. Shortening either a
+track pattern or reusable arrangement pattern is rejected if it would exclude
+events, rather than silently deleting notes. Deleting a referenced reusable
+pattern is rejected by the timeline transaction, and a deleted selection
+recovers to the first remaining pattern. Naming actions exist semantically but
+touch text entry is deferred to Task 084. Track duplication copies the local
+instrument, MIDI destination, mute state and legacy pattern; project-wide
+routing, launcher assignments and modulation are not cloned.
+
+The same 2x8 positions remain the step-entry surface without making the engine
+depend on that layout. The Arrangement subview reads existing pattern and audio
+clips plus the loop range. It supports clip selection only; unavailable
+DAW-style edits are intentionally absent. Editing reusable pattern-track
+contents independently of the selected track is also deferred.
 
 Performance launch slots map to displayed positions by ascending stable slot
 ID, independent of collection order. Empty positions are unavailable.

@@ -633,3 +633,16 @@ callbacks and all eight pages render through Slint's software renderer at
 debug x86_64 workload reduced median adapter refresh from 70.591 us to 60.774 us.
 Complete snapshot copying, coordinate-level input simulation and physical
 touchscreen/controller validation remain limitations.
+
+Task 083 completes the essential Sequencer paging and lifecycle workflow.
+Patterns longer than sixteen steps use absolute pages with partial-page
+validation and optional playhead follow. The selected event inspector exposes
+velocity, duration, pitch, probability, conditions, ratchets, microtiming and
+discoverable parameter locks. Stable-ID track and pattern controls add safe
+creation, selection, duplication, resizing, activation and confirmed removal.
+Timeline transactions reject destructive shortening and referenced pattern
+deletion; application selection recovers after object removal. The incremental
+publication path updates playhead telemetry without replacing the structural
+step, track or pattern models. Generated software-rendered Sequencer coverage
+runs at both target resolutions. Touch text entry, reusable-pattern-track
+content authoring and full Arrangement editing remain deferred.

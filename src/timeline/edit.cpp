@@ -428,7 +428,7 @@ bool TimelineTransaction::duplicate_pattern(PatternId source,
     return true;
 }
 bool TimelineTransaction::rename_pattern(PatternId id, std::string name,
-                                         std::string &error) {
+                                          std::string &error) {
     const auto found = std::find_if(timeline_.arrangement.patterns.begin(),
                                     timeline_.arrangement.patterns.end(),
                                     [=](const auto &p) { return p.id == id; });
@@ -437,6 +437,29 @@ bool TimelineTransaction::rename_pattern(PatternId id, std::string name,
         return false;
     }
     found->name = std::move(name);
+    error.clear();
+    return true;
+}
+bool TimelineTransaction::set_pattern_length(PatternId id, MusicalTick length,
+                                             std::string &error) {
+    const auto pattern = std::find_if(timeline_.arrangement.patterns.begin(),
+        timeline_.arrangement.patterns.end(),
+        [=](const auto &candidate) { return candidate.id == id; });
+    if (pattern == timeline_.arrangement.patterns.end() || length <= 0) {
+        error = pattern == timeline_.arrangement.patterns.end()
+                    ? "pattern does not exist"
+                    : "pattern length must be positive";
+        return false;
+    }
+    for (const auto &track : pattern->tracks)
+        for (const auto &event : track.pattern.events)
+            if (event.tick >= length) {
+                error = "new pattern length excludes existing events";
+                return false;
+            }
+    pattern->length = length;
+    for (auto &track : pattern->tracks)
+        track.pattern.length = length;
     error.clear();
     return true;
 }

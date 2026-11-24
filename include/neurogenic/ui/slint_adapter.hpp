@@ -81,14 +81,29 @@ struct SlintArrangementItem {
     bool selected{}, enabled{};
 };
 
+struct SlintTrackItem {
+    std::uint64_t id{};
+    std::string name, instrument;
+    bool selected{}, muted{};
+};
+
 struct SlintSequencerPageState {
     std::string selected_track{"Unavailable"}, selected_pattern{"Unavailable"},
         resolution{"1/16"}, pattern_length{"Unavailable"},
-        selected_velocity{"--"}, selected_duration{"--"};
-    std::uint64_t step_page{}, selected_pattern_id{}, selected_clip_id{};
-    bool arrangement_view{};
+        selected_velocity{"--"}, selected_duration{"--"}, selected_pitch{"--"},
+        selected_probability{"--"}, selected_condition{"--"},
+        selected_ratchet{"--"}, selected_timing{"--"}, page_label{"Page 1/1"},
+        lock_parameter{"Unavailable"}, lock_value{"--"};
+    std::uint64_t step_page{}, step_page_count{1}, selected_pattern_id{},
+        selected_clip_id{};
+    std::size_t selected_lock_index{};
+    bool arrangement_view{}, playhead_follow{}, has_selected_event{},
+        can_page_previous{}, can_page_next{}, lock_available{};
+    bool confirm_delete_track{}, confirm_delete_pattern{};
     std::array<SlintStepItem, 16> steps;
+    std::vector<SlintTrackItem> tracks;
     std::vector<SlintPatternItem> patterns;
+    std::vector<std::string> lock_parameters;
     std::vector<SlintArrangementItem> arrangement;
     std::string loop_range{"Off"};
 };
@@ -399,6 +414,15 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool select_step(std::size_t index);
     [[nodiscard]] bool set_step_velocity(double value);
     [[nodiscard]] bool set_step_duration(std::int64_t ticks);
+    [[nodiscard]] bool change_step_page(int direction);
+    [[nodiscard]] bool set_playhead_follow(bool enabled);
+    [[nodiscard]] bool edit_step_property(std::string property, int direction);
+    [[nodiscard]] bool cycle_step_condition();
+    [[nodiscard]] bool cycle_lock_parameter(int direction);
+    [[nodiscard]] bool edit_selected_lock(std::string operation, int direction = 0);
+    [[nodiscard]] bool manage_pattern(std::string operation);
+    [[nodiscard]] bool select_track_index(std::size_t index);
+    [[nodiscard]] bool manage_track(std::string operation);
     [[nodiscard]] bool cycle_step_resolution();
     [[nodiscard]] bool toggle_arrangement_view();
     [[nodiscard]] bool select_arrangement_clip(std::size_t index);

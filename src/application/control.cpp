@@ -132,6 +132,14 @@ ActionRegistry::ActionRegistry() {
                 {"instance_id", ValueType::integer, false}}));
     add(action("track.delete.v1", "Delete track", "Tracks",
                {{"track_id", ValueType::integer, false}}));
+    add(action("track.rename.v1", "Rename track", "Tracks",
+               {{"track_id", ValueType::integer, false},
+                {"name", ValueType::text}}));
+    add(action("track.duplicate.v1", "Duplicate track", "Tracks",
+               {{"track_id", ValueType::integer, false},
+                {"name", ValueType::text, false}}));
+    add(action("track.pattern-length-set.v1", "Set track pattern length",
+               "Tracks", {{"length", ValueType::integer}}));
     add(action("track.instrument-set.v1", "Set track instrument", "Tracks",
                {{"instrument_id", ValueType::text},
                 {"instance_id", ValueType::integer, false}}));
@@ -156,6 +164,8 @@ ActionRegistry::ActionRegistry() {
                 {"name", ValueType::text}}));
     add(action("pattern.rename.v1", "Rename pattern", "Arrangement",
                {{"id", ValueType::integer}, {"name", ValueType::text}}));
+    add(action("pattern.length-set.v1", "Set pattern length", "Arrangement",
+               {{"id", ValueType::integer}, {"length", ValueType::integer}}));
     add(action("pattern.delete.v1", "Delete pattern", "Arrangement",
                {{"id", ValueType::integer}}));
     add(action(
@@ -443,6 +453,8 @@ ActionRegistry::ActionRegistry() {
                {{"seed", ValueType::integer}}));
     add(action("step.page-next.v1", "Next step page", "Sequencer"));
     add(action("step.page-previous.v1", "Previous step page", "Sequencer"));
+    add(action("step.page-select.v1", "Select step page", "Sequencer",
+               {{"page", ValueType::integer}}));
     add(action("step.resolution-set.v1", "Set step resolution", "Sequencer",
                {{"resolution", ValueType::text}}));
     add(action("track.note-target-set.v1", "Set track note target", "Tracks",
@@ -4499,6 +4511,57 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 selected_event_id_.reset();
                 changed_locked();
             }
+        } else if (command.action_id == "track.rename.v1" ||
+                   command.action_id == "track.duplicate.v1" ||
+                   command.action_id == "track.pattern-length-set.v1") {
+            auto transaction = timeline_.edit();
+            std::optional<TrackId> duplicated_track;
+            const auto requested = argument<std::int64_t>(command, "track_id");
+            const auto id = requested ? static_cast<TrackId>(*requested)
+                                      : state_.selected_track;
+            if ((requested && *requested <= 0) || id == 0) {
+                error = "track ID must be positive";
+            } else if (command.action_id == "track.rename.v1") {
+                transaction.set_track_name(
+                    id, *argument<std::string>(command, "name"), error);
+            } else if (command.action_id == "track.pattern-length-set.v1") {
+                transaction.set_track_length(
+                    id, *argument<std::int64_t>(command, "length"), error);
+            } else {
+                const auto *source = transaction.find_track(id);
+                if (!source) {
+                    error = "track does not exist";
+                } else {
+                    const auto source_copy = *source;
+                    const auto destination = transaction.next_track_id();
+                    const auto name = argument<std::string>(command, "name");
+                    if (transaction.create_track(
+                            destination,
+                            name ? *name : source_copy.name + " Copy",
+                            source_copy.pattern.length, error)) {
+                        auto *copy = transaction.find_track(destination);
+                        copy->pattern = source_copy.pattern;
+                        copy->muted = source_copy.muted;
+                        copy->instrument_id = source_copy.instrument_id;
+                        copy->instrument_instance_id =
+                            source_copy.instrument_instance_id;
+                        copy->midi_output_port = source_copy.midi_output_port;
+                        copy->midi_channel = source_copy.midi_channel;
+                        duplicated_track = destination;
+                    }
+                }
+            }
+            if (error.empty() && timeline_.commit(
+                    std::move(transaction),
+                    TimelineCommitPolicy::next_audio_callback, error)) {
+                if (duplicated_track)
+                    state_.selected_track = *duplicated_track;
+                state_.selected_step = 0;
+                state_.step_page = 0;
+                selected_event_id_.reset();
+                state_.project_dirty = true;
+                changed_locked();
+            }
         } else if (command.action_id == "track.next.v1" ||
                    command.action_id == "track.previous.v1") {
             const auto timeline = timeline_.snapshot();
@@ -4763,7 +4826,18 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             const auto id = *argument<std::int64_t>(command, "pattern_id");
             if (id < 0)
                 error = "pattern ID must be nonnegative";
-            else {
+            else if (id != 0) {
+                const auto snapshot = timeline_.snapshot();
+                const auto found = std::find_if(
+                    snapshot.timeline.arrangement.patterns.begin(),
+                    snapshot.timeline.arrangement.patterns.end(),
+                    [=](const auto &pattern) {
+                        return pattern.id == static_cast<PatternId>(id);
+                    });
+                if (found == snapshot.timeline.arrangement.patterns.end())
+                    error = "pattern does not exist";
+            }
+            if (error.empty()) {
                 state_.selected_pattern = static_cast<std::uint64_t>(id);
                 changed_locked();
             }
@@ -4864,6 +4938,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         } else if (command.action_id == "pattern.create.v1" ||
                    command.action_id == "pattern.duplicate.v1" ||
                    command.action_id == "pattern.rename.v1" ||
+                   command.action_id == "pattern.length-set.v1" ||
                    command.action_id == "pattern.delete.v1" ||
                    command.action_id == "pattern.launch.v1" ||
                    command.action_id == "pattern.chain-entry-set.v1" ||
@@ -4922,6 +4997,14 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     transaction.rename_pattern(
                         static_cast<PatternId>(id),
                         *argument<std::string>(command, "name"), error);
+            } else if (command.action_id == "pattern.length-set.v1") {
+                const auto id = *argument<std::int64_t>(command, "id");
+                const auto length = *argument<std::int64_t>(command, "length");
+                if (id <= 0)
+                    error = "pattern ID must be positive";
+                else
+                    transaction.set_pattern_length(
+                        static_cast<PatternId>(id), length, error);
             } else if (command.action_id == "pattern.delete.v1") {
                 const auto id = *argument<std::int64_t>(command, "id");
                 if (id <= 0)
@@ -5919,7 +6002,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 }
             }
         } else if (command.action_id == "step.page-next.v1" ||
-                   command.action_id == "step.page-previous.v1") {
+                   command.action_id == "step.page-previous.v1" ||
+                   command.action_id == "step.page-select.v1") {
             const auto snapshot = timeline_.snapshot();
             const auto found = std::find_if(
                 snapshot.timeline.tracks.begin(),
@@ -5936,13 +6020,22 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 error = "selected track has no editable steps";
             else {
                 const auto pages = (steps + 15) / 16;
-                if (command.action_id == "step.page-next.v1")
+                if (command.action_id == "step.page-select.v1") {
+                    const auto page = *argument<std::int64_t>(command, "page");
+                    if (page < 0 || static_cast<std::uint64_t>(page) >= pages)
+                        error = "step page is outside the selected track";
+                    else
+                        state_.step_page = static_cast<std::uint64_t>(page);
+                } else if (command.action_id == "step.page-next.v1")
                     state_.step_page = (state_.step_page + 1) % pages;
                 else
                     state_.step_page = (state_.step_page + pages - 1) % pages;
-                state_.selected_step = static_cast<std::int64_t>(
-                    std::min<std::uint64_t>(state_.step_page * 16, steps - 1));
-                changed_locked();
+                if (error.empty()) {
+                    state_.selected_step = static_cast<std::int64_t>(
+                        std::min<std::uint64_t>(state_.step_page * 16, steps - 1));
+                    selected_event_id_.reset();
+                    changed_locked();
+                }
             }
         } else if (command.action_id == "step.resolution-set.v1") {
             const auto resolution = parse_step_resolution(
@@ -8337,6 +8430,13 @@ void ApplicationService::synchronize_locked() const {
     for (const auto &pattern : arrangement.patterns)
         state_.patterns.push_back({pattern.id, pattern.name, pattern.length,
                                    pattern.tracks.size(), pattern.follow});
+    if (state_.selected_pattern != 0 &&
+        std::none_of(state_.patterns.begin(), state_.patterns.end(),
+                     [&](const auto &pattern) {
+                         return pattern.id == state_.selected_pattern;
+                     }))
+        state_.selected_pattern = state_.patterns.empty()
+            ? PatternId{} : state_.patterns.front().id;
     state_.clips.clear();
     state_.clips.reserve(arrangement.clips.size());
     for (const auto &clip : arrangement.clips)

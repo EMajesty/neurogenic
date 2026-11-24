@@ -227,6 +227,15 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
     } else if (context == "mixer") {
         lower[0] = {"MUTE", "mixer.mute-toggle.v1"};
         lower[1] = {"SOLO", "mixer.solo-toggle.v1"};
+    } else if (context == "sequencer") {
+        lower[0] = {"PAGE-", "step.page-previous.v1"};
+        lower[1] = {"PAGE+", "step.page-next.v1"};
+        lower[2] = {"RESET STEP", "step.trigger-reset.v1"};
+        lower[3] = {"MUTE", "track.mute-toggle.v1"};
+        lower[4] = {"UNDO", "edit.undo.v1"};
+        lower[5] = {"REDO", "edit.redo.v1"};
+        lower[6] = {"FILL", "performance.fill-latch.v1"};
+        lower[7] = {"PLAY", "transport.play.v1"};
     }
     if (modifiers.shift || modifiers.shift_latched) {
         lower[0] = {"UNDO", "edit.undo.v1"};

@@ -215,6 +215,14 @@ shared C++ service, not to a physical control layout or Lua script.
 
 Each duration note stores a probability (`0.0..1.0`), condition, cycle values,
 and ratchet count (`1..8`). Defaults are 100%, `always`, `1/1`, and one hit.
+
+Control-side length edits are nondestructive by default. `track.pattern-length-set.v1`
+and `pattern.length-set.v1` reject a shorter boundary when any existing event
+would fall outside it. Clients must explicitly clear or move those events
+before retrying. Pattern deletion likewise fails while arrangement clips,
+chains, active playback or queued playback reference the pattern. These
+operations publish one validated timeline revision and participate in existing
+Undo/Redo history.
 Decisions are a pure hash of the serialized timeline seed, track ID, event ID,
 and zero-based loop occurrence. They are therefore repeatable across callback
 sizes and x86-64/AArch64, and unrelated tracks do not consume shared RNG state.

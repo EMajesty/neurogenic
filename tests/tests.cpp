@@ -5675,6 +5675,16 @@ void test_physical_controller_protocol() {
               sequencer_context[0].active &&
               sequencer_context[0].maximum > sequencer_context[0].minimum,
           "controller explicit contextual parameter mapping");
+    const auto sequencer_page_context = resolve_controller_context(
+        application.snapshot(), "sequencer", {});
+    check(sequencer_page_context[8].label == "PAGE-" &&
+              sequencer_page_context[8].action_id ==
+                  "step.page-previous.v1" &&
+              sequencer_page_context[9].label == "PAGE+" &&
+              sequencer_page_context[9].action_id == "step.page-next.v1" &&
+              sequencer_page_context[10].action_id ==
+                  "step.trigger-reset.v1",
+          "controller sequencer paging and edit context");
     check(simulator.button(63, true),
           "controller shift press");
     (void)application.dispatch_pending();
@@ -5805,7 +5815,7 @@ void test_physical_controller_protocol() {
     check(std::any_of(frame.commands.begin(), frame.commands.end(),
                       [](const auto &command) {
                           return command.type == DrawCommand::Type::text &&
-                                 command.text == "FOCUS-";
+                                 command.text == "PAGE-";
                       }),
           "GUI/controller contextual label consistency");
     check(gui.input({GuiInput::Type::key_down, GuiKey::tab}, 1920, 1200),

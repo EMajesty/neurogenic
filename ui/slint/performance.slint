@@ -1,7 +1,7 @@
 import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay } from "components.slint";
 import { Theme } from "theme.slint";
 import { PerformancePage, PadItem, SceneItem } from "performance_page.slint";
-import { SequencerPage, StepItem, PatternItem, ArrangementItem } from "sequencer_page.slint";
+import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from "sequencer_page.slint";
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
 import { MixerPage, MixerChannelItem, MixerFxItem } from "mixer_page.slint";
@@ -34,6 +34,21 @@ export component PerformanceWindow inherits Window {
     in property <string> step-resolution: "1/16";
     in property <string> selected-velocity: "--";
     in property <string> selected-duration: "--";
+    in property <string> selected-pitch: "--";
+    in property <string> selected-probability: "--";
+    in property <string> selected-condition: "--";
+    in property <string> selected-ratchet: "--";
+    in property <string> selected-timing: "--";
+    in property <string> step-page-label: "Page 1/1";
+    in property <string> step-lock-parameter: "Unavailable";
+    in property <string> step-lock-value: "--";
+    in property <bool> step-lock-available: false;
+    in property <bool> playhead-follow: false;
+    in property <bool> can-page-previous: false;
+    in property <bool> can-page-next: false;
+    in property <bool> confirm-delete-track: false;
+    in property <bool> confirm-delete-pattern: false;
+    in property <[TrackItem]> sequencer-tracks;
     in property <string> arrangement-loop: "Off";
     in property <int> sample-slot: 0;
     in property <string> sample-name: "Empty slot";
@@ -145,6 +160,10 @@ export component PerformanceWindow inherits Window {
     callback pattern-create(bool); callback resolution-invoked();
     callback arrangement-toggle(); callback arrangement-item-invoked(int);
     callback step-edit(string);
+    callback step-page(int); callback playhead-follow-changed(bool);
+    callback advanced-step-edit(string, int); callback condition-cycle();
+    callback lock-parameter-cycle(int); callback lock-edit(string, int);
+    callback track-item-selected(int); callback track-manage(string); callback pattern-manage(string);
     callback sample-slot-selected(int); callback sample-load(string);
     callback waveform-selected(float); callback waveform-zoomed(float);
     callback slice-selected(int); callback slice-action(string);
@@ -205,11 +224,24 @@ export component PerformanceWindow inherits Window {
             vertical-stretch: 1; selected-track: root.selected-track; selected-pattern: root.selected-pattern;
             pattern-length: root.pattern-length; step-resolution: root.step-resolution; selected-velocity: root.selected-velocity;
             selected-duration: root.selected-duration; arrangement-loop: root.arrangement-loop; arrangement-view: root.arrangement-view;
-            steps: root.steps; patterns: root.patterns; arrangement-items: root.arrangement-items;
+            selected-pitch: root.selected-pitch; selected-probability: root.selected-probability;
+            selected-condition: root.selected-condition; selected-ratchet: root.selected-ratchet;
+            selected-timing: root.selected-timing; page-label: root.step-page-label;
+            lock-parameter: root.step-lock-parameter; lock-value: root.step-lock-value;
+            lock-available: root.step-lock-available; playhead-follow: root.playhead-follow;
+            can-page-previous: root.can-page-previous; can-page-next: root.can-page-next;
+            confirm-delete-track: root.confirm-delete-track; confirm-delete-pattern: root.confirm-delete-pattern;
+            steps: root.steps; tracks: root.sequencer-tracks; patterns: root.patterns; arrangement-items: root.arrangement-items;
             track-selected(direction) => { root.track-selected(direction); } arrangement-toggle => { root.arrangement-toggle(); }
             resolution-invoked => { root.resolution-invoked(); } step-invoked(index) => { root.sequencer-step-invoked(index); }
             pattern-invoked(index, launch) => { root.pattern-invoked(index, launch); } pattern-create(duplicate) => { root.pattern-create(duplicate); }
             step-edit(action) => { root.step-edit(action); } arrangement-item-invoked(index) => { root.arrangement-item-invoked(index); }
+            step-page(direction) => { root.step-page(direction); } playhead-follow-changed(enabled) => { root.playhead-follow-changed(enabled); }
+            advanced-step-edit(property, direction) => { root.advanced-step-edit(property, direction); }
+            condition-cycle => { root.condition-cycle(); } lock-parameter-cycle(direction) => { root.lock-parameter-cycle(direction); }
+            lock-edit(operation, direction) => { root.lock-edit(operation, direction); }
+            track-item-selected(index) => { root.track-item-selected(index); } track-manage(operation) => { root.track-manage(operation); }
+            pattern-manage(operation) => { root.pattern-manage(operation); }
         }
         if root.page-id == "sample": SamplePage {
             vertical-stretch: 1; sample-slot: root.sample-slot; sample-name: root.sample-name; sample-status: root.sample-status;

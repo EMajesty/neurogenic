@@ -217,6 +217,15 @@ selects the step, focuses the parameter list, adjusts with its data wheel and
 confirms. Both paths edit the same timeline transaction and observable lock
 list; no controller owns a shadow pattern.
 
+The built-in Sequencer context exposes `PAGE-`, `PAGE+`, `RESET STEP`, `MUTE`,
+`UNDO`, `REDO`, `FILL` and `PLAY` as the eight contextual function assignments.
+Page actions operate on absolute semantic step pages and do not depend on the
+physical 2x8 pad arrangement. Advanced continuous fields remain discoverable
+semantic parameters/actions and are fully available to touch; a future profile
+may bind relative controls without adding encoder-push assumptions. The
+frontend and controller continue to consume the same authoritative context
+resolver.
+
 `PerformanceGrid` converts any virtual or physical index 0..15 to semantic
 events independently of MIDI notes or button placement:
 

@@ -15,7 +15,11 @@ int main(int argc, char **argv) {
         SampleManager samples{engine};
         Timeline timeline_data;
         timeline_data.tracks.push_back({1, "Rendered Track"});
-        timeline_data.tracks.front().pattern.length = ticks_per_quarter * 4;
+        timeline_data.tracks.front().pattern.length =
+            ticks_per_quarter * 4 + ticks_per_quarter / 4;
+        timeline_data.tracks.front().pattern.events.push_back(
+            {1, ticks_per_quarter * 4, MusicalEventType::note, 60, 0.8F,
+             ticks_per_quarter / 4});
         TimelineService timeline([&](const Timeline &value, std::string &error) {
             return engine.queue_timeline(value, error);
         }, timeline_data);

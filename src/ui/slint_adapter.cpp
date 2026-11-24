@@ -17,6 +17,13 @@ void hash_combine(std::uint64_t &seed, std::uint64_t value) noexcept {
     seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
 }
 
+std::string_view slint_trigger_condition_name(TriggerCondition condition) {
+    static constexpr std::array<std::string_view, 9> names{
+        "Always", "First", "Not first", "Every N", "N of M",
+        "Previous fired", "Previous not fired", "Fill", "Not fill"};
+    return names[static_cast<std::size_t>(condition)];
+}
+
 std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
     std::uint64_t value{0xcbf29ce484222325ULL};
     const auto add = [&](std::uint64_t item) { hash_combine(value, item); };
@@ -175,7 +182,11 @@ bool SlintFrontendAdapter::refresh() {
             ++local_revision_;
         }
     }
-    const auto fingerprint = slint_structural_fingerprint(snapshot);
+    auto fingerprint = slint_structural_fingerprint(snapshot);
+    if (state_.sequencer.playhead_follow && snapshot.playing &&
+        snapshot.step_ticks > 0)
+        hash_combine(fingerprint, static_cast<std::uint64_t>(
+            snapshot.transport_tick / snapshot.step_ticks / 16));
     if (structural_fingerprint_ != 0 && fingerprint == structural_fingerprint_ &&
         published_local_revision_ == local_revision_) {
         const auto before_revision = state_.shell.revision;
@@ -234,7 +245,7 @@ bool SlintFrontendAdapter::refresh() {
         for (std::size_t i = 0; i < state_.sequencer.steps.size(); ++i)
             state_.sequencer.steps[i].playhead =
                 snapshot.playing && playhead == static_cast<MusicalTick>(
-                    snapshot.step_page * 16 + i);
+                    state_.sequencer.step_page * 16 + i);
         std::size_t channel{};
         for (std::size_t i = 0; i < snapshot.mixer.configuration.track_count &&
                                 channel < state_.mixer.channels.size(); ++i, ++channel) {
@@ -504,7 +515,10 @@ bool SlintFrontendAdapter::refresh() {
         }
     }
 
-    next.sequencer.step_page = snapshot.step_page;
+    next.sequencer.playhead_follow = state_.sequencer.playhead_follow;
+    next.sequencer.selected_lock_index = state_.sequencer.selected_lock_index;
+    next.sequencer.confirm_delete_track = state_.sequencer.confirm_delete_track;
+    next.sequencer.confirm_delete_pattern = state_.sequencer.confirm_delete_pattern;
     next.sequencer.resolution = step_resolution_name(snapshot.step_resolution);
     next.sequencer.arrangement_view = state_.sequencer.arrangement_view;
     next.sequencer.selected_clip_id = state_.sequencer.selected_clip_id;
@@ -530,8 +544,27 @@ bool SlintFrontendAdapter::refresh() {
                                     [&](const auto &v) { return v.id == snapshot.selected_track; });
     const auto playhead = snapshot.step_ticks > 0
         ? (snapshot.transport_tick / snapshot.step_ticks) : MusicalTick{};
+    for (const auto &candidate : snapshot.tracks)
+        next.sequencer.tracks.push_back({candidate.id, candidate.name,
+            candidate.instrument_id, candidate.id == snapshot.selected_track,
+            candidate.muted});
+    const auto step_count = track == snapshot.tracks.end() || snapshot.step_ticks <= 0
+        ? std::uint64_t{}
+        : static_cast<std::uint64_t>((track->pattern_length + snapshot.step_ticks - 1) /
+                                     snapshot.step_ticks);
+    next.sequencer.step_page_count = std::max<std::uint64_t>(1, (step_count + 15) / 16);
+    next.sequencer.step_page = next.sequencer.playhead_follow && snapshot.playing
+        ? std::min<std::uint64_t>(static_cast<std::uint64_t>(playhead) / 16,
+                                  next.sequencer.step_page_count - 1)
+        : std::min(snapshot.step_page, next.sequencer.step_page_count - 1);
+    next.sequencer.page_label = "Page " +
+        std::to_string(next.sequencer.step_page + 1) + "/" +
+        std::to_string(next.sequencer.step_page_count);
+    next.sequencer.can_page_previous = next.sequencer.step_page > 0;
+    next.sequencer.can_page_next =
+        next.sequencer.step_page + 1 < next.sequencer.step_page_count;
     for (std::size_t i = 0; i < next.sequencer.steps.size(); ++i) {
-        const auto step = snapshot.step_page * 16 + i;
+        const auto step = next.sequencer.step_page * 16 + i;
         auto &item = next.sequencer.steps[i];
         item.label = std::to_string(step + 1);
         item.selected = snapshot.selected_step == static_cast<std::int64_t>(step);
@@ -547,10 +580,42 @@ bool SlintFrontendAdapter::refresh() {
         item.status = item.active ? "Note" : "Empty";
     }
     if (snapshot.selected_event) {
+        next.sequencer.has_selected_event = true;
         next.sequencer.selected_velocity =
             std::to_string(static_cast<int>(snapshot.selected_event->velocity * 127.0F));
         next.sequencer.selected_duration =
             std::to_string(snapshot.selected_event->duration) + " ticks";
+        next.sequencer.selected_pitch = std::to_string(snapshot.selected_event->pitch);
+        next.sequencer.selected_probability =
+            std::to_string(static_cast<int>(snapshot.selected_event->trigger_probability * 100.0F)) + "%";
+        next.sequencer.selected_condition = std::string(
+            slint_trigger_condition_name(snapshot.selected_event->trigger_condition));
+        if (snapshot.selected_event->trigger_condition == TriggerCondition::every_nth_loop ||
+            snapshot.selected_event->trigger_condition == TriggerCondition::n_of_m)
+            next.sequencer.selected_condition += " " +
+                std::to_string(snapshot.selected_event->condition_n) + "/" +
+                std::to_string(snapshot.selected_event->condition_m);
+        next.sequencer.selected_ratchet =
+            std::to_string(snapshot.selected_event->ratchet_count) + "x";
+        next.sequencer.selected_timing =
+            std::to_string(snapshot.selected_event->timing_offset) + " ticks";
+    }
+    for (const auto &parameter : snapshot.parameters)
+        if (parameter.modulatable)
+            next.sequencer.lock_parameters.push_back(parameter.id);
+    if (!next.sequencer.lock_parameters.empty()) {
+        next.sequencer.selected_lock_index = std::min(
+            next.sequencer.selected_lock_index,
+            next.sequencer.lock_parameters.size() - 1);
+        next.sequencer.lock_parameter =
+            next.sequencer.lock_parameters[next.sequencer.selected_lock_index];
+        const auto lock = std::find_if(snapshot.selected_step_locks.begin(),
+            snapshot.selected_step_locks.end(), [&](const auto &candidate) {
+                return candidate.parameter_id == next.sequencer.lock_parameter;
+            });
+        next.sequencer.lock_available = next.sequencer.has_selected_event;
+        next.sequencer.lock_value = lock == snapshot.selected_step_locks.end()
+            ? "Not set" : format_value(lock->value);
     }
     for (const auto &clip : snapshot.clips)
         next.sequencer.arrangement.push_back(
@@ -1623,6 +1688,196 @@ bool SlintFrontendAdapter::set_step_velocity(double value) {
 
 bool SlintFrontendAdapter::set_step_duration(std::int64_t ticks) {
     return execute({"step.duration-set.v1", {{"duration_ticks", ticks}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::change_step_page(int direction) {
+    if (direction == 0) return false;
+    const auto page = static_cast<std::int64_t>(state_.sequencer.step_page) +
+                      (direction > 0 ? 1 : -1);
+    if (page < 0 || page >= static_cast<std::int64_t>(
+                             state_.sequencer.step_page_count)) {
+        last_error_ = "Step page is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    state_.sequencer.playhead_follow = false;
+    return execute({"step.page-select.v1", {{"page", page}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::set_playhead_follow(bool enabled) {
+    state_.sequencer.playhead_follow = enabled;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::edit_step_property(std::string property,
+                                              int direction) {
+    const auto snapshot = application_.snapshot();
+    if (!snapshot.selected_event || direction == 0) {
+        last_error_ = "No note event is selected";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto &event = *snapshot.selected_event;
+    if (property == "velocity")
+        return set_step_velocity(std::clamp(
+            static_cast<double>(event.velocity) + direction / 127.0, 0.0, 1.0));
+    if (property == "duration")
+        return set_step_duration(std::max<MusicalTick>(
+            1, event.duration + direction * snapshot.step_ticks));
+    if (property == "pitch")
+        return execute({"step.pitch-set.v1",
+            {{"pitch", static_cast<std::int64_t>(std::clamp(
+                static_cast<int>(event.pitch) + direction, 0, 127))}}, {}, 0});
+    if (property == "probability")
+        return execute({"step.probability-set.v1",
+            {{"probability", std::clamp(
+                static_cast<double>(event.trigger_probability) + direction * 0.05,
+                0.0, 1.0)}}, {}, 0});
+    if (property == "ratchet")
+        return execute({"step.ratchet-set.v1",
+            {{"count", static_cast<std::int64_t>(std::clamp(
+                static_cast<int>(event.ratchet_count) + direction, 1, 8))}}, {}, 0});
+    if (property == "timing") {
+        const auto limit = std::max<MusicalTick>(1, snapshot.step_ticks - 1);
+        return execute({"step.timing-offset-set.v1",
+            {{"offset_ticks", static_cast<std::int64_t>(std::clamp<MusicalTick>(
+                event.timing_offset + direction, -limit, limit))}}, {}, 0});
+    }
+    last_error_ = "Step property is unavailable";
+    state_.shell.notification = last_error_;
+    return false;
+}
+
+bool SlintFrontendAdapter::cycle_step_condition() {
+    const auto snapshot = application_.snapshot();
+    if (!snapshot.selected_event) return false;
+    static constexpr std::array<std::string_view, 9> values{
+        "always", "first", "not-first", "every-n", "n-of-m",
+        "previous-fired", "previous-not-fired", "fill", "not-fill"};
+    const auto next = (static_cast<std::size_t>(
+        snapshot.selected_event->trigger_condition) + 1) % values.size();
+    return execute({"step.condition-set.v1",
+        {{"condition", std::string(values[next])},
+         {"n", std::int64_t{1}}, {"m", std::int64_t{2}}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::cycle_lock_parameter(int direction) {
+    if (state_.sequencer.lock_parameters.empty() || direction == 0) return false;
+    const auto size = state_.sequencer.lock_parameters.size();
+    state_.sequencer.selected_lock_index = direction > 0
+        ? (state_.sequencer.selected_lock_index + 1) % size
+        : (state_.sequencer.selected_lock_index + size - 1) % size;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::edit_selected_lock(std::string operation,
+                                              int direction) {
+    if (state_.sequencer.lock_parameters.empty()) return false;
+    const auto id = state_.sequencer.lock_parameters[
+        state_.sequencer.selected_lock_index];
+    if (operation == "remove")
+        return execute({"step.lock-remove.v1", {{"parameter_id", id}}, {}, 0});
+    const auto snapshot = application_.snapshot();
+    const auto descriptor = std::find_if(snapshot.parameters.begin(),
+        snapshot.parameters.end(), [&](const auto &candidate) {
+            return candidate.id == id;
+        });
+    if (descriptor == snapshot.parameters.end()) return false;
+    auto value = numeric_value(descriptor->current_value);
+    const auto lock = std::find_if(snapshot.selected_step_locks.begin(),
+        snapshot.selected_step_locks.end(), [&](const auto &candidate) {
+            return candidate.parameter_id == id;
+        });
+    if (lock != snapshot.selected_step_locks.end()) value = lock->value;
+    if (operation == "adjust")
+        value += direction * descriptor->step;
+    value = std::clamp(value, numeric_value(descriptor->minimum),
+                       numeric_value(descriptor->maximum));
+    return execute({"step.lock-set.v1",
+        {{"parameter_id", id}, {"value", value}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::manage_pattern(std::string operation) {
+    const auto id = static_cast<std::int64_t>(state_.sequencer.selected_pattern_id);
+    if (operation == "delete") {
+        state_.sequencer.confirm_delete_pattern = true;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "cancel-delete") {
+        state_.sequencer.confirm_delete_pattern = false;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "confirm-delete") {
+        state_.sequencer.confirm_delete_pattern = false;
+        return id > 0 && execute({"pattern.delete.v1", {{"id", id}}, {}, 0});
+    }
+    if (operation == "launch")
+        return id > 0 && execute({"pattern.launch.v1",
+            {{"id", id}, {"queued", true}}, {}, 0});
+    if (operation != "length-up" && operation != "length-down") {
+        last_error_ = "Pattern operation is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto snapshot = application_.snapshot();
+    const auto pattern = std::find_if(snapshot.patterns.begin(), snapshot.patterns.end(),
+        [&](const auto &candidate) { return candidate.id == state_.sequencer.selected_pattern_id; });
+    if (pattern == snapshot.patterns.end()) return false;
+    const auto delta = snapshot.step_ticks * 16;
+    const auto length = operation == "length-up" ? pattern->length + delta
+        : std::max<MusicalTick>(snapshot.step_ticks, pattern->length - delta);
+    return execute({"pattern.length-set.v1",
+        {{"id", id}, {"length", static_cast<std::int64_t>(length)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_track_index(std::size_t index) {
+    if (index >= state_.sequencer.tracks.size()) return false;
+    return execute({"track.select.v1",
+        {{"track_id", static_cast<std::int64_t>(
+            state_.sequencer.tracks[index].id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::manage_track(std::string operation) {
+    if (operation == "delete") {
+        state_.sequencer.confirm_delete_track = true;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "cancel-delete") {
+        state_.sequencer.confirm_delete_track = false;
+        ++local_revision_;
+        return refresh();
+    }
+    if (operation == "confirm-delete") {
+        state_.sequencer.confirm_delete_track = false;
+        return execute({"track.delete.v1", {}, {}, 0});
+    }
+    if (operation == "duplicate")
+        return execute({"track.duplicate.v1", {}, {}, 0});
+    if (operation == "mute")
+        return execute({"track.mute-toggle.v1", {}, {}, 0});
+    const auto snapshot = application_.snapshot();
+    const auto selected = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
+        [&](const auto &candidate) { return candidate.id == snapshot.selected_track; });
+    const auto length = selected == snapshot.tracks.end()
+        ? ticks_per_quarter * 4 : selected->pattern_length;
+    if (operation == "create-synth")
+        return execute({"track.create.v1",
+            {{"name", std::string("Synth Track")},
+             {"length", static_cast<std::int64_t>(length)},
+             {"instrument_id", std::string(subtractive_instrument_id)}}, {}, 0});
+    if (operation == "create-sample")
+        return execute({"track.create.v1",
+            {{"name", std::string("Sample Track")},
+             {"length", static_cast<std::int64_t>(length)},
+             {"instrument_id", std::string(sample_instrument_id)}}, {}, 0});
+    last_error_ = "Track operation is unavailable";
+    state_.shell.notification = last_error_;
+    return false;
 }
 
 bool SlintFrontendAdapter::cycle_step_resolution() {

@@ -329,6 +329,14 @@ The Slint snapshot is divided into shell, contextual, Performance, Sequencer,
 Sample, Sound, Mixer, FX, Browser and Setup models. Page-local revisions are independent of application
 revisions, while every musical edit still passes through `ApplicationService`.
 The step grid and Arrangement reader never retain or mutate timeline objects.
+Sequencer paging is presentation state over absolute semantic step indices;
+manual paging and optional playhead-follow only select which sixteen copied
+rows are visible. High-frequency playhead publication updates row properties
+without rebuilding the track/pattern structures. Advanced edits resolve the
+selected stable event ID and parameter-lock descriptors through
+`ApplicationService`; length and lifecycle changes are validated timeline
+transactions, so rejected shortening or referenced deletion cannot partially
+change playback state.
 The Sample model copies metadata, stable IDs and bounded waveform overview
 buckets only. It never owns PCM or a `SampleVersion`; slice, region, analysis,
 processing and preview commands remain semantic service calls. This preserves

@@ -20,6 +20,7 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<ContextItem>> encoders, functions;
     std::shared_ptr<slint::VectorModel<PadItem>> pads;
     std::shared_ptr<slint::VectorModel<StepItem>> steps;
+    std::shared_ptr<slint::VectorModel<TrackItem>> sequencer_tracks;
     std::shared_ptr<slint::VectorModel<PatternItem>> patterns;
     std::shared_ptr<slint::VectorModel<ArrangementItem>> arrangement;
     std::shared_ptr<slint::VectorModel<float>> waveform_left, waveform_right,
@@ -184,6 +185,20 @@ void publish(const SlintUiState &state,
     window->set_step_resolution(text(state.sequencer.resolution));
     window->set_selected_velocity(text(state.sequencer.selected_velocity));
     window->set_selected_duration(text(state.sequencer.selected_duration));
+    window->set_selected_pitch(text(state.sequencer.selected_pitch));
+    window->set_selected_probability(text(state.sequencer.selected_probability));
+    window->set_selected_condition(text(state.sequencer.selected_condition));
+    window->set_selected_ratchet(text(state.sequencer.selected_ratchet));
+    window->set_selected_timing(text(state.sequencer.selected_timing));
+    window->set_step_page_label(text(state.sequencer.page_label));
+    window->set_step_lock_parameter(text(state.sequencer.lock_parameter));
+    window->set_step_lock_value(text(state.sequencer.lock_value));
+    window->set_step_lock_available(state.sequencer.lock_available);
+    window->set_playhead_follow(state.sequencer.playhead_follow);
+    window->set_can_page_previous(state.sequencer.can_page_previous);
+    window->set_can_page_next(state.sequencer.can_page_next);
+    window->set_confirm_delete_track(state.sequencer.confirm_delete_track);
+    window->set_confirm_delete_pattern(state.sequencer.confirm_delete_pattern);
     window->set_arrangement_loop(text(state.sequencer.loop_range));
     window->set_sample_slot(static_cast<int>(state.sample.slot));
     window->set_sample_name(text(state.sample.name));
@@ -246,6 +261,12 @@ void publish(const SlintUiState &state,
         steps.push_back({text(step.label), text(step.status), step.active,
                          step.selected, step.playhead, step.available});
     publish_model(models.steps, std::move(steps), [&](auto value) { window->set_steps(value); });
+    std::vector<TrackItem> sequencer_tracks;
+    for (const auto &track : state.sequencer.tracks)
+        sequencer_tracks.push_back({static_cast<int>(track.id), text(track.name),
+            text(track.instrument), track.selected, track.muted});
+    publish_model(models.sequencer_tracks, std::move(sequencer_tracks),
+        [&](auto value) { window->set_sequencer_tracks(value); });
     std::vector<PatternItem> patterns;
     for (const auto &pattern : state.sequencer.patterns)
         patterns.push_back({static_cast<int>(pattern.id), text(pattern.name),
@@ -582,6 +603,44 @@ int run_slint_frontend(ApplicationService &application,
                 (void)adapter.set_step_duration(snapshot.selected_event ? snapshot.selected_event->duration + snapshot.step_ticks : snapshot.step_ticks);
             publish(adapter.state(), window);
         });
+        window->on_step_page([&](int direction) {
+            (void)adapter.change_step_page(direction);
+            publish(adapter.state(), window);
+        });
+        window->on_playhead_follow_changed([&](bool enabled) {
+            (void)adapter.set_playhead_follow(enabled);
+            publish(adapter.state(), window);
+        });
+        window->on_advanced_step_edit(
+            [&](slint::SharedString property, int direction) {
+                (void)adapter.edit_step_property(property.data(), direction);
+                publish(adapter.state(), window);
+            });
+        window->on_condition_cycle([&] {
+            (void)adapter.cycle_step_condition();
+            publish(adapter.state(), window);
+        });
+        window->on_lock_parameter_cycle([&](int direction) {
+            (void)adapter.cycle_lock_parameter(direction);
+            publish(adapter.state(), window);
+        });
+        window->on_lock_edit(
+            [&](slint::SharedString operation, int direction) {
+                (void)adapter.edit_selected_lock(operation.data(), direction);
+                publish(adapter.state(), window);
+            });
+        window->on_track_item_selected([&](int index) {
+            (void)adapter.select_track_index(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_track_manage([&](slint::SharedString operation) {
+            (void)adapter.manage_track(operation.data());
+            publish(adapter.state(), window);
+        });
+        window->on_pattern_manage([&](slint::SharedString operation) {
+            (void)adapter.manage_pattern(operation.data());
+            publish(adapter.state(), window);
+        });
         window->on_sample_slot_selected([&](int direction) {
             (void)adapter.select_sample_slot(direction);
             publish(adapter.state(), window);
@@ -906,7 +965,13 @@ int run_slint_frontend(ApplicationService &application,
                     throw std::runtime_error("generated page callback did not publish selection");
                 switch (page) {
                 case 0: window->invoke_pad_invoked(0, true); break;
-                case 1: window->invoke_sequencer_step_invoked(0); break;
+                case 1:
+                    window->invoke_step_page(1);
+                    if (std::string_view(window->get_step_page_label().data()) !=
+                        "Page 2/2")
+                        throw std::runtime_error("generated step paging did not publish");
+                    window->invoke_advanced_step_edit("probability", -1);
+                    break;
                 case 2: window->invoke_sample_slot_selected(0); break;
                 case 3: window->invoke_sound_subview_selected("instrument"); break;
                 case 4: window->invoke_mixer_bank_changed(0); break;

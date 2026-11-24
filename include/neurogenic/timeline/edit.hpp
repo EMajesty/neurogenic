@@ -86,6 +86,7 @@ class TimelineTransaction {
     bool duplicate_pattern(PatternId source, PatternId destination,
                            std::string name, std::string &error);
     bool rename_pattern(PatternId, std::string, std::string &error);
+    bool set_pattern_length(PatternId, MusicalTick, std::string &error);
     bool delete_pattern(PatternId, std::string &error);
     bool set_pattern_track(PatternId, TrackId, MusicalPattern,
                            std::string &error);
