@@ -58,7 +58,52 @@ int main() {
                 "sample fixture publication");
         std::array<float, 16> ack_left{}, ack_right{};
         engine.process(ack_left, ack_right);
-        SlintFrontendAdapter adapter(application);
+        SlintSetupRuntimeSnapshot setup_runtime;
+        setup_runtime.revision = 1;
+        setup_runtime.audio_backend = "simulated";
+        setup_runtime.audio_status = "Running";
+        setup_runtime.active_audio_output = "Output A";
+        setup_runtime.active_audio_input = "Input A";
+        setup_runtime.active_buffer_size = 128;
+        setup_runtime.active_input_channels = 2;
+        setup_runtime.active_output_channels = 2;
+        setup_runtime.audio_inputs = {{"Input A", "Input A", "2 channels", true, true}};
+        setup_runtime.audio_outputs = {
+            {"Output A", "Output A", "2 channels", true, true},
+            {"Output B", "Output B", "2 channels", false, true}};
+        setup_runtime.midi_inputs = {{"MIDI A", "MIDI A", "simulated", false, true}};
+        setup_runtime.controllers = {{"surface.1", "midi", "Surface",
+            "profile.1", "MIDI", "Connected", {}, true, true, false}};
+        setup_runtime.requested.audio_output = "Output A";
+        setup_runtime.requested.audio_input = "Input A";
+        setup_runtime.requested.audio_buffer_frames = 128;
+        bool preferences_saved{}, learn_started{}, learn_cancelled{}, exit_requested{};
+        SlintSetupServices setup_services;
+        setup_services.snapshot = [&] { return setup_runtime; };
+        setup_services.save = [&](const AppliancePreferences &value,
+                                  std::string &) {
+            setup_runtime.requested = value;
+            ++setup_runtime.revision;
+            preferences_saved = true;
+            return true;
+        };
+        setup_services.begin_midi_learn =
+            [&](std::string_view id, std::string_view control,
+                std::string_view mode, std::string &) {
+                learn_started = id == "surface.1" && control == "encoder.1" &&
+                                mode == "cc-absolute";
+                return learn_started;
+            };
+        setup_services.cancel_midi_learn =
+            [&](std::string_view id, std::string &) {
+                learn_cancelled = id == "surface.1";
+                return learn_cancelled;
+            };
+        setup_services.request_exit = [&] {
+            exit_requested = true;
+            return true;
+        };
+        SlintFrontendAdapter adapter(application, std::move(setup_services));
         require(adapter.active(), "adapter lifecycle starts active");
         require(adapter.state().performance.selected_track == "UI Track",
                 "selected track copied from application state");
@@ -501,6 +546,36 @@ int main() {
                     adapter.confirm_browser_action(false) &&
                     !adapter.state().browser.confirmation_pending,
                 "dirty-project replacement requires explicit confirmation and can cancel");
+        require(adapter.select_page(7) &&
+                    adapter.state().shell.page_id == "setup" &&
+                    adapter.state().shell.pages[7].implemented &&
+                    adapter.state().setup.active_sample_rate == 48000 &&
+                    adapter.state().setup.audio_backend == "simulated",
+                "Setup is an implemented page backed by copied runtime state");
+        require(adapter.select_setup_subview("audio") &&
+                    adapter.select_setup_device("audio-output", 1) &&
+                    adapter.state().setup.pending &&
+                    adapter.state().setup.restart_required &&
+                    adapter.state().setup.requested_audio_output == "Output B",
+                "audio changes remain staged and explicitly require restart");
+        require(adapter.adjust_setup_value("buffer", 1) &&
+                    adapter.state().setup.requested_buffer_size == 256 &&
+                    adapter.setup_preferences_action("save") &&
+                    preferences_saved && !adapter.state().setup.pending,
+                "validated preferences save through the runtime service");
+        require(adapter.toggle_setup_preference("fullscreen") &&
+                    adapter.state().setup.fullscreen &&
+                    adapter.setup_preferences_action("revert") &&
+                    !adapter.state().setup.fullscreen,
+                "pending Setup preferences can be reverted without affecting active state");
+        require(adapter.select_setup_subview("controllers") &&
+                    adapter.select_setup_controller(0) &&
+                    adapter.setup_midi_learn("start", "encoder.1", "cc-absolute") &&
+                    learn_started && adapter.setup_midi_learn("cancel") &&
+                    learn_cancelled,
+                "controller learn is delegated to the coordinator-facing service");
+        require(adapter.request_application_exit() && exit_requested,
+                "Setup exit uses the appliance dirty-session lifecycle callback");
         std::filesystem::remove_all(browser_root);
         const auto revision = adapter.state().shell.revision;
         require(!adapter.refresh() || adapter.state().shell.revision >= revision,

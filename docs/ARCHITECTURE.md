@@ -320,7 +320,7 @@ graphical event loops never compete. Page and focus state are presentation
 state, not musical authority.
 
 The Slint snapshot is divided into shell, contextual, Performance, Sequencer,
-Sample, Sound, Mixer, FX and Browser models. Page-local revisions are independent of application
+Sample, Sound, Mixer, FX, Browser and Setup models. Page-local revisions are independent of application
 revisions, while every musical edit still passes through `ApplicationService`.
 The step grid and Arrangement reader never retain or mutate timeline objects.
 The Sample model copies metadata, stable IDs and bounded waveform overview
@@ -335,6 +335,12 @@ including instance-aware synth parameters and transactional preset activation.
 The Browser model contains only bounded directory/preset metadata and stable
 paths/IDs. Filesystem work stays control-side; project replacement, sample
 publication and preset activation retain their transactional semantic services.
+The Setup model adds a narrow copy-only appliance bridge. Runtime audio/MIDI
+and controller objects remain appliance-owned; the bridge copies device
+capabilities, active configuration, endpoint status, lifecycle warnings and
+bounded diagnostics. Mutations save validated preferences, dispatch existing
+semantic actions, or call synchronized controller-coordinator operations.
+Audio settings are staged for restart instead of replacing a running backend.
 
 The GUI keeps SDL window coordinates, drawable pixels, responsive logical
 workspace dimensions, and the persisted UI scale as distinct values. SDL

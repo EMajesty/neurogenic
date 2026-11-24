@@ -45,6 +45,7 @@ bool ControllerCoordinator::add_serial(std::string endpoint_id,
                                        std::string expected_device,
                                        std::string &error,
                                        std::size_t queue_capacity) {
+    const std::lock_guard lock(mutex_);
     if (endpoint_id.empty() || path.empty() ||
         std::any_of(serial_.begin(), serial_.end(), [&](const auto &value) {
             return value->id == endpoint_id || value->path == path;
@@ -67,6 +68,7 @@ bool ControllerCoordinator::add_serial(std::string endpoint_id,
 bool ControllerCoordinator::add_midi(std::string endpoint_id,
                                      MidiControllerProfile profile,
                                      MidiMapper &mapper, std::string &error) {
+    const std::lock_guard lock(mutex_);
     if (endpoint_id.empty() ||
         std::any_of(midi_.begin(), midi_.end(), [&](const auto &value) {
             return value->id == endpoint_id;
@@ -102,6 +104,7 @@ bool ControllerCoordinator::add_midi(std::string endpoint_id,
     return true;
 }
 void ControllerCoordinator::poll(const ApplicationState &state) {
+    const std::lock_guard lock(mutex_);
     const auto now = std::chrono::steady_clock::now();
     for (auto &endpoint : serial_) {
         if (!endpoint->transport.connected() && now >= endpoint->retry) {
@@ -128,6 +131,7 @@ void ControllerCoordinator::poll(const ApplicationState &state) {
 }
 std::size_t ControllerCoordinator::dispatch_midi_feedback(
     const std::function<bool(const MidiMessage &)> &sender) {
+    const std::lock_guard lock(mutex_);
     std::size_t sent{};
     for (auto &endpoint : midi_)
         while (auto message = endpoint->adapter.next_feedback()) {
@@ -141,12 +145,15 @@ std::size_t ControllerCoordinator::dispatch_midi_feedback(
     return sent;
 }
 void ControllerCoordinator::reconnect_midi() noexcept {
+    const std::lock_guard lock(mutex_);
     for (auto &endpoint : midi_) endpoint->adapter.reconnect();
 }
 void ControllerCoordinator::disconnect_midi() noexcept {
+    const std::lock_guard lock(mutex_);
     for (auto &endpoint : midi_) endpoint->adapter.disconnect();
 }
 std::vector<ControllerEndpointState> ControllerCoordinator::states() const {
+    const std::lock_guard lock(mutex_);
     std::vector<ControllerEndpointState> result;
     for (const auto &endpoint : serial_) {
         const auto state = endpoint->host.snapshot();
@@ -167,12 +174,14 @@ std::vector<ControllerEndpointState> ControllerCoordinator::states() const {
     return result;
 }
 MidiControlSurfaceAdapter *ControllerCoordinator::midi_surface(std::string_view id) {
+    const std::lock_guard lock(mutex_);
     const auto found = std::find_if(midi_.begin(), midi_.end(),
                                     [&](const auto &value) { return value->id == id; });
     return found == midi_.end() ? nullptr : &(*found)->adapter;
 }
 const MidiControllerProfile *
 ControllerCoordinator::midi_profile(std::string_view id) const {
+    const std::lock_guard lock(mutex_);
     const auto found = std::find_if(midi_.begin(), midi_.end(),
                                     [&](const auto &value) { return value->id == id; });
     return found == midi_.end() ? nullptr : &(*found)->profile;
@@ -180,18 +189,49 @@ ControllerCoordinator::midi_profile(std::string_view id) const {
 bool ControllerCoordinator::save_midi_profile(
     std::string_view id, const std::filesystem::path &path,
     std::string &error) const {
-    const auto *profile = midi_profile(id);
-    if (!profile) {
+    MidiControllerProfile updated;
+    {
+        const std::lock_guard lock(mutex_);
+        const auto found = std::find_if(
+            midi_.begin(), midi_.end(),
+            [&](const auto &value) { return value->id == id; });
+        if (found == midi_.end()) {
+            error = "unknown MIDI controller endpoint";
+            return false;
+        }
+        updated = (*found)->profile;
+        updated.midi = (*found)->adapter.bindings();
+    }
+    return save_midi_controller_profile(path, updated, error);
+}
+bool ControllerCoordinator::begin_midi_learn(
+    std::string_view id, std::string control_id, MidiControlMode mode,
+    std::chrono::milliseconds timeout, std::string &error) {
+    const std::lock_guard lock(mutex_);
+    const auto found = std::find_if(midi_.begin(), midi_.end(),
+                                    [&](const auto &value) { return value->id == id; });
+    if (found == midi_.end()) {
         error = "unknown MIDI controller endpoint";
         return false;
     }
-    auto updated = *profile;
+    return (*found)->adapter.begin_learn(std::move(control_id), mode, timeout,
+                                         error);
+}
+bool ControllerCoordinator::cancel_midi_learn(std::string_view id,
+                                               std::string &error) {
+    const std::lock_guard lock(mutex_);
     const auto found = std::find_if(midi_.begin(), midi_.end(),
                                     [&](const auto &value) { return value->id == id; });
-    updated.midi = (*found)->adapter.bindings();
-    return save_midi_controller_profile(path, updated, error);
+    if (found == midi_.end()) {
+        error = "unknown MIDI controller endpoint";
+        return false;
+    }
+    (*found)->adapter.cancel_learn();
+    error.clear();
+    return true;
 }
 void ControllerCoordinator::shutdown() noexcept {
+    const std::lock_guard lock(mutex_);
     for (auto &endpoint : serial_) {
         endpoint->host.disconnected("application shutdown");
         endpoint->transport.close();

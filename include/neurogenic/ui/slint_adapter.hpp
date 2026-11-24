@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neurogenic/application/controller_protocol.hpp"
+#include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/application/parameter_binding.hpp"
 #include <array>
 #include <cstdint>
@@ -249,6 +250,68 @@ struct SlintBrowserPageState {
     std::vector<SlintBrowserEntry> entries;
 };
 
+struct SlintSetupDeviceItem {
+    std::string id, name, detail;
+    bool selected{}, available{true};
+};
+
+struct SlintSetupControllerItem {
+    std::string id, transport, device, profile, protocol, status, error;
+    bool connected{}, feedback{}, selected{};
+};
+
+// Copy-only runtime data supplied by the appliance.  This deliberately keeps
+// AudioDevice, MIDI adapters, and controller sessions outside the UI layer.
+struct SlintSetupRuntimeSnapshot {
+    std::uint64_t revision{};
+    std::string audio_backend{"Unavailable"}, active_audio_input,
+        active_audio_output, audio_status{"Unavailable"}, system{"Unknown"},
+        version{"Unknown"};
+    std::uint32_t active_sample_rate{48000}, active_buffer_size{};
+    std::uint16_t active_input_channels{}, active_output_channels{};
+    std::uint64_t xruns{};
+    bool audio_running{}, xruns_available{};
+    AppliancePreferences requested;
+    std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
+        midi_inputs, midi_outputs;
+    std::vector<SlintSetupControllerItem> controllers;
+    std::vector<std::string> lifecycle_warnings;
+};
+
+struct SlintSetupServices {
+    std::function<SlintSetupRuntimeSnapshot()> snapshot;
+    std::function<bool(const AppliancePreferences &, std::string &)> save;
+    std::function<bool(std::string_view, std::string_view, std::string_view,
+                       std::string &)> begin_midi_learn;
+    std::function<bool(std::string_view, std::string &)> cancel_midi_learn;
+    std::function<bool(std::string_view, std::string_view, std::string &)>
+        save_controller_profile;
+    std::function<bool()> request_exit;
+};
+
+struct SlintSetupPageState {
+    std::string subview{"audio"}, audio_backend{"Unavailable"},
+        audio_status{"Unavailable"}, active_audio_input{"Unavailable"},
+        active_audio_output{"Unavailable"}, requested_audio_input,
+        requested_audio_output, midi_clock{"Internal"}, system{"Unknown"},
+        version{"Unknown"}, error, controller_learn_status{"Idle"};
+    std::uint32_t active_sample_rate{48000}, active_buffer_size{},
+        requested_buffer_size{256};
+    std::uint16_t active_input_channels{}, active_output_channels{},
+        requested_input_channels{2}, requested_output_channels{2};
+    std::uint64_t xruns{};
+    double callback_load{}, callback_peak_load{};
+    bool audio_running{}, xruns_available{}, restart_required{}, pending{},
+        fullscreen{}, reopen_last_project{};
+    float ui_scale{1.0F};
+    std::string startup_project;
+    std::size_t selected_controller{};
+    std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
+        midi_inputs, midi_outputs;
+    std::vector<SlintSetupControllerItem> controllers;
+    std::vector<std::string> warnings;
+};
+
 struct SlintUiState {
     SlintShellState shell;
     SlintContextState context;
@@ -259,6 +322,7 @@ struct SlintUiState {
     SlintMixerPageState mixer;
     SlintFxPageState fx;
     SlintBrowserPageState browser;
+    SlintSetupPageState setup;
 };
 
 // Presentation-neutral bridge used by the Slint renderer and renderer-free
@@ -266,7 +330,8 @@ struct SlintUiState {
 // and every mutation goes through a semantic action or ParameterBindingService.
 class SlintFrontendAdapter {
   public:
-    explicit SlintFrontendAdapter(ApplicationService &application);
+    explicit SlintFrontendAdapter(ApplicationService &application,
+                                  SlintSetupServices setup = {});
     [[nodiscard]] bool refresh();
     [[nodiscard]] const SlintUiState &state() const noexcept {
         return state_;
@@ -357,6 +422,18 @@ class SlintFrontendAdapter {
                                               std::string path = {});
     [[nodiscard]] bool browser_preset_action(std::string action);
     [[nodiscard]] bool confirm_browser_action(bool accept);
+    [[nodiscard]] bool select_setup_subview(std::string subview);
+    [[nodiscard]] bool select_setup_device(std::string kind,
+                                           std::size_t index);
+    [[nodiscard]] bool adjust_setup_value(std::string property, int direction);
+    [[nodiscard]] bool toggle_setup_preference(std::string property);
+    [[nodiscard]] bool setup_preferences_action(std::string action);
+    [[nodiscard]] bool select_setup_controller(std::size_t index);
+    [[nodiscard]] bool setup_midi_learn(std::string operation,
+                                        std::string control_id = {},
+                                        std::string mode = {});
+    [[nodiscard]] bool save_setup_controller_profile(std::string path);
+    [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;
     [[nodiscard]] bool keyboard_action(std::string_view key, bool pressed);
     void shutdown() noexcept { active_ = false; }
@@ -369,6 +446,9 @@ class SlintFrontendAdapter {
     bool execute(ApplicationCommand command);
     ApplicationService &application_;
     ParameterBindingService bindings_;
+    SlintSetupServices setup_services_;
+    AppliancePreferences staged_preferences_;
+    std::uint64_t setup_runtime_revision_{};
     SlintUiState state_;
     std::string last_error_;
     bool active_{true};
@@ -381,6 +461,7 @@ struct SlintOptions {
     bool fullscreen{};
     std::function<bool()> request_close;
     std::function<bool()> external_stop_requested;
+    SlintSetupServices setup;
 };
 
 [[nodiscard]] bool slint_available() noexcept;

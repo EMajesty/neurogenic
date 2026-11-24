@@ -267,6 +267,56 @@ void publish(const SlintUiState &state,
             text(entry.metadata), entry.directory, entry.compatible, entry.selected});
     window->set_browser_entries(
         std::make_shared<slint::VectorModel<BrowserEntryItem>>(std::move(browser_entries)));
+    window->set_setup_subview(text(state.setup.subview));
+    window->set_setup_audio_backend(text(state.setup.audio_backend));
+    window->set_setup_audio_status(text(state.setup.audio_status));
+    window->set_setup_active_input(text(state.setup.active_audio_input));
+    window->set_setup_active_output(text(state.setup.active_audio_output));
+    window->set_setup_requested_input(text(state.setup.requested_audio_input));
+    window->set_setup_requested_output(text(state.setup.requested_audio_output));
+    window->set_setup_sample_rate(static_cast<int>(state.setup.active_sample_rate));
+    window->set_setup_active_buffer(static_cast<int>(state.setup.active_buffer_size));
+    window->set_setup_requested_buffer(static_cast<int>(state.setup.requested_buffer_size));
+    window->set_setup_active_input_channels(state.setup.active_input_channels);
+    window->set_setup_active_output_channels(state.setup.active_output_channels);
+    window->set_setup_requested_input_channels(state.setup.requested_input_channels);
+    window->set_setup_requested_output_channels(state.setup.requested_output_channels);
+    window->set_setup_restart_required(state.setup.restart_required);
+    window->set_setup_pending(state.setup.pending);
+    window->set_setup_fullscreen(state.setup.fullscreen);
+    window->set_setup_reopen_last_project(state.setup.reopen_last_project);
+    window->set_setup_ui_scale(state.setup.ui_scale);
+    window->set_setup_startup_project(text(state.setup.startup_project));
+    window->set_setup_midi_clock(text(state.setup.midi_clock));
+    window->set_setup_system(text(state.setup.system));
+    window->set_setup_version(text(state.setup.version));
+    window->set_setup_callback_load(static_cast<float>(state.setup.callback_load));
+    window->set_setup_callback_peak(static_cast<float>(state.setup.callback_peak_load));
+    window->set_setup_xruns(static_cast<int>(state.setup.xruns));
+    window->set_setup_xruns_available(state.setup.xruns_available);
+    window->set_setup_error(text(state.setup.error));
+    window->set_setup_learn_status(text(state.setup.controller_learn_status));
+    std::vector<SetupDeviceItem> audio_inputs, audio_outputs, midi_inputs, midi_outputs;
+    const auto append_devices = [](const auto &source, auto &target) {
+        for (const auto &item : source)
+            target.push_back({text(item.name), text(item.detail), item.selected,
+                              item.available});
+    };
+    append_devices(state.setup.audio_inputs, audio_inputs);
+    append_devices(state.setup.audio_outputs, audio_outputs);
+    append_devices(state.setup.midi_inputs, midi_inputs);
+    append_devices(state.setup.midi_outputs, midi_outputs);
+    window->set_setup_audio_inputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(audio_inputs)));
+    window->set_setup_audio_outputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(audio_outputs)));
+    window->set_setup_midi_inputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(midi_inputs)));
+    window->set_setup_midi_outputs(std::make_shared<slint::VectorModel<SetupDeviceItem>>(std::move(midi_outputs)));
+    std::vector<SetupControllerItem> controllers;
+    for (const auto &item : state.setup.controllers)
+        controllers.push_back({text(item.id), text(item.transport), text(item.device),
+            text(item.profile), text(item.protocol), text(item.status), text(item.error),
+            item.connected, item.feedback, item.selected});
+    window->set_setup_controllers(
+        std::make_shared<slint::VectorModel<SetupControllerItem>>(std::move(controllers)));
 }
 } // namespace
 
@@ -284,7 +334,7 @@ int run_slint_frontend(ApplicationService &application,
     }
 #endif
     try {
-        SlintFrontendAdapter adapter(application);
+        SlintFrontendAdapter adapter(application, options.setup);
         auto window = PerformanceWindow::create();
         window->window().set_size(slint::PhysicalSize({
             static_cast<std::uint32_t>(options.width),
@@ -594,6 +644,35 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_browser_confirm([&](bool accept) {
             (void)adapter.confirm_browser_action(accept); publish(adapter.state(), window);
+        });
+        window->on_setup_subview_selected([&](slint::SharedString value) {
+            (void)adapter.select_setup_subview(value.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_device_selected([&](slint::SharedString kind, int index) {
+            (void)adapter.select_setup_device(kind.data(), static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_setup_value_adjusted([&](slint::SharedString property, int direction) {
+            (void)adapter.adjust_setup_value(property.data(), direction); publish(adapter.state(), window);
+        });
+        window->on_setup_preference_toggled([&](slint::SharedString property) {
+            (void)adapter.toggle_setup_preference(property.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_preferences_action([&](slint::SharedString action) {
+            (void)adapter.setup_preferences_action(action.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_controller_selected([&](int index) {
+            (void)adapter.select_setup_controller(static_cast<std::size_t>(index)); publish(adapter.state(), window);
+        });
+        window->on_setup_midi_learn([&](slint::SharedString operation,
+                                        slint::SharedString control,
+                                        slint::SharedString mode) {
+            (void)adapter.setup_midi_learn(operation.data(), control.data(), mode.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_profile_save([&](slint::SharedString path) {
+            (void)adapter.save_setup_controller_profile(path.data()); publish(adapter.state(), window);
+        });
+        window->on_setup_exit([&] {
+            if (adapter.request_application_exit()) window->hide();
         });
         window->on_notification_dismissed([&] {
             adapter.dismiss_notification();

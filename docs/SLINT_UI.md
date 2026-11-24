@@ -62,7 +62,7 @@ visibly unavailable, and touch/mouse hit handling is provided by Slint.
 ## Input and state
 
 The shell exposes Performance, Sequencer, Sample, Sound, Mixer, FX, Browser and
-Setup. All except Setup have production pages; Setup remains an honest placeholder.
+Setup. All eight destinations have independent production page components.
 Sequencer has Step and Arrangement subviews. Modulation remains under Sound/FX, and
 MIDI/controller/system work under Setup.
 
@@ -209,7 +209,35 @@ Preset rename, delete and save remain unavailable until those operations have
 semantic application actions. Modulation creation and
 detailed graph editing remain deferred to the FX page.
 Browser confirmation covers dirty project replacement, while a portable native
-file picker and Setup page remain deferred. Some arrangement activity
+file picker remains deferred. Some arrangement activity
 lacks a single authoritative active-object field and is shown as `Unavailable`
 rather than inferred. Physical touch quality, accessibility and screenshot
 validation still require display hardware; model tests remain headless.
+
+## Setup and system configuration
+
+`setup_page.slint` consumes `SlintSetupPageState` and is divided into Audio,
+MIDI, Controllers, Preferences, Diagnostics and System subviews. The production
+appliance supplies a copy-only runtime snapshot; Slint never receives an
+`AudioDevice`, MIDI endpoint, controller session or mutable DSP object.
+
+Audio device, channel-count and buffer changes are saved as requested appliance
+preferences and marked **restart required**. Active negotiated values remain
+separate. NEUROGENIC stays fixed at 48 kHz and the page offers no engine-rate
+selector. Fullscreen and UI scale are persistent next-start preferences.
+
+MIDI clock source changes use `midi.clock-source-set.v1`. Controller MIDI learn
+and `.ngc` profile save go through synchronized `ControllerCoordinator`
+operations. Ordinary musical MIDI routing stays independent. The initial
+mapping inspector can re-learn a physical MIDI message for an existing logical
+profile control; semantic binding creation/removal remains a profile-file
+workflow.
+
+Diagnostics present existing bounded callback-load and backend-XRUN telemetry;
+unavailable metrics stay visibly unavailable. Graceful exit uses the same
+dirty-project policy as window close. No privileged system operation is exposed.
+
+The eight pages now cover Performance, Sequencer, Sample, Sound, Mixer, FX,
+Browser and Setup. A touchscreen keyboard, native file picker, safe live audio
+device replacement, full MIDI route editing and graphical controller-layout
+editing remain deferred. Styling remains provisional.

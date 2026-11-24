@@ -129,6 +129,13 @@ errors, destination display and preset compatibility at both display targets.
 Temporary-directory tests do not establish physical touchscreen behavior or
 filesystem latency.
 
+On Setup, compare active and requested audio device/buffer/channel values with
+backend logs. Confirm changes remain restart-required until a clean restart and
+that 48 kHz is the only engine rate displayed. Exercise controller reconnect,
+MIDI-learn cancellation, profile save, XRUN availability and dirty-project exit
+confirmation. Simulated CI does not establish N150, touchscreen, audio-device
+or controller hardware behavior.
+
 ## MIDI and controller inspection
 
 Use `neurogenic --list-devices` for ALSA sequencer ports. Simulated tests cover

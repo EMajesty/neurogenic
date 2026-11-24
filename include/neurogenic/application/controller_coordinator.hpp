@@ -3,6 +3,7 @@
 #include "neurogenic/midi/mapping.hpp"
 #include <functional>
 #include <memory>
+#include <mutex>
 
 namespace neurogenic {
 struct ControllerEndpointState {
@@ -30,6 +31,10 @@ class ControllerCoordinator {
     [[nodiscard]] const MidiControllerProfile *midi_profile(std::string_view id) const;
     bool save_midi_profile(std::string_view id, const std::filesystem::path &,
                            std::string &error) const;
+    bool begin_midi_learn(std::string_view id, std::string control_id,
+                          MidiControlMode, std::chrono::milliseconds,
+                          std::string &error);
+    bool cancel_midi_learn(std::string_view id, std::string &error);
     void shutdown() noexcept;
   private:
     struct SerialEndpoint;
@@ -37,5 +42,6 @@ class ControllerCoordinator {
     ApplicationService *application_{};
     std::vector<std::unique_ptr<SerialEndpoint>> serial_;
     std::vector<std::unique_ptr<MidiEndpoint>> midi_;
+    mutable std::mutex mutex_;
 };
 } // namespace neurogenic

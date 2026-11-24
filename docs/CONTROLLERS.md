@@ -38,6 +38,12 @@ bounded acceleration. The dedicated profile has no integrated faders or
 crossfader; generic MIDI controllers may still use binding-service pickup. The
 stable ID table and 1.0–1.2 formats are in the protocol document.
 
+The Slint Setup page lists copied coordinator endpoint state. It can start or
+cancel MIDI learn for an existing logical profile control and atomically save
+the resulting `.ngc`. Descriptor inventory remains separate from profile
+mappings, and Slint never receives a live `ControllerSession`. Full semantic
+binding creation/removal remains a profile editing workflow.
+
 Task 069 adds transport-independent device descriptors and per-device
 `ControllerSession` objects. Device identity is separate from `.ngc` profile
 mapping; pages, modifiers, pickup and feedback caches are session-local while

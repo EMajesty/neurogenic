@@ -1,5 +1,19 @@
 # Implementation status
 
+Task 079 completes the initial eight-page Slint rollout with an independent
+Setup component. It distinguishes active audio configuration from requested
+and pending preferences, presents fixed 48 kHz operation, marks device/channel/
+buffer changes restart-required, exposes MIDI clock through semantic actions,
+and copies controller, lifecycle and diagnostics state. MIDI learn and `.ngc`
+save use synchronized coordinator methods; graceful exit retains dirty-project
+protection. Live audio-device replacement, a touchscreen keyboard, complete
+graphical MIDI routing and semantic controller-map editing remain deferred.
+
+Roadmap: investigate a shared multi-use granular DSP core for a sample
+instrument, native insert effect, rolling/live capture and sequenced or
+modulated granular processing. It should reuse discovery, automation,
+modulation, macros and controller bindings. Task 079 implements no granular DSP.
+
 - Task 072: Slint is selectable in the production appliance with
   `--frontend slint`; the shared shell provides eight registered destinations,
   authoritative transport/project/context status, track ownership, semantic

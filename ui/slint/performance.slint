@@ -7,6 +7,7 @@ import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.s
 import { MixerPage, MixerChannelItem, MixerFxItem } from "mixer_page.slint";
 import { FxPage, FxOwnerItem, FxInstanceItem, FxParameterItem, FxModulatorItem, FxRouteItem, FxMacroItem } from "fx_page.slint";
 import { BrowserPage, BrowserEntryItem } from "browser_page.slint";
+import { SetupPage, SetupDeviceItem, SetupControllerItem } from "setup_page.slint";
 
 export struct ContextItem { label: string, value: string, unit: string, active: bool }
 export struct PageItem { id: string, title: string, implemented: bool }
@@ -95,6 +96,25 @@ export component PerformanceWindow inherits Window {
     in property <bool> browser-truncated: false; in property <[BrowserEntryItem]> browser-entries;
     in property <bool> browser-confirmation-pending: false; in property <string> browser-confirmation-message: "";
     in-out property <string> browser-filter: ""; in-out property <string> browser-project-path: "";
+    in property <string> setup-subview: "audio"; in property <string> setup-audio-backend: "Unavailable";
+    in property <string> setup-audio-status: "Unavailable"; in property <string> setup-active-input: "Unavailable";
+    in property <string> setup-active-output: "Unavailable"; in property <string> setup-requested-input: "";
+    in property <string> setup-requested-output: ""; in property <int> setup-sample-rate: 48000;
+    in property <int> setup-active-buffer: 0; in property <int> setup-requested-buffer: 256;
+    in property <int> setup-active-input-channels: 0; in property <int> setup-active-output-channels: 0;
+    in property <int> setup-requested-input-channels: 2; in property <int> setup-requested-output-channels: 2;
+    in property <bool> setup-restart-required: false; in property <bool> setup-pending: false;
+    in property <bool> setup-fullscreen: false; in property <bool> setup-reopen-last-project: false;
+    in property <float> setup-ui-scale: 1; in property <string> setup-startup-project: "";
+    in property <string> setup-midi-clock: "Internal"; in property <string> setup-system: "Unknown";
+    in property <string> setup-version: "Unknown"; in property <float> setup-callback-load: 0;
+    in property <float> setup-callback-peak: 0; in property <int> setup-xruns: 0;
+    in property <bool> setup-xruns-available: false; in property <string> setup-error: "";
+    in property <string> setup-learn-status: "Idle"; in property <[SetupDeviceItem]> setup-audio-inputs;
+    in property <[SetupDeviceItem]> setup-audio-outputs; in property <[SetupDeviceItem]> setup-midi-inputs;
+    in property <[SetupDeviceItem]> setup-midi-outputs; in property <[SetupControllerItem]> setup-controllers;
+    in-out property <string> setup-learn-control: "encoder.1"; in-out property <string> setup-learn-mode: "cc-absolute";
+    in-out property <string> setup-profile-path: "";
     in-out property <bool> modal-visible: false;
     callback encoder-turned(int, int); callback function-invoked(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
@@ -127,6 +147,10 @@ export component PerformanceWindow inherits Window {
     callback browser-activate(); callback browser-filter-requested(string); callback browser-sort-requested();
     callback browser-project-action(string, string); callback browser-preset-action(string);
     callback browser-confirm(bool);
+    callback setup-subview-selected(string); callback setup-device-selected(string, int);
+    callback setup-value-adjusted(string, int); callback setup-preference-toggled(string);
+    callback setup-preferences-action(string); callback setup-controller-selected(int);
+    callback setup-midi-learn(string, string, string); callback setup-profile-save(string); callback setup-exit();
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -216,7 +240,26 @@ export component PerformanceWindow inherits Window {
             filter-requested(value) => { root.browser-filter-requested(value); } sort-requested => { root.browser-sort-requested(); }
             project-action(action, path) => { root.browser-project-action(action, path); } preset-action(action) => { root.browser-preset-action(action); }
         }
-        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
+        if root.page-id == "setup": SetupPage {
+            vertical-stretch: 1; subview: root.setup-subview; audio-backend: root.setup-audio-backend; audio-status: root.setup-audio-status;
+            active-input: root.setup-active-input; active-output: root.setup-active-output; requested-input: root.setup-requested-input; requested-output: root.setup-requested-output;
+            sample-rate: root.setup-sample-rate; active-buffer: root.setup-active-buffer; requested-buffer: root.setup-requested-buffer;
+            active-input-channels: root.setup-active-input-channels; active-output-channels: root.setup-active-output-channels;
+            requested-input-channels: root.setup-requested-input-channels; requested-output-channels: root.setup-requested-output-channels;
+            restart-required: root.setup-restart-required; pending: root.setup-pending; fullscreen: root.setup-fullscreen;
+            reopen-last-project: root.setup-reopen-last-project; ui-scale: root.setup-ui-scale; startup-project: root.setup-startup-project;
+            midi-clock: root.setup-midi-clock; system: root.setup-system; version: root.setup-version; callback-load: root.setup-callback-load;
+            callback-peak: root.setup-callback-peak; xruns: root.setup-xruns; xruns-available: root.setup-xruns-available;
+            error: root.setup-error; learn-status: root.setup-learn-status; audio-inputs: root.setup-audio-inputs; audio-outputs: root.setup-audio-outputs;
+            midi-inputs: root.setup-midi-inputs; midi-outputs: root.setup-midi-outputs; controllers: root.setup-controllers;
+            learn-control <=> root.setup-learn-control; learn-mode <=> root.setup-learn-mode; profile-path <=> root.setup-profile-path;
+            subview-selected(value) => { root.setup-subview-selected(value); } device-selected(kind, index) => { root.setup-device-selected(kind, index); }
+            value-adjusted(property, direction) => { root.setup-value-adjusted(property, direction); }
+            preference-toggled(property) => { root.setup-preference-toggled(property); } preferences-action(action) => { root.setup-preferences-action(action); }
+            controller-selected(index) => { root.setup-controller-selected(index); } midi-learn(action, control, mode) => { root.setup-midi-learn(action, control, mode); }
+            profile-save(path) => { root.setup-profile-save(path); } exit-requested => { root.setup-exit(); }
+        }
+        if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
         HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }

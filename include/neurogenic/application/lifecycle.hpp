@@ -62,6 +62,7 @@ struct AppliancePreferences {
     std::vector<std::string> midi_inputs, midi_outputs;
     bool fullscreen{};
     std::optional<float> ui_scale;
+    bool operator==(const AppliancePreferences &) const = default;
 };
 
 [[nodiscard]] std::filesystem::path default_preferences_path();

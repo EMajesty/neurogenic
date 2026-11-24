@@ -1,0 +1,121 @@
+import { PageButton, EmptyState, ParameterDisplay } from "components.slint";
+import { Theme } from "theme.slint";
+import { ScrollView, LineEdit } from "std-widgets.slint";
+
+export struct SetupDeviceItem { name: string, detail: string, selected: bool, available: bool }
+export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, connected: bool, feedback: bool, selected: bool }
+
+export component SetupPage inherits Rectangle {
+    background: Theme.background;
+    in property <string> subview: "audio";
+    in property <string> audio-backend: "Unavailable"; in property <string> audio-status: "Unavailable";
+    in property <string> active-input: "Unavailable"; in property <string> active-output: "Unavailable";
+    in property <string> requested-input; in property <string> requested-output;
+    in property <int> sample-rate: 48000; in property <int> active-buffer: 0; in property <int> requested-buffer: 256;
+    in property <int> active-input-channels: 0; in property <int> active-output-channels: 0;
+    in property <int> requested-input-channels: 2; in property <int> requested-output-channels: 2;
+    in property <bool> restart-required: false; in property <bool> pending: false;
+    in property <bool> fullscreen: false; in property <bool> reopen-last-project: false;
+    in property <float> ui-scale: 1; in property <string> startup-project;
+    in property <string> midi-clock: "Internal";
+    in property <string> system: "Unknown"; in property <string> version: "Unknown";
+    in property <float> callback-load: 0; in property <float> callback-peak: 0;
+    in property <int> xruns: 0; in property <bool> xruns-available: false;
+    in property <string> error; in property <string> learn-status: "Idle";
+    in property <[SetupDeviceItem]> audio-inputs; in property <[SetupDeviceItem]> audio-outputs;
+    in property <[SetupDeviceItem]> midi-inputs; in property <[SetupDeviceItem]> midi-outputs;
+    in property <[SetupControllerItem]> controllers;
+    in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
+    in-out property <string> profile-path: "";
+    callback subview-selected(string); callback device-selected(string, int);
+    callback value-adjusted(string, int); callback preference-toggled(string);
+    callback preferences-action(string); callback controller-selected(int);
+    callback midi-learn(string, string, string); callback profile-save(string); callback exit-requested();
+
+    VerticalLayout { padding: 6px; spacing: 5px;
+        HorizontalLayout { height: 40px; spacing: 4px;
+            PageButton { text: "Audio"; selected: root.subview == "audio"; clicked => { root.subview-selected("audio"); } }
+            PageButton { text: "MIDI"; selected: root.subview == "midi"; clicked => { root.subview-selected("midi"); } }
+            PageButton { text: "Controllers"; selected: root.subview == "controllers"; clicked => { root.subview-selected("controllers"); } }
+            PageButton { text: "Preferences"; selected: root.subview == "preferences"; clicked => { root.subview-selected("preferences"); } }
+            PageButton { text: "Diagnostics"; selected: root.subview == "diagnostics"; clicked => { root.subview-selected("diagnostics"); } }
+            PageButton { text: "System"; selected: root.subview == "system"; clicked => { root.subview-selected("system"); } }
+        }
+        if root.restart-required: Rectangle { height: 34px; background: #6c4c18; border-radius: Theme.radius;
+            Text { x: 8px; vertical-alignment: center; text: "Restart required to activate staged audio configuration"; color: Theme.foreground; }
+        }
+        if root.subview == "audio": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius;
+                ScrollView { VerticalLayout { padding: 6px; spacing: 4px;
+                    Text { text: "Output devices"; color: Theme.foreground; font-size: 18px; }
+                    for item[i] in root.audio-outputs: PageButton { text: item.name + " — " + item.detail; selected: item.selected; implemented: item.available; clicked => { root.device-selected("audio-output", i); } }
+                    Text { text: "Input devices"; color: Theme.foreground; font-size: 18px; }
+                    for item[i] in root.audio-inputs: PageButton { text: item.name + " — " + item.detail; selected: item.selected; implemented: item.available; clicked => { root.device-selected("audio-input", i); } }
+                } }
+            }
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; border-radius: Theme.radius;
+                VerticalLayout { padding: 6px; spacing: 4px;
+                    ParameterDisplay { name: "Backend / status"; value: root.audio-backend + " / " + root.audio-status; }
+                    ParameterDisplay { name: "Actual rate"; value: root.sample-rate + " Hz (fixed)"; }
+                    ParameterDisplay { name: "Active output"; value: root.active-output; }
+                    ParameterDisplay { name: "Requested output"; value: root.requested-output == "" ? "Backend default" : root.requested-output; }
+                    ParameterDisplay { name: "Buffer active / requested"; value: root.active-buffer + " / " + root.requested-buffer; }
+                    HorizontalLayout { PageButton { text: "Buffer −"; clicked => { root.value-adjusted("buffer", -1); } } PageButton { text: "Buffer +"; clicked => { root.value-adjusted("buffer", 1); } } }
+                    ParameterDisplay { name: "Input channels active / requested"; value: root.active-input-channels + " / " + root.requested-input-channels; }
+                    ParameterDisplay { name: "Output channels active / requested"; value: root.active-output-channels + " / " + root.requested-output-channels; }
+                }
+            }
+        }
+        if root.subview == "midi": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; ScrollView { VerticalLayout { padding: 6px; spacing: 4px;
+                Text { text: "MIDI inputs"; color: Theme.foreground; font-size: 18px; }
+                for item[i] in root.midi-inputs: PageButton { text: item.name + " — " + item.detail; selected: item.selected; implemented: item.available; clicked => { root.device-selected("midi-input", i); } }
+                Text { text: "MIDI outputs"; color: Theme.foreground; font-size: 18px; }
+                for item[i] in root.midi-outputs: PageButton { text: item.name + " — " + item.detail; selected: item.selected; implemented: item.available; clicked => { root.device-selected("midi-output", i); } }
+            } } }
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; VerticalLayout { padding: 6px; spacing: 5px;
+                ParameterDisplay { name: "Clock source"; value: root.midi-clock; }
+                PageButton { text: "Toggle Internal / External"; clicked => { root.value-adjusted("midi-clock", 1); } }
+                Text { text: "Musical routing remains separate from controller mappings."; color: Theme.muted; wrap: word-wrap; }
+            } }
+        }
+        if root.subview == "controllers": HorizontalLayout { vertical-stretch: 1; spacing: 6px;
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; ScrollView { VerticalLayout { padding: 6px; spacing: 4px;
+                for item[i] in root.controllers: PageButton { text: item.id + " — " + item.device + " (" + item.status + ")"; selected: item.selected; clicked => { root.controller-selected(i); } }
+                if root.controllers.length == 0: EmptyState { title: "No configured controllers"; message: "Configure endpoints at startup; unknown devices are never attached automatically."; }
+            } } }
+            Rectangle { horizontal-stretch: 1; background: Theme.panel; VerticalLayout { padding: 6px; spacing: 4px;
+                ParameterDisplay { name: "MIDI learn"; value: root.learn-status; }
+                LineEdit { text <=> root.learn-control; placeholder-text: "Logical control ID"; }
+                LineEdit { text <=> root.learn-mode; placeholder-text: "cc-absolute / relative / note"; }
+                HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
+                LineEdit { text <=> root.profile-path; placeholder-text: "Profile .ngc path"; }
+                PageButton { text: "Save Profile"; implemented: root.controllers.length > 0 && root.profile-path != ""; clicked => { root.profile-save(root.profile-path); } }
+                Text { text: "Mapping targets come from the selected profile and application discovery. Graphical layout editing is intentionally not provided."; color: Theme.muted; wrap: word-wrap; }
+            } }
+        }
+        if root.subview == "preferences": Rectangle { vertical-stretch: 1; background: Theme.panel; VerticalLayout { padding: 8px; spacing: 5px;
+            ParameterDisplay { name: "Reopen last project"; value: root.reopen-last-project ? "On" : "Off"; }
+            PageButton { text: "Toggle reopen last project"; clicked => { root.preference-toggled("reopen-last-project"); } }
+            ParameterDisplay { name: "Fullscreen on restart"; value: root.fullscreen ? "On" : "Off"; }
+            PageButton { text: "Toggle fullscreen"; clicked => { root.preference-toggled("fullscreen"); } }
+            ParameterDisplay { name: "UI scale"; value: root.ui-scale; }
+            HorizontalLayout { PageButton { text: "Scale −"; clicked => { root.value-adjusted("ui-scale", -1); } } PageButton { text: "Scale +"; clicked => { root.value-adjusted("ui-scale", 1); } } }
+            ParameterDisplay { name: "Startup project"; value: root.startup-project == "" ? "None" : root.startup-project; }
+            HorizontalLayout { PageButton { text: "Save"; implemented: root.pending; clicked => { root.preferences-action("save"); } } PageButton { text: "Revert"; implemented: root.pending; clicked => { root.preferences-action("revert"); } } }
+        } }
+        if root.subview == "diagnostics": Rectangle { vertical-stretch: 1; background: Theme.panel; VerticalLayout { padding: 8px; spacing: 5px;
+            ParameterDisplay { name: "Audio callback average"; value: root.callback-load + "%"; }
+            ParameterDisplay { name: "Audio callback peak"; value: root.callback-peak + "%"; }
+            ParameterDisplay { name: "Backend XRUNs"; value: root.xruns-available ? root.xruns : "Unavailable"; }
+            Text { text: "Values are bounded production instrumentation, not an additional profiler."; color: Theme.muted; wrap: word-wrap; }
+        } }
+        if root.subview == "system": Rectangle { vertical-stretch: 1; background: Theme.panel; VerticalLayout { padding: 8px; spacing: 5px;
+            ParameterDisplay { name: "NEUROGENIC"; value: root.version; }
+            ParameterDisplay { name: "System"; value: root.system; }
+            PageButton { text: "Graceful Exit"; clicked => { root.exit-requested(); } }
+            Text { text: "System shutdown, updates, firmware flashing, and privileged commands are unavailable by design."; color: Theme.muted; wrap: word-wrap; }
+        } }
+        Text { height: 24px; text: root.error; color: #ff8080; wrap: word-wrap; }
+    }
+}

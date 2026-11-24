@@ -260,6 +260,8 @@ int main(int argc, char **argv) {
         };
         announce(neurogenic::StartupStage::configuration, 0.05F);
         neurogenic::AppliancePreferences preferences;
+        std::atomic<std::uint64_t> setup_revision{1};
+        std::atomic<bool> setup_preferences_saved{};
         const auto preference_path =
             preferences_file.empty() ? neurogenic::default_preferences_path()
                                      : std::filesystem::path(preferences_file);
@@ -737,10 +739,134 @@ int main(int argc, char **argv) {
             };
             if (slint) {
                 neurogenic::SlintOptions slint_options;
+                const auto setup_audio_outputs = audio.output_capabilities();
+                const auto setup_audio_inputs = audio.input_capabilities();
+                const auto setup_midi_inputs = midi.inputs();
+                const auto setup_midi_outputs = midi_output.outputs();
                 slint_options.fullscreen = fullscreen;
                 slint_options.request_close = approve_shutdown;
                 slint_options.external_stop_requested = [] {
                     return !running.load();
+                };
+                slint_options.setup.snapshot = [&] {
+                    neurogenic::SlintSetupRuntimeSnapshot result;
+                    result.revision = setup_revision.load(std::memory_order_acquire) +
+                                      application.snapshot().performance.generation;
+                    result.audio_backend = audio.backend();
+                    const auto status = audio.status();
+                    result.audio_running = status.running;
+                    result.audio_status = status.running ? "Running" : "Stopped";
+                    result.active_audio_output = audio_name.empty()
+                        ? "Backend default" : audio_name;
+                    result.active_audio_input = input_name.empty()
+                        ? "Unavailable" : input_name;
+                    result.active_sample_rate = audio.selected_sample_rate();
+                    result.active_buffer_size = audio.selected_buffer_frames();
+                    result.active_input_channels = audio.selected_input_channels();
+                    result.active_output_channels = audio.selected_output_channels();
+                    result.xruns_available = status.backend_xruns_available;
+                    result.xruns = status.backend_xruns;
+                    result.requested = preferences;
+                    for (const auto &port : setup_audio_outputs) {
+                        const auto supports_48k = std::any_of(
+                            port.native_formats.begin(), port.native_formats.end(),
+                            [](const auto &format) { return format.sample_rate == 48000; });
+                        result.audio_outputs.push_back({port.name, port.name,
+                            std::to_string(port.maximum_channels) + " channels, " +
+                                (supports_48k || port.native_formats.empty()
+                                     ? "48 kHz available" : "48 kHz unavailable"),
+                            preferences.audio_output == port.name,
+                            supports_48k || port.native_formats.empty()});
+                    }
+                    for (const auto &port : setup_audio_inputs) {
+                        const auto supports_48k = std::any_of(
+                            port.native_formats.begin(), port.native_formats.end(),
+                            [](const auto &format) { return format.sample_rate == 48000; });
+                        result.audio_inputs.push_back({port.name, port.name,
+                            std::to_string(port.maximum_channels) + " channels, " +
+                                (supports_48k || port.native_formats.empty()
+                                     ? "48 kHz available" : "48 kHz unavailable"),
+                            preferences.audio_input == port.name,
+                            supports_48k || port.native_formats.empty()});
+                    }
+                    for (const auto &name : setup_midi_inputs)
+                        result.midi_inputs.push_back({name, name, midi.backend(),
+                            std::find(preferences.midi_inputs.begin(),
+                                      preferences.midi_inputs.end(), name) !=
+                                preferences.midi_inputs.end(), true});
+                    for (const auto &port : setup_midi_outputs)
+                        result.midi_outputs.push_back({port.name, port.name,
+                            midi_output.backend(),
+                            std::find(preferences.midi_outputs.begin(),
+                                      preferences.midi_outputs.end(), port.name) !=
+                                preferences.midi_outputs.end(), true});
+                    for (const auto &endpoint : controllers.states())
+                        result.controllers.push_back({endpoint.id,
+                            endpoint.transport, endpoint.expected_device,
+                            endpoint.session.profile_id,
+                            endpoint.transport == "usb-cdc" ? "1.x" : "MIDI",
+                            endpoint.connected ? "Connected" : "Disconnected",
+                            endpoint.error, endpoint.connected,
+                            endpoint.session.feedback_revision != 0, false});
+                    for (const auto &issue : lifecycle.snapshot().issues)
+                        result.lifecycle_warnings.push_back(issue.message);
+#if defined(__aarch64__)
+                    result.system = "Linux AArch64";
+#elif defined(__x86_64__)
+                    result.system = "Linux x86_64";
+#else
+                    result.system = "Portable host";
+#endif
+#ifdef NEUROGENIC_VERSION
+                    result.version = NEUROGENIC_VERSION;
+#else
+                    result.version = "development";
+#endif
+                    return result;
+                };
+                slint_options.setup.save = [&](const auto &updated,
+                                               std::string &save_error) {
+                    if (!neurogenic::save_preferences(preference_path, updated,
+                                                      save_error))
+                        return false;
+                    preferences = updated;
+                    setup_preferences_saved = true;
+                    setup_revision.fetch_add(1, std::memory_order_release);
+                    return true;
+                };
+                slint_options.setup.begin_midi_learn =
+                    [&](std::string_view endpoint, std::string_view control,
+                        std::string_view mode, std::string &learn_error) {
+                        auto parsed = neurogenic::MidiControlMode::cc_absolute;
+                        if (mode == "cc-relative-twos-complement" || mode == "relative-twos-complement")
+                            parsed = neurogenic::MidiControlMode::cc_relative_twos_complement;
+                        else if (mode == "cc-relative-binary-offset" || mode == "relative-binary-offset")
+                            parsed = neurogenic::MidiControlMode::cc_relative_binary_offset;
+                        else if (mode == "note" || mode == "note-momentary")
+                            parsed = neurogenic::MidiControlMode::note_momentary;
+                        else if (mode != "cc-absolute" && mode != "absolute") {
+                            learn_error = "unknown MIDI learn mode";
+                            return false;
+                        }
+                        return controllers.begin_midi_learn(
+                            endpoint, std::string(control), parsed,
+                            std::chrono::seconds(10), learn_error);
+                    };
+                slint_options.setup.cancel_midi_learn =
+                    [&](std::string_view endpoint, std::string &cancel_error) {
+                        return controllers.cancel_midi_learn(endpoint,
+                                                             cancel_error);
+                    };
+                slint_options.setup.save_controller_profile =
+                    [&](std::string_view endpoint, std::string_view path,
+                        std::string &save_error) {
+                        return controllers.save_midi_profile(
+                            endpoint, std::filesystem::path(path), save_error);
+                    };
+                slint_options.setup.request_exit = [&] {
+                    if (!approve_shutdown()) return false;
+                    running = false;
+                    return true;
                 };
                 exit_code = neurogenic::run_slint_frontend(
                     application, slint_options, error);
@@ -864,16 +990,18 @@ int main(int argc, char **argv) {
         samples.shutdown();
         if (!application.snapshot().project_path.empty())
             preferences.last_project = application.snapshot().project_path;
-        preferences.audio_output = audio_name;
-        preferences.audio_input = input_name;
-        preferences.audio_input_channels =
-            static_cast<std::uint16_t>(input_channels);
-        preferences.audio_output_channels =
-            static_cast<std::uint16_t>(output_channels);
-        preferences.midi_inputs = midi_inputs;
-        preferences.midi_outputs = midi_outputs;
-        preferences.fullscreen = fullscreen;
-        preferences.ui_scale = ui_scale;
+        if (!setup_preferences_saved.load()) {
+            preferences.audio_output = audio_name;
+            preferences.audio_input = input_name;
+            preferences.audio_input_channels =
+                static_cast<std::uint16_t>(input_channels);
+            preferences.audio_output_channels =
+                static_cast<std::uint16_t>(output_channels);
+            preferences.midi_inputs = midi_inputs;
+            preferences.midi_outputs = midi_outputs;
+            preferences.fullscreen = fullscreen;
+            preferences.ui_scale = ui_scale;
+        }
         if (!neurogenic::save_preferences(preference_path, preferences,
                                           preference_error))
             std::cerr << "preferences not saved: " << preference_error << '\n';

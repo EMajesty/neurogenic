@@ -90,8 +90,15 @@ std::string slint_recording_label(RecordingState state, bool playing) {
     return playing ? "Playing" : "Stopped";
 }
 
-SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application)
-    : application_(application), bindings_(application) {
+SlintFrontendAdapter::SlintFrontendAdapter(ApplicationService &application,
+                                           SlintSetupServices setup)
+    : application_(application), bindings_(application),
+      setup_services_(std::move(setup)) {
+    if (setup_services_.snapshot) {
+        const auto runtime = setup_services_.snapshot();
+        staged_preferences_ = runtime.requested;
+        setup_runtime_revision_ = runtime.revision;
+    }
     (void)refresh();
     (void)navigate_browser(std::filesystem::current_path().string());
 }
@@ -100,6 +107,14 @@ bool SlintFrontendAdapter::refresh() {
     if (!active_)
         return false;
     const auto snapshot = application_.snapshot();
+    std::optional<SlintSetupRuntimeSnapshot> setup_runtime;
+    if (setup_services_.snapshot) {
+        setup_runtime = setup_services_.snapshot();
+        if (setup_runtime->revision != setup_runtime_revision_) {
+            setup_runtime_revision_ = setup_runtime->revision;
+            ++local_revision_;
+        }
+    }
     if (snapshot.revision == state_.shell.revision &&
         local_revision_ == published_local_revision_)
         return false;
@@ -130,7 +145,7 @@ bool SlintFrontendAdapter::refresh() {
                                     id == "performance" || id == "sequencer" ||
                                     id == "sample" || id == "sound" ||
                                         id == "mixer" || id == "fx" ||
-                                        id == "browser"});
+                                        id == "browser" || id == "setup"});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -707,6 +722,59 @@ bool SlintFrontendAdapter::refresh() {
             std::to_string(snapshot.selected_track) + " effect chain";
     else if (next.browser.category == "projects")
         next.browser.destination = "Current application session";
+    next.setup = state_.setup;
+    if (setup_runtime) {
+        const auto &runtime = *setup_runtime;
+        next.setup.audio_backend = runtime.audio_backend;
+        next.setup.audio_status = runtime.audio_status;
+        next.setup.active_audio_input = runtime.active_audio_input.empty()
+            ? "Unavailable" : runtime.active_audio_input;
+        next.setup.active_audio_output = runtime.active_audio_output.empty()
+            ? "Unavailable" : runtime.active_audio_output;
+        next.setup.active_sample_rate = runtime.active_sample_rate;
+        next.setup.active_buffer_size = runtime.active_buffer_size;
+        next.setup.active_input_channels = runtime.active_input_channels;
+        next.setup.active_output_channels = runtime.active_output_channels;
+        next.setup.audio_running = runtime.audio_running;
+        next.setup.xruns_available = runtime.xruns_available;
+        next.setup.xruns = runtime.xruns;
+        next.setup.audio_inputs = runtime.audio_inputs;
+        next.setup.audio_outputs = runtime.audio_outputs;
+        next.setup.midi_inputs = runtime.midi_inputs;
+        next.setup.midi_outputs = runtime.midi_outputs;
+        next.setup.controllers = runtime.controllers;
+        next.setup.warnings = runtime.lifecycle_warnings;
+        next.setup.system = runtime.system;
+        next.setup.version = runtime.version;
+    }
+    if (next.setup.selected_controller >= next.setup.controllers.size())
+        next.setup.selected_controller = 0;
+    for (std::size_t i = 0; i < next.setup.controllers.size(); ++i)
+        next.setup.controllers[i].selected = i == next.setup.selected_controller;
+    next.setup.requested_audio_input = staged_preferences_.audio_input;
+    next.setup.requested_audio_output = staged_preferences_.audio_output;
+    next.setup.requested_buffer_size = staged_preferences_.audio_buffer_frames;
+    next.setup.requested_input_channels = staged_preferences_.audio_input_channels;
+    next.setup.requested_output_channels = staged_preferences_.audio_output_channels;
+    next.setup.fullscreen = staged_preferences_.fullscreen;
+    next.setup.reopen_last_project = staged_preferences_.reopen_last_project;
+    next.setup.ui_scale = staged_preferences_.ui_scale.value_or(1.0F);
+    next.setup.startup_project = staged_preferences_.last_project.string();
+    next.setup.restart_required = setup_runtime &&
+        ((!next.setup.requested_audio_input.empty() &&
+          next.setup.requested_audio_input != next.setup.active_audio_input) ||
+         (!next.setup.requested_audio_output.empty() &&
+          next.setup.requested_audio_output != next.setup.active_audio_output) ||
+         (next.setup.active_buffer_size != 0 &&
+          next.setup.requested_buffer_size != next.setup.active_buffer_size) ||
+         next.setup.requested_input_channels != next.setup.active_input_channels ||
+         next.setup.requested_output_channels != next.setup.active_output_channels);
+    next.setup.pending = setup_runtime && !(staged_preferences_ == setup_runtime->requested);
+    next.setup.callback_load = snapshot.performance.audio.average_load_percent;
+    next.setup.callback_peak_load = snapshot.performance.audio.peak_load_percent;
+    next.setup.midi_clock = snapshot.midi.clock_source == MidiClockSource::external
+        ? "External" : "Internal";
+    next.setup.error = last_error_;
     next.mixer.error = last_error_;
     next.shell.notification = last_error_;
     state_ = std::move(next);
@@ -811,9 +879,7 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
     }
     state_.shell.page_id = std::string(pages[index].first);
     state_.shell.page_title = std::string(pages[index].second);
-    state_.shell.notification = index < 7
-        ? std::string{}
-        : state_.shell.page_title + " is not implemented yet";
+    state_.shell.notification.clear();
     last_error_ = state_.shell.notification;
     ++local_revision_;
     return true;
@@ -1942,6 +2008,189 @@ bool SlintFrontendAdapter::adjust_fx_macro(double steps) {
     return execute({"macro.value-set.v1",
                     {{"id", static_cast<std::int64_t>(macro.id)},
                      {"value", std::clamp<double>(macro.value + steps * .05, 0.0, 1.0)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::select_setup_subview(std::string subview) {
+    static constexpr std::array<std::string_view, 6> valid{
+        "audio", "midi", "controllers", "preferences", "diagnostics", "system"};
+    if (std::find(valid.begin(), valid.end(), subview) == valid.end()) {
+        last_error_ = "Unknown Setup section";
+        return false;
+    }
+    state_.setup.subview = std::move(subview);
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::select_setup_device(std::string kind,
+                                                std::size_t index) {
+    const std::vector<SlintSetupDeviceItem> *items{};
+    std::string *target{};
+    if (kind == "audio-input") {
+        items = &state_.setup.audio_inputs;
+        target = &staged_preferences_.audio_input;
+    } else if (kind == "audio-output") {
+        items = &state_.setup.audio_outputs;
+        target = &staged_preferences_.audio_output;
+    } else if (kind == "midi-input") {
+        items = &state_.setup.midi_inputs;
+    } else if (kind == "midi-output") {
+        items = &state_.setup.midi_outputs;
+    } else {
+        last_error_ = "Unknown device kind";
+        return false;
+    }
+    if (index >= items->size() || !(*items)[index].available) {
+        last_error_ = "Selected device is unavailable";
+        return false;
+    }
+    if (target)
+        *target = (*items)[index].id;
+    else {
+        auto &ports = kind == "midi-input" ? staged_preferences_.midi_inputs
+                                           : staged_preferences_.midi_outputs;
+        ports = {(*items)[index].id};
+    }
+    last_error_.clear();
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::adjust_setup_value(std::string property,
+                                               int direction) {
+    if (direction == 0) return true;
+    if (property == "buffer") {
+        static constexpr std::array<std::uint32_t, 4> values{64, 128, 256, 512};
+        auto found = std::lower_bound(values.begin(), values.end(),
+                                      staged_preferences_.audio_buffer_frames);
+        std::ptrdiff_t index = found == values.end() ? 3 : found - values.begin();
+        index = std::clamp<std::ptrdiff_t>(index + (direction > 0 ? 1 : -1), 0, 3);
+        staged_preferences_.audio_buffer_frames = values[index];
+    } else if (property == "input-channels" || property == "output-channels") {
+        auto &value = property == "input-channels"
+                          ? staged_preferences_.audio_input_channels
+                          : staged_preferences_.audio_output_channels;
+        value = static_cast<std::uint16_t>(std::clamp<int>(
+            static_cast<int>(value) + (direction > 0 ? 1 : -1), 1, 6));
+    } else if (property == "ui-scale") {
+        staged_preferences_.ui_scale = std::clamp(
+            staged_preferences_.ui_scale.value_or(1.0F) +
+                (direction > 0 ? 0.1F : -0.1F),
+            1.0F, 2.5F);
+    } else if (property == "midi-clock") {
+        return execute({"midi.clock-source-set.v1",
+                        {{"source", state_.setup.midi_clock == "Internal"
+                                        ? std::string("external")
+                                        : std::string("internal")}}, {}, 0});
+    } else {
+        last_error_ = "Unsupported Setup value";
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::toggle_setup_preference(std::string property) {
+    if (property == "fullscreen")
+        staged_preferences_.fullscreen = !staged_preferences_.fullscreen;
+    else if (property == "reopen-last-project")
+        staged_preferences_.reopen_last_project =
+            !staged_preferences_.reopen_last_project;
+    else {
+        last_error_ = "Unsupported preference";
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::setup_preferences_action(std::string action) {
+    if (!setup_services_.snapshot) {
+        last_error_ = "Runtime configuration is unavailable";
+        return false;
+    }
+    if (action == "revert") {
+        staged_preferences_ = setup_services_.snapshot().requested;
+        last_error_.clear();
+    } else if (action == "save") {
+        if (!setup_services_.save) {
+            last_error_ = "Preference saving is unavailable";
+            return false;
+        }
+        std::string error;
+        if (!setup_services_.save(staged_preferences_, error)) {
+            last_error_ = std::move(error);
+            return false;
+        }
+        last_error_.clear();
+    } else {
+        last_error_ = "Unknown preference operation";
+        return false;
+    }
+    ++local_revision_;
+    (void)refresh();
+    state_.shell.notification = last_error_.empty()
+        ? (action == "save" ? "Preferences saved" : "Pending changes reverted")
+        : last_error_;
+    return last_error_.empty();
+}
+
+bool SlintFrontendAdapter::select_setup_controller(std::size_t index) {
+    if (index >= state_.setup.controllers.size()) return false;
+    state_.setup.selected_controller = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::setup_midi_learn(std::string operation,
+                                             std::string control_id,
+                                             std::string mode) {
+    if (state_.setup.selected_controller >= state_.setup.controllers.size()) {
+        last_error_ = "Select a controller first";
+        return false;
+    }
+    const auto &id = state_.setup.controllers[state_.setup.selected_controller].id;
+    std::string error;
+    bool result{};
+    if (operation == "cancel" && setup_services_.cancel_midi_learn)
+        result = setup_services_.cancel_midi_learn(id, error);
+    else if (operation == "start" && setup_services_.begin_midi_learn)
+        result = setup_services_.begin_midi_learn(id, control_id, mode, error);
+    else
+        error = "MIDI learn operation is unavailable";
+    last_error_ = result ? std::string{} : std::move(error);
+    state_.setup.controller_learn_status = result
+        ? (operation == "start" ? "Waiting for MIDI input" : "Cancelled")
+        : "Unavailable";
+    ++local_revision_;
+    (void)refresh();
+    return result;
+}
+
+bool SlintFrontendAdapter::save_setup_controller_profile(std::string path) {
+    if (state_.setup.selected_controller >= state_.setup.controllers.size() ||
+        !setup_services_.save_controller_profile) {
+        last_error_ = "Controller profile saving is unavailable";
+        return false;
+    }
+    std::string error;
+    const auto result = setup_services_.save_controller_profile(
+        state_.setup.controllers[state_.setup.selected_controller].id, path,
+        error);
+    last_error_ = result ? std::string{} : std::move(error);
+    ++local_revision_;
+    (void)refresh();
+    return result;
+}
+
+bool SlintFrontendAdapter::request_application_exit() {
+    if (!setup_services_.request_exit) {
+        last_error_ = "Application exit is unavailable";
+        return false;
+    }
+    const auto accepted = setup_services_.request_exit();
+    last_error_ = accepted ? std::string{} : "Application exit was cancelled";
+    return accepted;
 }
 
 void SlintFrontendAdapter::dismiss_notification() noexcept {

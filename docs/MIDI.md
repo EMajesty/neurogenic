@@ -6,6 +6,12 @@ engine. `MidiInput` and `MidiOutput` are libremidi adapters. Logical ports
 logical port to a host port. Missing devices remain missing and are never
 silently replaced by another port.
 
+The Slint Setup page displays enumerated input/output endpoints and the
+authoritative internal/external clock source. Clock changes use
+`midi.clock-source-set.v1`; endpoint preferences are staged for restart.
+Musical routing and controller mappings remain separate, and learn only
+consumes an eligible event while an explicit controller learn session is active.
+
 Task 069 keeps musical input and control-surface interpretation independent.
 `MidiControlSurfaceAdapter` only consumes explicitly configured port/channel
 note or CC bindings and forwards normalized controls to a `ControllerSession`.
