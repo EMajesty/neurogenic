@@ -13,6 +13,22 @@ The mixer supports bounded native track, group, aux and master effect chains. Se
 
 # NEUROGENIC
 
+## Build your own instrument
+
+NEUROGENIC is designed to be independent of any particular hardware layout,
+graphical interface or musical workflow. The reference instrument is one
+implementation of the platform, not a requirement.
+
+- **Want to design your own control surface?** See [Controller Design](docs/CONTROLLER_DESIGN.md).
+- **Want to create your own graphical interface?** See [Frontend Design](docs/FRONTEND_DESIGN.md).
+- **Want to rethink how a musical instrument works?** See [Workflow Design](docs/WORKFLOW_DESIGN.md).
+
+Build a different instrument around the same engine, combine your own hardware
+and software interfaces, or operate entirely without a graphical frontend.
+
+For an example of a complete instrument design, see the
+[Reference Controller V2 specification](docs/REFERENCE_CONTROLLER_V2.md).
+
 Performance launching now coordinates stable pattern, audio-clip and completed
 live-loop slots plus multi-track scenes through the existing timeline and audio
 paths. See [docs/PERFORMANCE_LAUNCHING.md](docs/PERFORMANCE_LAUNCHING.md).
@@ -47,9 +63,10 @@ protocol; see [controller protocol](docs/CONTROLLER_PROTOCOL.md). Launch it with
 `--controller /dev/serial/by-id/...`. Controller hardware remains optional.
 
 NEUROGENIC is an open-source, hardware-independent C++20 audio and MIDI
-workstation engine. Its first live vertical slice plays a WAV through miniaudio,
-receives MIDI through libremidi, executes Lua 5.4 through sol2, applies generated
-16-step patterns at bar boundaries, and retains deterministic offline rendering.
+instrument engine. Production paths include sample and synth playback, reusable
+patterns and arrangements, recording, mixing, modulation, native FX, MIDI and
+controller integration, with deterministic offline rendering and tests. Lua 5.4
+through sol2 remains an optional thin client rather than a required workflow.
 
 The engine now includes a bounded per-track mixer, eight stable stereo group
 buses, two stereo aux buses,
@@ -152,11 +169,12 @@ cmake --build --preset slint
 ./build/slint/neurogenic --frontend slint --headless
 ```
 
-Slint is the preferred new frontend foundation and remains opt-in while it
-reaches workflow parity. `--frontend slint` selects it in the production
-appliance; `--frontend sdl` or the legacy `--gui` selects SDL3, and
+Slint is the production appliance frontend and the default Nix package includes
+it. It remains an optional CMake build feature so lightweight headless and SDL3
+development do not require the Slint dependency closure. `--frontend slint`
+selects it; `--frontend sdl` or the legacy `--gui` selects SDL3, and
 `--frontend headless` selects no graphical loop. Its application shell,
-initial performance page and reusable component
+eight-page implementation and reusable component
 architecture are documented in [docs/SLINT_UI.md](docs/SLINT_UI.md). The SDL3
 graphical frontend is preserved; omit `--gui` for the existing CLI or headless
 application. See [docs/GUI.md](docs/GUI.md) for SDL3 controls and scaling.

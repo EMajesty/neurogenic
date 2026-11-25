@@ -1,5 +1,17 @@
 # Architecture
 
+## Instrument-platform boundary
+
+NEUROGENIC's musical engine and application services do not prescribe a panel,
+frontend toolkit, screen hierarchy, or workflow. The
+[Reference Controller V2](REFERENCE_CONTROLLER_V2.md) is the official reference
+instrument, while [Controller Design](CONTROLLER_DESIGN.md),
+[Frontend Design](FRONTEND_DESIGN.md), and [Workflow Design](WORKFLOW_DESIGN.md)
+describe the supported architecture for building different instruments. New
+clients must preserve the same authoritative services, stable semantic IDs,
+prepared publication, and real-time boundary; the repository does not currently
+provide a binary plugin ABI, external RPC API, or declarative workflow runtime.
+
 ## Modulation authoring boundary
 
 `ApplicationService` owns the editable `ModulationConfiguration` and

@@ -4,6 +4,9 @@ The intended physical/display relationship is defined by
 [Reference Controller V2](REFERENCE_CONTROLLER_V2.md). Slint remains an
 independent presentation client: the locked panel does not make page indices,
 control counts or coordinates application-state identities.
+Alternative graphical and non-graphical clients are described in
+[Frontend Design](FRONTEND_DESIGN.md); Slint is the production reference, not a
+mandatory engine dependency or interchangeable runtime plugin system.
 
 The FX page's Modulation and Macros subviews are the shared standalone
 authoring surface. Modulation creates and manages sources, edits parameters
@@ -29,8 +32,9 @@ same semantic application actions.
 
 ## Build and run
 
-Slint is deliberately opt-in. A normal dependency-enabled or headless build
-does not resolve or compile Slint:
+The default Nix production package includes Slint. In CMake, Slint remains an
+explicit preset/feature so a normal dependency-enabled or headless development
+build does not resolve or compile it:
 
 ```sh
 cmake --preset dev

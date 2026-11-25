@@ -6,6 +6,9 @@ relative placement are locked for current development; default assignments
 remain subject to prototype ergonomics. The implementation remains
 hardware-independent, and current gaps are maintained in
 [REFERENCE_CONTROLLER_V2_GAPS.md](audit/task-088/REFERENCE_CONTROLLER_V2_GAPS.md).
+Developers building a different surface should use the extension-oriented
+[Controller Design guide](CONTROLLER_DESIGN.md); the reference inventory is not
+an application or engine requirement.
 
 The Slint and dedicated-controller contextual paths use the same copied
 `ContextControl` assignments. In the Modulation context, Depth-/Depth+ and
