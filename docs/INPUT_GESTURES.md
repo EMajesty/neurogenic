@@ -39,7 +39,11 @@ using an injectable monotonic clock. Chord use consumes the pending tap and
 interrupts double-tap recognition. The precedence contract is modal ownership,
 explicit held modifier/chord, effective SHIFT, then normal context.
 
-`set_context()` cancels ownership before advancing its generation. A modal is a
+`set_context()` cancels context-owned controls before advancing its generation.
+Policies explicitly marked `global_across_context` survive a normal context
+transition and are rebound to the new generation. Task 096B uses that narrow
+policy for global SHIFT and the page press that initiates navigation; other
+held controls remain cancelled. A modal is a
 presentation-neutral context identity; its visual state remains frontend-owned.
 Existing held controls therefore cannot confirm a newly opened modal, and an
 old-page release cannot invoke a new-page action. Explicit global exceptions
@@ -82,7 +86,8 @@ one-shot deferred taps, consumed button chords, held-control encoder targets,
 modal cancellation, production semantic dispatch, disconnect cleanup, and
 stale-generation rejection.
 
-V2 page/SHIFT routing, complete navigation and transport bindings, held-step
+V2 page/SHIFT routing and the complete logical inventory are implemented by
+Task 096B. Complete navigation and transport bindings, held-step
 parameter locks, performance banks, and RGB firmware feedback remain later
 Task 096 work. Physical rollover, latency, lost packets, and ergonomics remain
 NOT RUN.

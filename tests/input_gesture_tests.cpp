@@ -32,7 +32,7 @@ int main() try {
         {"pad", {}, GestureDispatchPolicy::immediate},
         {"data", {}, GestureDispatchPolicy::immediate},
         {"repeat", {}, GestureDispatchPolicy::repeatable},
-        {"momentary", {}, GestureDispatchPolicy::momentary, false, false, {},
+        {"momentary", {}, GestureDispatchPolicy::momentary, false, false, false, {},
          {"transport.play.v1", {}, {}}, {"transport.stop.v1", {}, {}}}};
     configuration.chords = {
         {"shift", "pad", {"transport.stop.v1", {}, {}}, true, false},

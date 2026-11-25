@@ -209,6 +209,8 @@ void publish(const SlintUiState &state,
     window->set_time_signature(text(state.shell.time_signature));
     window->set_position(text(state.shell.position));
     window->set_page_id(text(state.shell.page_id));
+    window->set_destination_id(text(state.shell.destination_id));
+    window->set_effective_shift(state.shell.effective_shift);
     window->set_page_title(text(state.shell.page_title));
     window->set_selected_track(text(state.performance.selected_track));
     window->set_track_owner(text(state.performance.track_owner));
@@ -697,7 +699,11 @@ int run_slint_frontend(ApplicationService &application,
             publish(adapter.state(), window);
         });
         window->on_page_selected([&](int index) {
-            (void)adapter.select_page(static_cast<std::size_t>(index));
+            (void)adapter.select_reference_page(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_reference_shift_changed([&](bool effective) {
+            (void)adapter.set_reference_shift(effective);
             publish(adapter.state(), window);
         });
         window->on_transport_invoked([&](slint::SharedString operation) {
@@ -1202,12 +1208,18 @@ int run_slint_frontend(ApplicationService &application,
             };
             constexpr std::array<std::string_view, 8> page_ids{
                 "performance", "sequencer", "sample", "sound", "mixer",
-                "fx", "browser", "setup"};
+                "fx", "fx", "browser"};
+            constexpr std::array<std::string_view, 8> destination_ids{
+                "performance", "sequencer", "sample", "sound", "mixer",
+                "modulation", "macros", "browser"};
             for (int page = 0; page < 8; ++page) {
                 window->invoke_page_selected(page);
                 if (std::string_view(window->get_page_id().data()) !=
                     page_ids[static_cast<std::size_t>(page)])
                     throw std::runtime_error("generated page callback did not publish selection");
+                if (std::string_view(window->get_destination_id().data()) !=
+                    destination_ids[static_cast<std::size_t>(page)])
+                    throw std::runtime_error("generated page callback lost destination identity");
                 switch (page) {
                 case 0: window->invoke_pad_invoked(0, true); break;
                 case 1: {
@@ -1316,6 +1328,22 @@ int run_slint_frontend(ApplicationService &application,
                                      std::string(page_ids[static_cast<std::size_t>(page)]) +
                                      ".ppm");
             }
+            constexpr std::array<std::string_view, 8> secondary_ids{
+                "xy", "song", "slice", "presets", "fx",
+                "modulation-routing", "scenes", "setup"};
+            window->invoke_reference_shift_changed(true);
+            if (!window->get_effective_shift())
+                throw std::runtime_error("generated SHIFT callback did not change label layer");
+            for (int page = 0; page < 8; ++page) {
+                window->invoke_page_selected(page);
+                if (std::string_view(window->get_destination_id().data()) !=
+                    secondary_ids[static_cast<std::size_t>(page)])
+                    throw std::runtime_error("generated secondary destination mismatch");
+            }
+            window->invoke_reference_shift_changed(false);
+            if (window->get_effective_shift() ||
+                std::string_view(window->get_destination_id().data()) != "setup")
+                throw std::runtime_error("SHIFT release redirected secondary destination");
             window->invoke_page_selected(0);
             window->invoke_pad_assignment_clear(0);
             window->invoke_pad_assignment(0, 77);

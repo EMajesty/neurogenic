@@ -306,15 +306,40 @@ std::vector<GestureEvent> InputGestureArbiter::cancel_all(std::string reason) {
     return result;
 }
 
+std::vector<GestureEvent> InputGestureArbiter::transition_context(
+    std::string reason) {
+    std::vector<GestureEvent> result;
+    for (auto current = active_.begin(); current != active_.end();) {
+        if (current->second.policy.global_across_context) {
+            ++current;
+            continue;
+        }
+        const auto &ownership = current->second;
+        if (ownership.dispatched_press || ownership.consumed)
+            result.push_back(event(GestureEventKind::cancelled, current->first,
+                                   {}, {}, ownership.policy.release_target));
+        current = active_.erase(current);
+    }
+    last_tap_.clear();
+    observable_.last_cancellation = std::move(reason);
+    rebuild_modifiers();
+    ++observable_.revision;
+    return result;
+}
+
 std::vector<GestureEvent> InputGestureArbiter::set_context(
     std::string context, std::string modal_context) {
     if (observable_.context == context &&
         observable_.modal_context == modal_context)
         return {};
-    auto result = cancel_all("input context changed");
+    auto result = transition_context("input context changed");
     observable_.context = std::move(context);
     observable_.modal_context = std::move(modal_context);
     ++observable_.context_generation;
+    for (auto &[control, ownership] : active_) {
+        (void)control;
+        ownership.context_generation = observable_.context_generation;
+    }
     ++observable_.revision;
     return result;
 }

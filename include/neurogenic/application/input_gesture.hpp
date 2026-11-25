@@ -41,6 +41,7 @@ struct GestureControlPolicy {
     std::string control_id, modifier;
     GestureDispatchPolicy policy{GestureDispatchPolicy::immediate};
     bool latchable{}, global_during_modal{};
+    bool global_across_context{};
     GestureTiming timing;
     GestureTarget press_target, release_target;
 };
@@ -107,6 +108,7 @@ class InputGestureArbiter {
     [[nodiscard]] const GestureChord *chord(std::string_view,
                                             std::string_view) const;
     std::vector<GestureEvent> cancel_all(std::string reason);
+    std::vector<GestureEvent> transition_context(std::string reason);
     void rebuild_modifiers();
     [[nodiscard]] GestureEvent event(GestureEventKind, std::string,
                                      std::string = {}, double = {},

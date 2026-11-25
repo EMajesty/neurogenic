@@ -1,5 +1,11 @@
 # Designing musical workflows with NEUROGENIC
 
+Reference page routing is one composition of existing semantic workflows.
+Clients may group the same patterns, recording services, modulation objects and
+Browser operations differently without translating them into V2 page indices.
+Stable musical identities and semantic arguments remain the interoperability
+boundary.
+
 Multi-control workflows should compose logical controls and stable semantic
 targets through [gesture ownership](INPUT_GESTURES.md), not physical positions
 or a second musical-state authority.

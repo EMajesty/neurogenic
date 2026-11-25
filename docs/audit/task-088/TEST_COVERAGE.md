@@ -1,5 +1,12 @@
 # Test and validation audit
 
+Task 096B adds `neurogenic_reference_controller_tests` for the explicit V2
+inventory and production ControllerSession routing. The generated Slint harness
+invokes primary/secondary destination callbacks and SHIFT label changes, and
+validates top/central/right-2×4/bottom shell geometry at both resolutions. See
+[Task 096B validation](TASK_096B_VALIDATION.md). Coordinate input and physical
+validation are NOT RUN.
+
 ## Commands executed at `d8172a7`
 
 Task 090 superseding validation is recorded in

@@ -5,6 +5,14 @@ modifier, modal-context, repeat-timing, and reconnect-generation foundation.
 V2 page tables and bindings remain subsequent work; see
 [Input gestures](INPUT_GESTURES.md).
 
+Task 096B implements the stable logical inventory and the locked primary/SHIFT
+destination table as the explicit reference descriptor/profile. The production
+Slint reference shell consumes the same destination definitions as controller
+routing and composes a top page strip, central content, right-side 2×4 encoder
+zone, and bottom function strip. Dedicated edit/navigation/transport defaults
+and page-specific banks remain Task 096C/096D work. Physical validation remains
+NOT RUN.
+
 This document is the authoritative design reference for NEUROGENIC's intended
 Reference Controller V2. It supersedes earlier simplified panel assumptions,
 but not the hardware-independent application architecture: application
@@ -228,9 +236,9 @@ global shortcut layer. TRACK and PAGE select logical track/page positions.
 
 **Implementation status:** partial. Task 093 persists explicit logical
 performance positions, provides unassigned/reassign/clear behavior and
-deterministic legacy migration. Sequencer select-versus-toggle and several
-sample modes exist. The full page table, physical bank selection and temporary
-feedback are not implemented.
+deterministic legacy migration. Task 096B implements the complete destination
+table; Sequencer select-versus-toggle and several sample modes exist. Physical
+pad banks and temporary modifier feedback are not implemented.
 
 ## 7. Held-step editing and parameter locks
 
@@ -354,10 +362,11 @@ not fire on release. Opening a modal suppresses unrelated musical triggers and
 must drain/reject stale confirmation events. Reconnection clears physical held
 state and restores only authoritative latch state, preventing stuck modifiers.
 
-**Implementation status:** partial. Press/release packets, simultaneous input,
-session-local modifiers, feedback invalidation and modal semantic actions
-exist. There is no complete V2 gesture owner, modal context stack, release
-correlation, double-tap latch implementation or stale-event epoch.
+**Implementation status:** partial. Task 096A implements bounded release
+correlation, consume-on-chord, double-tap latch, modal ownership and host-side
+connection/context generations. Task 096B integrates held/latched SHIFT with
+page routing and reconnect cleanup. Complete V2 cluster policies, nested modal
+bindings and physical firmware validation remain open.
 
 ## 12. Temporary performance state
 

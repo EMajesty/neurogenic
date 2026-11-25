@@ -26,11 +26,13 @@ struct ControllerFeedback {
     ContextControl context;
 };
 struct ControllerSessionState {
-    std::string session_id, device_id, profile_id, context{"sequencer"}, error;
+    std::string session_id, device_id, profile_id, context{"sequencer"},
+        destination{"sequencer"}, error;
     ModifierState modifiers;
     std::unordered_map<std::string, PickupState> pickup;
     std::uint64_t received{}, rejected{}, dropped_feedback{}, feedback_revision{};
     std::uint64_t local_revision{1}, delivered_local_revision{};
+    std::uint64_t root_revision{1};
     bool resync_required{true};
     GestureInteractionState interaction;
 };
@@ -45,7 +47,8 @@ class ControllerSession {
   public:
     ControllerSession(ApplicationService &, ControllerDeviceDescriptor,
                       ControllerProfile, std::string session_id = {},
-                      std::size_t feedback_capacity = 128);
+                      std::size_t feedback_capacity = 128,
+                      InputGestureArbiter::Clock gesture_clock = {});
     [[nodiscard]] bool valid() const noexcept { return valid_; }
     [[nodiscard]] const ControllerDeviceDescriptor &descriptor() const noexcept {
         return descriptor_;

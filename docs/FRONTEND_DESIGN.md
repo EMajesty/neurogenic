@@ -1,5 +1,11 @@
 # Designing a frontend for NEUROGENIC
 
+Reference frontends may reuse `reference_primary_destinations()` and
+`reference_secondary_destinations()`, but alternative frontends need not. The
+tables identify presentation destinations and existing subviews; they do not
+own engine state. Slint's two-column encoder zone and label strips are shell
+geometry, not application schema.
+
 Frontends may publish a presentation-local modal identity through the shared
 [input ownership contract](INPUT_GESTURES.md). Rendering remains frontend-local;
 modal transitions invalidate stale held input.

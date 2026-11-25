@@ -1,5 +1,13 @@
 # Implementation status
 
+Task 096B adds an explicit Reference Controller V2 descriptor/profile, the
+shared sixteen-destination primary/SHIFT resolver, production controller page
+routing, and the Slint reference shell's top/right/bottom zones. The locked
+inventory is 58 buttons (including 16 pads) and nine relative encoders; logical
+IDs remain distinct from placement and protocol IDs. Simulated and generated
+component evidence is documented in
+`docs/audit/task-088/TASK_096B_VALIDATION.md`; physical validation is NOT RUN.
+
 Task 096A adds opt-in presentation-neutral gesture arbitration to controller
 sessions: correlated presses/releases, bounded policies and repetition,
 consume-on-chord, stable semantic targets, modal/context generations, and safe

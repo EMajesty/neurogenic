@@ -1,5 +1,11 @@
 # Designing a controller for NEUROGENIC
 
+The Reference Controller V2 descriptor is a worked profile, not a required
+inventory. Custom devices declare only their own stable logical controls and
+need not expose pages, pads, SHIFT, eight encoders, or reference destinations.
+Reference screen placement and firmware scan positions are deliberately absent
+from `ControllerDeviceDescriptor`.
+
 Devices needing held modifiers or chords can opt into the bounded
 [gesture ownership contract](INPUT_GESTURES.md). Simple MIDI profiles and direct
 semantic clients do not have to emulate Reference Controller V2.

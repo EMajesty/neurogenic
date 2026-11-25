@@ -1,5 +1,18 @@
 # Application control and controller API
 
+Task 096B provides an explicit optional Reference Controller V2
+descriptor/profile with stable human-readable logical IDs. The default binds
+page routing, contextual encoders/functions, SHIFT and performance pads;
+navigation/edit/transport controls not yet implemented are explicitly
+unassigned. Older dedicated profiles and generic MIDI profiles retain their
+identities and behavior.
+
+One shared primary/secondary destination table drives controller and Slint
+routing. Held or latched SHIFT selects the secondary table; releasing SHIFT
+changes labels back without navigating away. Repeating the active destination
+publishes a root-navigation revision. Task 096C supplies cluster bindings and
+Task 096D the full contextual banks.
+
 Press/release ownership, chords, modifiers, modal precedence, and connection
 generations are defined in [Input gestures](INPUT_GESTURES.md). They use logical
 control identities and do not require the reference panel.

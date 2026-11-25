@@ -1,5 +1,17 @@
 # Architecture
 
+`reference_controller_v2_descriptor()` and its default profile are optional
+clients of the general controller layer. `ReferenceDestination` is copied
+presentation policy: it maps a stable destination identity to an existing page
+and subview without creating musical state. `ControllerSession` and the Slint
+reference shell consume the same tables. Alternative clients may ignore them,
+invoke semantic actions directly, or provide unrelated navigation.
+
+Normal context changes cancel context-owned gestures. Only explicitly global
+policies (V2 SHIFT and the page press initiating navigation) survive and are
+rebound to the new context generation. Modal transitions retain precedence and
+reject page navigation. This work remains entirely outside the audio callback.
+
 Optional multi-control input uses the bounded, presentation-neutral
 [gesture ownership layer](INPUT_GESTURES.md). Direct semantic clients remain
 supported; gesture state is control-side and never enters the audio callback.

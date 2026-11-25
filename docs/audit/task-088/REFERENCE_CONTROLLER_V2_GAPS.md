@@ -1,11 +1,14 @@
 # Reference Controller V2 implementation gaps
 
-Task 096A evidence: RC2-001 is **partially implemented** at the shared
+Task 096B evidence: RC2-001 remains **partially implemented** at the shared
 infrastructure layer by `InputGestureArbiter`, `ControllerSession` integration,
 and `neurogenic_input_gesture_tests`. V2-specific policies, full profile and
-physical validation remain open. RC2-007's foundational modal ownership and
-input generations are implemented; complete modal bindings and rendered V2
-presentation remain open. See `docs/INPUT_GESTURES.md`.
+physical validation remain open. RC2-002 is **implemented in software**: the
+explicit V2 descriptor/profile, shared destinations, primary/SHIFT routing,
+root revision, and reference shell zones have production-path tests. RC2-007's
+foundational modal ownership and input generations are implemented; complete
+modal bindings remain open. See `docs/INPUT_GESTURES.md` and
+`TASK_096B_VALIDATION.md`.
 
 This report reconciles the locked
 [Reference Controller V2](../../REFERENCE_CONTROLLER_V2.md) design with the
@@ -44,8 +47,8 @@ Status vocabulary:
 
 | Area | Current evidence | Classification | First remaining layer |
 |---|---|---|---|
-| Physical inventory | Descriptor has 16 grid, 8 page, 8 function, 8 contextual encoders, DATA, 6 navigation, 10 edit and 10 performance controls | Partial | Descriptor names/types and protocol IDs must be reconciled to the locked V2 identities; all hardware validation is NOT RUN |
-| Static pages | Eight `local-context` bindings; Slint page/bank identity exists | Partial | Implement the V2 primary/SHIFT destination table, active-page root and shifted top labels |
+| Physical inventory | Explicit `reference_controller_v2_descriptor()` has 67 unique logical identities: 58 buttons including pads and nine encoders | Implemented in software | Firmware/wire negotiation and all physical validation are NOT RUN |
+| Static pages | Shared primary/SHIFT table drives `reference-page` controller dispatch and Slint labels; repeated destination increments root revision | Implemented in software | Physical ergonomics and complete nested root policies remain validation/integration work |
 | DATA encoder | Relative input, fine SHIFT and acceleration exist; default is tempo | Partial | Add focus-aware descriptor target resolution and hold-and-turn chord targets |
 | Navigation cluster | Focus previous/next, confirm/cancel, step-page left/right | Partial | Four-way focus geometry, repeat/acceleration, first/last, page up/down, root and safe Save |
 | Editing cluster | SHIFT and SELECT mapped; most other controls explicitly unassigned | Partial | Gesture owner plus V2 MUTE/SOLO/ARM/TRACK/PAGE/ERASE/UNDO/COPY bindings and availability |
@@ -61,7 +64,7 @@ Status vocabulary:
 | Modal precedence | Confirm/cancel semantic operations and shell modals exist | Partial | Shared modal context stack, input epoch, transport exceptions and stale-release suppression |
 | Press/release ownership | Protocol sends button state; session ignores most releases | Partial | Chord arbitration, momentary release dispatch, consumed-tap tracking and lost-release recovery |
 | RGB feedback | Capability, queueing, overflow recovery and reconnect resync exist | Partial | V2 semantic palette/pulse patterns, non-color cues and RGB inventory; physical LEDs NOT RUN |
-| Screen zones | Top navigation and eight contextual labels/functions exist | Partial | Locked top/right-2×4/bottom composition and SHIFT label changes at both resolutions |
+| Screen zones | Production Slint shell has top navigation, central content, right 2×4 encoder grid and bottom functions | Implemented in software | Final visual design, coordinate touch and physical display validation remain open |
 | Manual mappings | MIDI learn, target selection, pickup/invert/fine/acceleration and profile persistence | Partial (AUD2-006) | Manual source creation, complex typed arguments, conflict replacement, feedback/context editing |
 | Firmware | Protocol supports press/release, encoder deltas, RGB/context feedback and reconnection | Missing firmware/protocol support | Physical firmware, rollover/ghosting/debounce tests, connection epoch/lost-release contract |
 | Temporary performance state | Task 094 establishes one bounded application history and specifies a single application-owned checkpoint | Design complete; implementation deferred | Implement prepared capture/restore after Task 095, without PCM retention or a shadow snapshot stack |
@@ -116,6 +119,12 @@ the primary/SHIFT page table, active-page root, top labels and right-side 2×4
 context layout without embedding indices in application state. Acceptance:
 Slint and simulated controller resolve identical stable destinations/labels at
 1920×1200 and 1024×600.
+
+**Task 096B status: implemented in software.** `reference_controller_tests`
+validates the complete inventory, all destinations, held SHIFT across context
+changes, modal rejection and reconnect generations. Generated Slint tests cover
+primary/secondary callbacks and structured zones at both resolutions. Physical
+hardware and coordinate-driven touch remain NOT RUN.
 
 ### RC2-003 — Dedicated navigation/edit/transport bindings (P1)
 

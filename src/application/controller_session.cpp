@@ -1,4 +1,5 @@
 #include "neurogenic/application/controller_session.hpp"
+#include "neurogenic/application/reference_controller.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -49,9 +50,11 @@ ControllerSession::ControllerSession(ApplicationService &application,
                                      ControllerDeviceDescriptor descriptor,
                                      ControllerProfile profile,
                                      std::string session_id,
-                                     std::size_t feedback_capacity)
+                                     std::size_t feedback_capacity,
+                                     InputGestureArbiter::Clock gesture_clock)
     : application_(&application), descriptor_(std::move(descriptor)),
       profile_(std::move(profile)), bindings_(application),
+      gestures_(std::move(gesture_clock)),
       capacity_(std::max<std::size_t>(1, std::min(
           feedback_capacity, descriptor_.maximum_feedback_queue))) {
     std::string error;
@@ -170,6 +173,25 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
     }
     if (mapping->semantic == "local-context") {
         set_context(mapping->context);
+        error.clear();
+        return true;
+    }
+    if (mapping->semantic == "reference-page") {
+        if (mapping->index < 0 || mapping->index >= 8) {
+            error = "reference page position is invalid";
+            return false;
+        }
+        const auto &table = state_.modifiers.shift || state_.modifiers.shift_latched
+                                ? reference_secondary_destinations()
+                                : reference_primary_destinations();
+        const auto &destination = table[static_cast<std::size_t>(mapping->index)];
+        if (!destination.available) {
+            error = "reference destination is unavailable";
+            return false;
+        }
+        if (state_.destination == destination.id) ++state_.root_revision;
+        state_.destination = destination.id;
+        set_context(destination.id);
         error.clear();
         return true;
     }
@@ -335,11 +357,14 @@ bool ControllerSession::dispatch_gesture(const GestureEvent &event,
 
 void ControllerSession::synchronize_interaction() noexcept {
     state_.interaction = gestures_.state();
-    state_.modifiers.shift = state_.interaction.held_controls.contains("shift");
+    state_.modifiers.shift =
+        state_.interaction.effective_modifiers.contains("shift") &&
+        !state_.interaction.latched_modifiers.contains("shift");
     state_.modifiers.shift_latched =
         state_.interaction.latched_modifiers.contains("shift");
     state_.modifiers.select =
-        state_.interaction.held_controls.contains("select");
+        state_.interaction.effective_modifiers.contains("select") &&
+        !state_.interaction.latched_modifiers.contains("select");
     state_.modifiers.select_latched =
         state_.interaction.latched_modifiers.contains("select");
 }

@@ -4,6 +4,14 @@ Input connection generations and gesture ownership are host-side in Task 096A;
 the wire format is unchanged. Firmware continues sending stable logical
 identities and press/release events. See [Input gestures](INPUT_GESTURES.md).
 
+Task 096B adds the host-side descriptor
+`neurogenic.reference-controller-v2.v1`. Its 67 stable logical identities are
+eight `page.N`, eight `function.N`, eight `parameter.N`, `data`, six
+`navigation.*`, ten `edit.*`, ten `transport.*`, and sixteen `pad.N` controls.
+These names do not assign wire numbers, GPIOs, matrix positions, or LED-chain
+offsets. Existing protocol 1.x descriptors are not reinterpreted; a physical V2
+firmware inventory requires explicit future negotiation in Task 096G.
+
 ## Transport decision
 
 The first transport is USB CDC ACM serial at 115200 baud. CDC was selected

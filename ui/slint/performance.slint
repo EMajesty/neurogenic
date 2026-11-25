@@ -19,8 +19,10 @@ export component PerformanceWindow inherits Window {
     out property <bool> test-shell-layout-valid:
         status-strip.width > 0px && status-strip.height > 0px &&
         page-strip.width > 0px && page-strip.height >= 40px &&
-        context-strip.width > 0px && context-strip.height >= 64px &&
-        function-strip.width > 0px && function-strip.height >= 48px;
+        encoder-zone.width >= 220px && encoder-zone.height > 0px &&
+        central-zone.width > 0px && central-zone.height > 0px &&
+        function-strip.width > 0px && function-strip.height >= 48px &&
+        central-zone.x + central-zone.width <= encoder-zone.x;
     in property <string> project-name: "Untitled";
     in property <bool> project-dirty: false;
     in property <bool> history-pending: false;
@@ -33,6 +35,8 @@ export component PerformanceWindow inherits Window {
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
+    in property <string> destination-id: "performance";
+    in property <bool> effective-shift: false;
     in property <string> page-title: "Performance";
     in property <string> selected-track: "Unavailable";
     in property <string> track-owner: "Arrangement";
@@ -189,7 +193,7 @@ export component PerformanceWindow inherits Window {
     callback context-bank-changed(int);
     callback pad-invoked(int, bool); callback keyboard-input(string, bool);
     callback pad-assignment(int, int); callback pad-assignment-clear(int);
-    callback page-selected(int); callback transport-invoked(string);
+    callback page-selected(int); callback reference-shift-changed(bool); callback transport-invoked(string);
     callback track-selected(int); callback return-arrangement();
     callback scene-invoked(int); callback notification-dismissed();
     callback quantization-invoked();
@@ -251,17 +255,12 @@ export component PerformanceWindow inherits Window {
         status-strip := GlobalStatus { height: 48px; project: root.project-name; dirty: root.project-dirty; transport: root.transport-state; tempo: root.tempo; signature: root.time-signature; position: root.position; page-title: root.page-title; }
         page-strip := HorizontalLayout {
             height: 44px; spacing: 4px;
-            for page[i] in root.pages: PageButton { text: page.title; selected: page.id == root.page-id; implemented: page.implemented; clicked => { root.page-selected(i); } }
+            for page[i] in root.pages: PageButton { text: page.title; selected: page.id == root.destination-id; implemented: page.implemented; clicked => { root.page-selected(i); } }
             PageButton { width: 76px; text: root.history-pending ? "Undo…" : root.undo-label == "" ? "Undo" : "Undo " + root.undo-label; implemented: root.can-undo && !root.history-pending; clicked => { root.history-action("undo"); } }
             PageButton { width: 76px; text: root.history-pending ? "Redo…" : root.redo-label == "" ? "Redo" : "Redo " + root.redo-label; implemented: root.can-redo && !root.history-pending; clicked => { root.history-action("redo"); } }
         }
-        context-strip := HorizontalLayout {
-            spacing: 5px; height: 72px;
-            PageButton { width: 36px; text: "‹"; clicked => { root.context-bank-changed(-1); } }
-            Text { width: 90px; text: root.context-bank; color: #9fb3c8; vertical-alignment: center; }
-            for item[i] in root.encoders: ContextualEncoder { label: item.label; value: item.value; unit: item.unit; active: item.active; turned(delta) => { root.encoder-turned(i, delta); } }
-            PageButton { width: 36px; text: "›"; clicked => { root.context-bank-changed(1); } }
-        }
+        content-row := HorizontalLayout { spacing: 6px; vertical-stretch: 1;
+        central-zone := VerticalLayout { vertical-stretch: 1;
         if root.page-id == "performance": PerformancePage {
             vertical-stretch: 1; transport-state: root.transport-state;
             selected-track: root.selected-track; track-owner: root.track-owner;
@@ -391,6 +390,13 @@ export component PerformanceWindow inherits Window {
             text-requested(operation, current) => { root.text-entry-requested(operation, current); } exit-requested => { root.setup-exit(); }
         }
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }
+        }
+        encoder-zone := Rectangle { width: 260px; background: Theme.panel; border-radius: Theme.radius;
+            GridLayout { padding: 6px; spacing: 5px;
+                for item[i] in root.encoders: ContextualEncoder { row: i / 2; col: mod(i, 2); label: item.label; value: item.value; unit: item.unit; active: item.active; turned(delta) => { root.encoder-turned(i, delta); } }
+            }
+        }
+        }
         function-strip := HorizontalLayout { spacing: 5px; height: 54px; for item[i] in root.functions: ContextualFunctionButton { text: item.label; available: item.active; clicked => { root.function-invoked(i); } } }
         Notification { message: root.notification; height: 30px; dismissed => { root.notification-dismissed(); } }
     }

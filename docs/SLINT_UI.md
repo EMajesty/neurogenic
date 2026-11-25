@@ -8,6 +8,14 @@ Alternative graphical and non-graphical clients are described in
 [Frontend Design](FRONTEND_DESIGN.md); Slint is the production reference, not a
 mandatory engine dependency or interchangeable runtime plugin system.
 
+The Task 096B reference shell has four functional zones: eight shared page
+labels at the top, existing editors in the central region, eight contextual
+parameter fields ordered P1/P2 through P7/P8 in a right-side 2×4 grid, and
+eight functions along the bottom. Effective SHIFT swaps only the page-label
+model and destination layer; the selected secondary destination remains active
+when SHIFT is released. This geometry is reference presentation policy, not an
+application-state requirement.
+
 The FX page's Modulation and Macros subviews are the shared standalone
 authoring surface. Modulation creates and manages sources, edits parameters
 from type descriptors, and routes the selected source to compatible effect

@@ -51,8 +51,11 @@ struct SlintShellState {
         time_signature{"4/4"}, position{"1.1.1"},
         selected_track{"Unavailable"}, active_content{"Unavailable"},
         track_owner{"Arrangement"}, launch_quantization{"Bar"},
-        page_id{"performance"}, page_title{"Performance"}, notification,
+        page_id{"performance"}, destination_id{"performance"},
+        page_title{"Performance"}, notification,
         undo_label, redo_label;
+    bool effective_shift{};
+    std::uint64_t root_revision{1};
     std::vector<SlintPageItem> pages;
 };
 
@@ -504,6 +507,8 @@ class SlintFrontendAdapter {
                                               std::uint64_t slot_id);
     [[nodiscard]] bool clear_performance_pad(std::size_t position);
     [[nodiscard]] bool select_page(std::size_t index);
+    [[nodiscard]] bool select_reference_page(std::size_t index);
+    [[nodiscard]] bool set_reference_shift(bool effective);
     [[nodiscard]] bool select_track(int direction);
     [[nodiscard]] bool launch_scene(std::size_t index);
     [[nodiscard]] bool return_to_arrangement();

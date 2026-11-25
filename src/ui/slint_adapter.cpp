@@ -1,4 +1,5 @@
 #include "neurogenic/ui/slint_adapter.hpp"
+#include "neurogenic/application/reference_controller.hpp"
 #include "neurogenic/audio/slicing.hpp"
 #include "neurogenic/project/preset.hpp"
 #include <algorithm>
@@ -736,15 +737,20 @@ bool SlintFrontendAdapter::refresh() {
         snapshot.time_signature_denominator);
     next.shell.page_id = state_.shell.page_id.empty() ? "performance"
                                                        : state_.shell.page_id;
+    next.shell.destination_id = state_.shell.destination_id.empty()
+                                    ? next.shell.page_id
+                                    : state_.shell.destination_id;
+    next.shell.effective_shift = state_.shell.effective_shift;
+    next.shell.root_revision = state_.shell.root_revision;
     next.shell.page_title = state_.shell.page_title.empty()
                                 ? "Performance"
                                 : state_.shell.page_title;
-    for (const auto &[id, title] : pages)
-        next.shell.pages.push_back({std::string(id), std::string(title),
-                                    id == "performance" || id == "sequencer" ||
-                                    id == "sample" || id == "sound" ||
-                                        id == "mixer" || id == "fx" ||
-                                        id == "browser" || id == "setup"});
+    const auto &destinations = next.shell.effective_shift
+                                   ? reference_secondary_destinations()
+                                   : reference_primary_destinations();
+    for (const auto &destination : destinations)
+        next.shell.pages.push_back({destination.id, destination.short_label,
+                                    destination.available});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &scene : snapshot.performance_launching.scenes) {
@@ -1756,10 +1762,55 @@ bool SlintFrontendAdapter::select_page(std::size_t index) {
         return false;
     }
     state_.shell.page_id = std::string(pages[index].first);
+    state_.shell.destination_id = state_.shell.page_id;
     state_.shell.page_title = std::string(pages[index].second);
     context_bank_ = 0;
     state_.shell.notification.clear();
     last_error_ = state_.shell.notification;
+    ++local_revision_;
+    return true;
+}
+
+bool SlintFrontendAdapter::select_reference_page(std::size_t index) {
+    const auto &destinations = state_.shell.effective_shift
+                                   ? reference_secondary_destinations()
+                                   : reference_primary_destinations();
+    if (index >= destinations.size() || !destinations[index].available) {
+        last_error_ = "Page is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto &destination = destinations[index];
+    if (state_.shell.destination_id == destination.id)
+        ++state_.shell.root_revision;
+    state_.shell.destination_id = destination.id;
+    state_.shell.page_id = destination.page_id;
+    state_.shell.page_title = destination.title;
+    if (destination.id == "song") state_.sequencer.arrangement_view = true;
+    else if (destination.id == "sequencer")
+        state_.sequencer.arrangement_view = false;
+    if (destination.page_id == "sound") state_.sound.subview = destination.subview;
+    if (destination.page_id == "fx")
+        state_.fx.subview = destination.subview == "routes" ? "modulation"
+                           : destination.subview == "scenes" ? "macros"
+                                                               : destination.subview;
+    if (destination.page_id == "setup") state_.setup.subview = destination.subview;
+    context_bank_ = 0;
+    state_.shell.notification.clear();
+    last_error_.clear();
+    ++local_revision_;
+    return true;
+}
+
+bool SlintFrontendAdapter::set_reference_shift(bool effective) {
+    if (state_.shell.effective_shift == effective) return true;
+    state_.shell.effective_shift = effective;
+    state_.shell.pages.clear();
+    const auto &destinations = effective ? reference_secondary_destinations()
+                                         : reference_primary_destinations();
+    for (const auto &destination : destinations)
+        state_.shell.pages.push_back({destination.id, destination.short_label,
+                                      destination.available});
     ++local_revision_;
     return true;
 }
