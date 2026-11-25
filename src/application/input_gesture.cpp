@@ -99,7 +99,13 @@ const GestureChord *InputGestureArbiter::chord(std::string_view owner,
     const auto found = std::find_if(configuration_.chords.begin(),
         configuration_.chords.end(), [&](const auto &candidate) {
             const auto wildcard = candidate.input_control.ends_with(".*");
+            const auto separator = observable_.context.find(':');
+            const auto base = observable_.context.substr(0, separator);
+            const auto context_matches = candidate.contexts.empty() ||
+                std::find(candidate.contexts.begin(), candidate.contexts.end(),
+                          base) != candidate.contexts.end();
             return candidate.owner_control == owner &&
+                   context_matches &&
                    (candidate.input_control == input ||
                     (wildcard && input.starts_with(candidate.input_control.substr(
                                      0, candidate.input_control.size() - 1))));

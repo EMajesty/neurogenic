@@ -1,5 +1,20 @@
 # Implementation status
 
+## Task 096E project-owned Performance banks
+
+Projects now persist bounded named Performance banks with stable primary and
+SHIFT parameter/action layers and banked launcher-pad assignments. Reference
+Controller V2 and deliberately non-reference controllers consume the same
+context descriptors; momentary Fill retains its press target through release
+and cancels safely on bank/page/modal/disconnect ownership loss. Definition
+authoring participates in unified history, while live values and active-bank
+selection do not. See [Performance banks](PERFORMANCE_BANKS.md) and
+[Task 096E validation](audit/task-088/TASK_096E_VALIDATION.md).
+
+RC2-005 remains partial pending the complete graphical typed-argument target
+picker and physical validation. AUD2-007 remains partial; physical validation
+is **NOT RUN**.
+
 ## Task 096D contextual musical editing
 
 Reference Controller V2 Sequencer pads now have context-specific ownership:

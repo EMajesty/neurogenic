@@ -1,5 +1,11 @@
 # Performance macros
 
+Task 096E allows a banked continuous assignment to address
+`macro.<stable-id>.value`. Relative movement is routed through the macro
+service, so its existing multi-destination ranges and modulation publication
+remain authoritative; Performance banks do not copy macro assignments or
+values. See [Performance banks](PERFORMANCE_BANKS.md).
+
 Performance macros are persistent, normalized control sources compiled into the
 existing modulation graph. A macro has a stable 64-bit identity, a distinct
 stable modulator-instance identity, a project/track/group/master owner, a base

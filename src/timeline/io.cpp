@@ -1,10 +1,13 @@
 #include "neurogenic/timeline/io.hpp"
 #include "neurogenic/timeline/playback.hpp"
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <iomanip>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 
 namespace neurogenic {
 namespace {
@@ -31,6 +34,44 @@ void require_end(std::istringstream &line) {
     std::string extra;
     if (line >> extra)
         throw std::runtime_error("unexpected trailing timeline data");
+}
+PerformanceArgumentValue read_performance_value(std::istringstream &line) {
+    char type{};
+    if (!(line >> type)) throw std::runtime_error("missing performance argument type");
+    if (type == 'b') {
+        unsigned value{};
+        if (!(line >> value) || value > 1)
+            throw std::runtime_error("invalid performance boolean argument");
+        return value != 0;
+    }
+    if (type == 'i') {
+        std::int64_t value{};
+        if (!(line >> value)) throw std::runtime_error("invalid performance integer argument");
+        return value;
+    }
+    if (type == 'r') {
+        double value{};
+        if (!(line >> value) || !std::isfinite(value))
+            throw std::runtime_error("invalid performance real argument");
+        return value;
+    }
+    if (type == 's') {
+        std::string value;
+        if (!(line >> std::quoted(value)))
+            throw std::runtime_error("invalid performance text argument");
+        return value;
+    }
+    throw std::runtime_error("unknown performance argument type");
+}
+void write_performance_value(std::ostream &output,
+                             const PerformanceArgumentValue &value) {
+    std::visit([&](const auto &item) {
+        using T = std::decay_t<decltype(item)>;
+        if constexpr (std::is_same_v<T, bool>) output << "b " << (item ? 1 : 0);
+        else if constexpr (std::is_same_v<T, std::int64_t>) output << "i " << item;
+        else if constexpr (std::is_same_v<T, double>) output << "r " << item;
+        else output << "s " << std::quoted(item);
+    }, value);
 }
 } // namespace
 Timeline load_timeline(const std::filesystem::path &path) {
@@ -168,6 +209,89 @@ Timeline load_timeline(const std::filesystem::path &path) {
                     scene.entries.push_back(entry);
                 }
                 timeline.arrangement.performance_scenes.push_back(std::move(scene));
+                require_end(line);
+            } else if (kind == "performance_bank") {
+                PerformanceBank bank;
+                if (version < 12 || !(line >> bank.id >> std::quoted(bank.name)) ||
+                    !bank.id || bank.name.empty())
+                    throw std::runtime_error("invalid performance bank");
+                timeline.arrangement.performance_banks.push_back(std::move(bank));
+                require_end(line);
+            } else if (kind == "performance_parameter") {
+                PerformanceParameterAssignment assignment;
+                PerformanceBankId bank_id{};
+                unsigned secondary{};
+                if (version < 12 ||
+                    !(line >> bank_id >> assignment.id >> assignment.position >>
+                      secondary >> assignment.scale >>
+                      std::quoted(assignment.parameter_id) >>
+                      std::quoted(assignment.label)) ||
+                    secondary > 1 || !assignment.id ||
+                    assignment.parameter_id.empty() ||
+                    !std::isfinite(assignment.scale) || assignment.scale <= 0)
+                    throw std::runtime_error("invalid performance parameter assignment");
+                assignment.secondary = secondary != 0;
+                const auto bank = std::find_if(
+                    timeline.arrangement.performance_banks.begin(),
+                    timeline.arrangement.performance_banks.end(),
+                    [=](const auto &value) { return value.id == bank_id; });
+                if (bank == timeline.arrangement.performance_banks.end() ||
+                    bank->parameters.size() >= PerformanceBank::maximum_parameters)
+                    throw std::runtime_error("performance parameter bank is unavailable or full");
+                bank->parameters.push_back(std::move(assignment));
+                require_end(line);
+            } else if (kind == "performance_action") {
+                PerformanceActionAssignment assignment;
+                PerformanceBankId bank_id{};
+                unsigned secondary{}, behavior{};
+                std::size_t press_count{}, release_count{};
+                if (version < 12 ||
+                    !(line >> bank_id >> assignment.id >> assignment.position >>
+                      secondary >> behavior >> std::quoted(assignment.action_id) >>
+                      std::quoted(assignment.label) >> press_count >> release_count) ||
+                    secondary > 1 ||
+                    behavior > static_cast<unsigned>(PerformanceActionBehavior::momentary) ||
+                    !assignment.id || assignment.action_id.empty() ||
+                    press_count > 16 || release_count > 16)
+                    throw std::runtime_error("invalid performance action assignment");
+                assignment.secondary = secondary != 0;
+                assignment.behavior = static_cast<PerformanceActionBehavior>(behavior);
+                auto read_arguments = [&](auto &arguments, std::size_t count) {
+                    for (std::size_t i = 0; i < count; ++i) {
+                        std::string name;
+                        if (!(line >> std::quoted(name)) || name.empty())
+                            throw std::runtime_error("invalid performance argument name");
+                        if (!arguments.emplace(std::move(name), read_performance_value(line)).second)
+                            throw std::runtime_error("duplicate performance argument");
+                    }
+                };
+                read_arguments(assignment.arguments, press_count);
+                read_arguments(assignment.release_arguments, release_count);
+                const auto bank = std::find_if(
+                    timeline.arrangement.performance_banks.begin(),
+                    timeline.arrangement.performance_banks.end(),
+                    [=](const auto &value) { return value.id == bank_id; });
+                if (bank == timeline.arrangement.performance_banks.end() ||
+                    bank->actions.size() >= PerformanceBank::maximum_actions)
+                    throw std::runtime_error("performance action bank is unavailable or full");
+                bank->actions.push_back(std::move(assignment));
+                require_end(line);
+            } else if (kind == "performance_pad") {
+                PerformancePadAssignment assignment;
+                PerformanceBankId bank_id{};
+                if (version < 12 ||
+                    !(line >> bank_id >> assignment.id >> assignment.position >>
+                      assignment.launch_slot >> std::quoted(assignment.label)) ||
+                    !assignment.id || !assignment.launch_slot)
+                    throw std::runtime_error("invalid performance pad assignment");
+                const auto bank = std::find_if(
+                    timeline.arrangement.performance_banks.begin(),
+                    timeline.arrangement.performance_banks.end(),
+                    [=](const auto &value) { return value.id == bank_id; });
+                if (bank == timeline.arrangement.performance_banks.end() ||
+                    bank->pads.size() >= PerformanceBank::maximum_pads)
+                    throw std::runtime_error("performance pad bank is unavailable or full");
+                bank->pads.push_back(std::move(assignment));
                 require_end(line);
             } else if (kind == "pattern") {
                 PatternDefinition pattern;
@@ -438,6 +562,51 @@ Timeline load_timeline(const std::filesystem::path &path) {
             ordered[position]->logical_position =
                 static_cast<std::int32_t>(position);
     }
+    // Version 12 makes the formerly global logical launch positions an
+    // explicit project-owned Performance bank. Loading is non-destructive;
+    // older source files are never rewritten merely by this migration.
+    if (version < 12) {
+        PerformanceBank migrated;
+        migrated.id = 1;
+        migrated.name = "Performance";
+        PerformanceAssignmentId next = 1;
+        for (const auto &slot : timeline.arrangement.launch_slots)
+            if (slot.logical_position >= 0)
+                migrated.pads.push_back(
+                    {next++, static_cast<std::uint32_t>(slot.logical_position),
+                     slot.id, {}});
+        if (!migrated.pads.empty())
+            timeline.arrangement.performance_banks.push_back(std::move(migrated));
+    }
+    {
+        std::set<PerformanceBankId> banks;
+        std::set<PerformanceAssignmentId> assignments;
+        for (const auto &bank : timeline.arrangement.performance_banks) {
+            if (!bank.id || bank.name.empty() || !banks.insert(bank.id).second ||
+                bank.parameters.size() > PerformanceBank::maximum_parameters ||
+                bank.actions.size() > PerformanceBank::maximum_actions ||
+                bank.pads.size() > PerformanceBank::maximum_pads)
+                throw std::runtime_error("invalid performance bank collection");
+            std::set<std::pair<std::uint32_t, bool>> parameter_positions,
+                action_positions;
+            std::set<std::uint32_t> pad_positions;
+            for (const auto &value : bank.parameters)
+                if (!assignments.insert(value.id).second ||
+                    !parameter_positions.emplace(value.position,
+                                                  value.secondary).second)
+                    throw std::runtime_error("duplicate performance parameter assignment");
+            for (const auto &value : bank.actions)
+                if (!assignments.insert(value.id).second ||
+                    !action_positions.emplace(value.position,
+                                               value.secondary).second)
+                    throw std::runtime_error("duplicate performance action assignment");
+            for (const auto &value : bank.pads) {
+                if (!assignments.insert(value.id).second ||
+                    !pad_positions.insert(value.position).second)
+                    throw std::runtime_error("invalid performance pad assignment");
+            }
+        }
+    }
     PlaybackPlan validation;
     std::string error;
     if (!compile_timeline(timeline, validation, error))
@@ -490,6 +659,40 @@ void save_timeline(const Timeline &timeline,
                << std::quoted(scene.name);
         for (const auto &entry : scene.entries) output << ' ' << entry.track << ' ' << entry.slot;
         output << '\n';
+    }
+    for (const auto &bank : a.performance_banks) {
+        output << "performance_bank " << bank.id << ' ' << std::quoted(bank.name)
+               << '\n';
+        for (const auto &assignment : bank.parameters)
+            output << "performance_parameter " << bank.id << ' ' << assignment.id
+                   << ' ' << assignment.position << ' '
+                   << (assignment.secondary ? 1 : 0) << ' ' << assignment.scale
+                   << ' ' << std::quoted(assignment.parameter_id) << ' '
+                   << std::quoted(assignment.label) << '\n';
+        for (const auto &assignment : bank.actions) {
+            output << "performance_action " << bank.id << ' ' << assignment.id
+                   << ' ' << assignment.position << ' '
+                   << (assignment.secondary ? 1 : 0) << ' '
+                   << static_cast<unsigned>(assignment.behavior) << ' '
+                   << std::quoted(assignment.action_id) << ' '
+                   << std::quoted(assignment.label) << ' '
+                   << assignment.arguments.size() << ' '
+                   << assignment.release_arguments.size();
+            for (const auto &[name, value] : assignment.arguments) {
+                output << ' ' << std::quoted(name) << ' ';
+                write_performance_value(output, value);
+            }
+            for (const auto &[name, value] : assignment.release_arguments) {
+                output << ' ' << std::quoted(name) << ' ';
+                write_performance_value(output, value);
+            }
+            output << '\n';
+        }
+        for (const auto &assignment : bank.pads)
+            output << "performance_pad " << bank.id << ' ' << assignment.id
+                   << ' ' << assignment.position << ' '
+                   << assignment.launch_slot << ' '
+                   << std::quoted(assignment.label) << '\n';
     }
     output << "pattern_chain " << a.pattern_chain_position;
     for (const auto id : a.pattern_chain)

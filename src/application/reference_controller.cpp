@@ -44,11 +44,13 @@ ControlBinding action_binding(std::string id, std::string action,
     result.shift = shifted;
     return result;
 }
-GestureChord chord(std::string owner, std::string input, std::string action) {
+GestureChord chord(std::string owner, std::string input, std::string action,
+                   std::vector<std::string> contexts = {}) {
     GestureChord result;
     result.owner_control = std::move(owner);
     result.input_control = std::move(input);
     result.target.action_id = std::move(action);
+    result.contexts = std::move(contexts);
     return result;
 }
 } // namespace
@@ -215,11 +217,14 @@ GestureConfiguration reference_controller_v2_gestures() {
         result.chords.push_back(
             chord("edit.erase", pad, "reference.erase-pad.v1"));
         result.chords.push_back(
-            chord("edit.shift", pad, "reference.select-step.v1"));
+            chord("edit.shift", pad, "reference.select-step.v1",
+                  {"sequencer"}));
         result.chords.push_back(
-            chord("edit.select", pad, "reference.extend-step-selection.v1"));
+            chord("edit.select", pad, "reference.extend-step-selection.v1",
+                  {"sequencer"}));
         result.chords.push_back(
-            chord(pad, "parameter.*", "reference.step-encoder.v1"));
+            chord(pad, "parameter.*", "reference.step-encoder.v1",
+                  {"sequencer"}));
     }
     result.chords.push_back(
         chord("transport.tap", "data", "reference.tempo-data.v1"));

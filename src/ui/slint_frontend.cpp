@@ -51,6 +51,7 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupMappingItem>> mappings;
     std::shared_ptr<slint::VectorModel<SetupMappingTargetItem>> mapping_targets;
     std::shared_ptr<slint::VectorModel<LiveLoopItem>> live_loops;
+    std::shared_ptr<slint::VectorModel<PerformanceBankItem>> performance_banks;
 };
 
 class HeadlessWindowAdapter final : public slint::platform::WindowAdapter {
@@ -301,6 +302,10 @@ void publish(const SlintUiState &state,
     for (const auto &scene : state.performance.scenes)
         scenes.push_back({text(scene.label), scene.queued});
     std::vector<PadItem> pads;
+    std::vector<PerformanceBankItem> performance_banks;
+    for (const auto &bank : state.performance.banks)
+        performance_banks.push_back(
+            {static_cast<int>(bank.id), text(bank.name), bank.selected});
     pads.reserve(state.performance.pads.size());
     for (const auto &pad : state.performance.pads)
         pads.push_back({text(pad.label), text(pad.status), pad.active,
@@ -312,6 +317,9 @@ void publish(const SlintUiState &state,
     window->set_context_identity(text(state.context.identity));
     window->set_context_bank(text(state.context.bank));
     publish_model(models.pads, std::move(pads), [&](auto value) { window->set_pads(value); });
+    publish_model(models.performance_banks, std::move(performance_banks),
+                  [&](auto value) { window->set_performance_banks(value); });
+    window->set_performance_bank_name(text(state.performance.bank_name));
     std::vector<StepItem> steps;
     for (const auto &step : state.sequencer.steps)
         steps.push_back({text(step.label), text(step.status), step.active,
@@ -692,6 +700,14 @@ int run_slint_frontend(ApplicationService &application,
         window->on_pad_assignment_clear([&](int position) {
             (void)adapter.clear_performance_pad(
                 static_cast<std::size_t>(position));
+            publish(adapter.state(), window);
+        });
+        window->on_performance_bank_selected([&](int index) {
+            (void)adapter.select_performance_bank(static_cast<std::size_t>(index));
+            publish(adapter.state(), window);
+        });
+        window->on_performance_bank_action([&](slint::SharedString operation) {
+            (void)adapter.manage_performance_bank(operation.data());
             publish(adapter.state(), window);
         });
         window->on_keyboard_input([&](slint::SharedString key, bool pressed) {
@@ -1362,6 +1378,12 @@ int run_slint_frontend(ApplicationService &application,
                 std::string_view(window->get_destination_id().data()) != "setup")
                 throw std::runtime_error("SHIFT release redirected secondary destination");
             window->invoke_page_selected(0);
+            window->invoke_performance_bank_action("create");
+            if (!window->get_performance_banks() ||
+                window->get_performance_banks()->row_count() == 0)
+                throw std::runtime_error(
+                    "generated Performance bank creation did not publish");
+            window->invoke_performance_bank_selected(0);
             window->invoke_pad_assignment_clear(0);
             window->invoke_pad_assignment(0, 77);
             const auto assigned_pad = window->get_pads()

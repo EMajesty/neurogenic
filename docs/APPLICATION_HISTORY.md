@@ -1,5 +1,12 @@
 # Application history and content transactions
 
+Performance bank definition edits (create, rename, duplicate, delete and
+assignment create/replace/clear) use the existing timeline transaction and
+single chronological history. Active-bank selection and live parameter/macro
+movement are transient presentation/performance state and do not create
+entries. Future temporary checkpoints may capture target values, but bank
+definitions remain ordinary project authoring rather than checkpoint state.
+
 Task 096D is the first production consumer of the physical gesture
 begin/update/end/cancel contract. Held-step property and lock deltas update one
 existing `TimelineTransaction`; release commits one history entry and

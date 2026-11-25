@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+The Performance page now publishes named bank selection and lifecycle, banked
+pad assignments, and primary/SHIFT P/F labels from the shared resolver. Missing
+targets remain visible as unavailable. The complete category/object/typed-
+argument picker and final visual treatment remain open.
+
 Task 096D copies shared bank/role/lock descriptors into the Slint model.
 Generated encoder callbacks route step properties and locks through the same
 semantic actions as controllers. This is callback/software-rendering evidence;

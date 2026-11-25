@@ -190,6 +190,12 @@ struct PerformanceLaunchState {
     float fixed_velocity{1.0F};
     LaunchDiagnostics diagnostics;
 };
+struct PerformanceBankState {
+    static constexpr std::uint32_t api_version = 1;
+    std::vector<PerformanceBank> banks;
+    PerformanceBankId active_bank{};
+    PerformanceAssignmentId selected_assignment{};
+};
 struct PatternChainEntryState {
     PatternId pattern{};
     std::uint16_t repeats{};
@@ -243,6 +249,7 @@ struct ApplicationState {
     std::vector<AudioClipState> audio_clips;
     std::vector<AudioClipCrossfade> audio_crossfades;
     PerformanceLaunchState performance_launching;
+    PerformanceBankState performance_banks;
     PatternChainId pattern_chain_id{};
     std::vector<PatternChainEntryState> pattern_chain_entries;
     std::size_t pattern_chain_position{};

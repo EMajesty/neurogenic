@@ -1,5 +1,11 @@
 # Architecture
 
+`SongArrangement::performance_banks` is project-owned presentation metadata.
+It references existing parameter descriptors, semantic actions and launcher
+slots by stable identity and therefore adds no playback, parameter or
+controller authority. Active-bank selection remains presentation state;
+definition edits use timeline transactions, persistence and unified history.
+
 Task 096D keeps contextual editing presentation-neutral. `ContextControl`
 publishes copied bank, role, stable parameter/action, typed arguments, current
 value/unit and lock indication. `ControllerSession` captures IDs and input

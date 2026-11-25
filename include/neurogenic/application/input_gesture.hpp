@@ -54,6 +54,7 @@ struct GestureChord {
     std::string owner_control, input_control;
     GestureTarget target;
     bool consume_owner_tap{true}, allowed_during_modal{};
+    std::vector<std::string> contexts;
 };
 
 struct GestureConfiguration {

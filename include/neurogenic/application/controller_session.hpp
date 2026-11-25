@@ -18,6 +18,7 @@ struct ContextControl {
     std::map<std::string, ApplicationValue> arguments;
     std::string bank_id, role;
     bool locked{};
+    PerformanceAssignmentId assignment_id{};
 };
 enum class ControllerFeedbackKind : std::uint8_t { rgb, indicator, context, text };
 struct ControllerFeedback {
@@ -102,6 +103,7 @@ class ControllerSession {
     [[nodiscard]] std::optional<HeldStepTarget>
     capture_step_target(std::string_view control) const;
     bool finish_held_step_edit(bool commit, std::string &error);
+    void cancel_performance_actions() noexcept;
     void synchronize_interaction() noexcept;
     const ControlBinding *binding(std::string_view control) const;
     bool submit(ApplicationCommand, std::string &error);
@@ -118,6 +120,14 @@ class ControllerSession {
     std::array<std::uint32_t, 16> pad_colors_{};
     std::unordered_map<std::string, std::uint32_t> feedback_colors_;
     std::unordered_map<std::string, std::string> context_cache_;
+    struct ActivePerformanceAction {
+        PerformanceBankId bank{};
+        PerformanceAssignmentId assignment{};
+        std::string action_id;
+        std::map<std::string, ApplicationValue> release_arguments;
+    };
+    std::unordered_map<std::string, ActivePerformanceAction>
+        active_performance_actions_;
     std::unordered_map<std::string, FaderPickup> pickup_;
     std::unordered_map<std::string, std::string> pickup_targets_;
     std::unordered_map<std::string, HeldStepTarget> held_steps_;

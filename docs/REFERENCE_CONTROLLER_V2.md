@@ -1,5 +1,11 @@
 # Reference Controller V2 interaction design
 
+Task 096E implements named project-owned banks with stable primary/SHIFT P/F
+assignments, macro/parameter targets and launcher-pad references independently
+of controller profiles. The reference shell exposes bank lifecycle and shared
+descriptors. The complete graphical typed-action picker remains open; see
+[Performance banks](PERFORMANCE_BANKS.md).
+
 Task 096D implements the Sequencer P1-P8 step-property/lock interaction,
 sequencer-only deferred pad taps, stable multi-step selection and grouped
 history. Other page bank rows remain working defaults unless their registered

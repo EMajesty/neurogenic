@@ -73,6 +73,14 @@ struct SlintPerformancePageState {
     std::vector<SlintSceneItem> scenes;
     std::array<SlintPadItem, 16> pads;
     std::vector<std::uint64_t> unassigned_slots;
+    struct BankItem {
+        std::uint64_t id{};
+        std::string name;
+        bool selected{};
+    };
+    std::vector<BankItem> banks;
+    std::string bank_name{"No Performance bank"}, assignment_status;
+    std::uint64_t selected_assignment{};
 };
 
 struct SlintStepItem {
@@ -508,6 +516,11 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool assign_performance_pad(std::size_t position,
                                               std::uint64_t slot_id);
     [[nodiscard]] bool clear_performance_pad(std::size_t position);
+    [[nodiscard]] bool manage_performance_bank(std::string operation);
+    [[nodiscard]] bool select_performance_bank(std::size_t index);
+    [[nodiscard]] bool assign_performance_parameter(
+        std::size_t position, bool secondary, std::string parameter_id,
+        std::string label = {});
     [[nodiscard]] bool select_page(std::size_t index);
     [[nodiscard]] bool select_reference_page(std::size_t index);
     [[nodiscard]] bool set_reference_shift(bool effective);

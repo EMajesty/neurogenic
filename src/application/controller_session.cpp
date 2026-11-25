@@ -26,7 +26,8 @@ std::string context_key(const ContextControl &value) {
            << '\x1f' << value.bank_id << '\x1f' << value.role
            << '\x1f' << value.minimum << '\x1f' << value.maximum << '\x1f'
            << value.active << value.bipolar << value.pickup << value.locked << ':'
-           << static_cast<int>(value.pickup_direction);
+           << static_cast<int>(value.pickup_direction) << ':'
+           << value.assignment_id;
     for (const auto &[name, argument] : value.arguments)
         output << '\x1f' << name << '=' << argument.index() << ':'
                << std::visit([](const auto &item) {
@@ -120,6 +121,10 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
             control->type == ControlType::absolute_potentiometer ||
             control->type == ControlType::fader ||
             control->type == ControlType::crossfader;
+        if (!input.pressed &&
+            active_performance_actions_.contains(input.control_id) &&
+            !dispatch_legacy(input, error))
+            return false;
         if (input.pressed && input.control_id.starts_with("pad.") &&
             state_.context.starts_with("sequencer") &&
             state_.interaction.modal_context.empty())
@@ -199,6 +204,16 @@ bool ControllerSession::finish_held_step_edit(bool commit, std::string &error) {
                    {}, state_.session_id, 0}, error);
 }
 
+void ControllerSession::cancel_performance_actions() noexcept {
+    for (auto &[control, owned] : active_performance_actions_) {
+        (void)control;
+        std::string ignored;
+        (void)submit({owned.action_id, std::move(owned.release_arguments),
+                      state_.session_id, 0}, ignored);
+    }
+    active_performance_actions_.clear();
+}
+
 bool ControllerSession::dispatch_legacy(const ControllerInput &input,
                                         std::string &error) {
     const auto control = std::find_if(
@@ -226,6 +241,17 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         state_.resync_required = true;
         error.clear();
         return true;
+    }
+    if (mapping->semantic == "context-button" && !input.pressed) {
+        const auto active = active_performance_actions_.find(input.control_id);
+        if (active == active_performance_actions_.end()) {
+            error.clear();
+            return true;
+        }
+        auto owned = std::move(active->second);
+        active_performance_actions_.erase(active);
+        return submit({owned.action_id, std::move(owned.release_arguments),
+                       state_.session_id, input.sequence}, error);
     }
     if (!input.pressed && control->type != ControlType::relative_encoder &&
         control->type != ControlType::absolute_potentiometer &&
@@ -287,6 +313,32 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
     }
     if (mapping->semantic == "performance-pad") {
         if (state_.context.starts_with("performance")) {
+            const auto bank = std::find_if(
+                snapshot.performance_banks.banks.begin(),
+                snapshot.performance_banks.banks.end(), [&](const auto &value) {
+                    return value.id == snapshot.performance_banks.active_bank;
+                });
+            if (bank != snapshot.performance_banks.banks.end()) {
+                const auto assignment = std::find_if(
+                    bank->pads.begin(), bank->pads.end(), [&](const auto &value) {
+                        return value.position ==
+                               static_cast<std::uint32_t>(mapping->index);
+                    });
+                if (assignment == bank->pads.end()) {
+                    error.clear();
+                    return true;
+                }
+                if (state_.modifiers.shift || state_.modifiers.shift_latched)
+                    return submit(
+                        {"performance.assignment-select.v1",
+                         {{"assignment", static_cast<std::int64_t>(
+                                              assignment->id)}},
+                         state_.session_id, input.sequence}, error);
+                return submit({"performance.slot-launch.v1",
+                               {{"slot", static_cast<std::int64_t>(
+                                             assignment->launch_slot)}},
+                               state_.session_id, input.sequence}, error);
+            }
             const auto slot = std::find_if(
                 snapshot.performance_launching.slots.begin(),
                 snapshot.performance_launching.slots.end(),
@@ -324,9 +376,35 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
             error.clear();
             return true;
         }
-        return submit({target.action_id, target.arguments, state_.session_id,
-                       input.sequence},
-                      error);
+        if (!submit({target.action_id, target.arguments, state_.session_id,
+                     input.sequence}, error))
+            return false;
+        if (target.role == "performance-momentary") {
+            const auto bank = std::find_if(
+                snapshot.performance_banks.banks.begin(),
+                snapshot.performance_banks.banks.end(), [&](const auto &value) {
+                    return value.id == snapshot.performance_banks.active_bank;
+                });
+            if (bank == snapshot.performance_banks.banks.end()) {
+                error = "Performance momentary bank is unavailable";
+                return false;
+            }
+            const auto assignment = std::find_if(
+                bank->actions.begin(), bank->actions.end(), [&](const auto &value) {
+                    return value.id == target.assignment_id;
+                });
+            if (assignment == bank->actions.end()) {
+                error = "Performance momentary assignment is unavailable";
+                return false;
+            }
+            std::map<std::string, ApplicationValue> release;
+            for (const auto &[name, value] : assignment->release_arguments)
+                std::visit([&](const auto &item) { release[name] = item; }, value);
+            active_performance_actions_[input.control_id] =
+                {bank->id, assignment->id, assignment->action_id,
+                 std::move(release)};
+        }
+        return true;
     }
     if (mapping->semantic == "context-encoder") {
         if (mapping->index < 0 || mapping->index >= 8) {
@@ -340,7 +418,8 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         }
         auto steps = input.value;
         if (mapping->invert) steps = -steps;
-        if (state_.modifiers.shift || state_.modifiers.shift_latched)
+        if ((state_.modifiers.shift || state_.modifiers.shift_latched) &&
+            target.role != "performance-parameter")
             steps *= mapping->fine_scale;
         else if (std::abs(input.value) >= 4)
             steps *= mapping->acceleration;
@@ -369,6 +448,24 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         if (target.parameter_id.empty()) {
             error.clear();
             return true;
+        }
+        if (target.role == "performance-parameter" ||
+            target.role == "performance-macro") {
+            const auto scale = target.arguments.find("scale");
+            if (scale != target.arguments.end())
+                if (const auto amount = number(scale->second)) steps *= *amount;
+        }
+        if (target.role == "performance-macro") {
+            const auto macro = target.arguments.find("macro_id");
+            if (macro == target.arguments.end() ||
+                !std::holds_alternative<std::int64_t>(macro->second)) {
+                error = "Performance macro target is invalid";
+                return false;
+            }
+            return submit({"macro.value-adjust.v1",
+                           {{"id", std::get<std::int64_t>(macro->second)},
+                            {"steps", steps}},
+                           state_.session_id, input.sequence}, error);
         }
         return submit({"parameter.adjust.v1",
                        {{"parameter_id", target.parameter_id}, {"steps", steps}},
@@ -662,6 +759,7 @@ bool ControllerSession::update_gestures(std::string &error) {
 }
 
 void ControllerSession::set_modal_context(std::string modal_context) {
+    if (!modal_context.empty()) cancel_performance_actions();
     const auto events = gestures_.set_context(state_.context,
                                               std::move(modal_context));
     ControllerInput synthetic;
@@ -686,6 +784,12 @@ bool ControllerSession::feedback(ControllerFeedback value) {
 
 void ControllerSession::observe(const ApplicationState &snapshot,
                                 bool full_refresh) {
+    if (std::any_of(active_performance_actions_.begin(),
+                    active_performance_actions_.end(), [&](const auto &entry) {
+                        return entry.second.bank !=
+                               snapshot.performance_banks.active_bank;
+                    }))
+        cancel_performance_actions();
     if (!full_refresh && !state_.resync_required &&
         state_.feedback_revision == snapshot.revision &&
         state_.delivered_local_revision == state_.local_revision)
@@ -791,6 +895,7 @@ std::optional<ControllerFeedback> ControllerSession::next_feedback() {
 }
 
 void ControllerSession::reconnect() {
+    cancel_performance_actions();
     feedback_.clear();
     if (gestures_.configured()) {
         const auto events = gestures_.reconnect();
@@ -807,6 +912,7 @@ void ControllerSession::reconnect() {
 
 void ControllerSession::set_context(std::string context) {
     if (state_.context == context) return;
+    cancel_performance_actions();
     state_.context = std::move(context);
     if (gestures_.configured()) {
         const auto events = gestures_.set_context(

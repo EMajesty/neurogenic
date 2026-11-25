@@ -1,5 +1,11 @@
 # Designing a frontend for NEUROGENIC
 
+Alternative frontends can read `ApplicationState::performance_banks`, select a
+bank through semantic actions and render any subset of its logical positions.
+Current values still come from parameter/macro/launcher state. No Slint type or
+Reference Controller V2 count is part of the project model. See
+[Performance banks](PERFORMANCE_BANKS.md).
+
 Task 096D adds copied contextual `bank_id`, `role`, and lock indication.
 Alternative frontends may use these descriptors for held-step workflows or
 ignore the reference grouping and invoke stable semantic operations directly.

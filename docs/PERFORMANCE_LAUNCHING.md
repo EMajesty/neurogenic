@@ -1,5 +1,11 @@
 # Unified performance launching
 
+Project-owned logical surfaces are now banked. `LaunchSlot` remains the
+musical launch authority; a `PerformancePadAssignment` stores only a stable
+reference from a named bank and logical position. Legacy
+`LaunchSlot::logical_position` projects migrate in memory without changing
+which slot is triggered. See [Performance banks](PERFORMANCE_BANKS.md).
+
 Acknowledged launches and resolved follow transitions can be recorded through
 the arrangement recorder; see [Performance capture](PERFORMANCE_CAPTURE.md).
 

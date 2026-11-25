@@ -1,5 +1,11 @@
 # Application control and controller API
 
+Controller profiles may address logical Performance encoder/function/pad
+positions without owning their musical targets. The project supplies the
+active bank; V2, generic MIDI and alternative inventories resolve the same
+descriptors. A one-encoder simulated profile is covered by Task 096E. See
+[Performance banks](PERFORMANCE_BANKS.md).
+
 Task 096D adds sequencer-scoped pad deferral to the optional V2 profile.
 Generic MIDI, existing dedicated profiles and direct semantic clients do not
 inherit it. Explicit context suffixes select richer shared descriptors; legacy

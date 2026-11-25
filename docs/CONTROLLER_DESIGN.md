@@ -1,5 +1,11 @@
 # Designing a controller for NEUROGENIC
 
+For customizable live surfaces, map physical controls to contextual
+Performance roles rather than copying project target IDs into the appliance
+profile. Named banks and assignments are restored with the project and can be
+operated by controllers with fewer or differently arranged controls. See
+[Performance banks](PERFORMANCE_BANKS.md).
+
 Contextual clients should consume descriptor roles rather than assuming a V2
 position. `parameter` adjusts a base binding; `step-property` and `step-lock`
 require captured musical ownership. Alternative controllers may expose any

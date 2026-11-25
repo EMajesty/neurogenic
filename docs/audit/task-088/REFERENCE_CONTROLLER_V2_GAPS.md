@@ -172,6 +172,15 @@ P1–P8/F1–F8 primary/SHIFT assignments with stable targets and labels. Keep t
 separate from `.ngc` physical mappings. Acceptance: save/reopen without a
 controller preserves behavior; generic MIDI and V2 profiles can both address it.
 
+**Task 096E status: partially resolved.** Format-12 project data now owns
+bounded named banks, stable primary/SHIFT parameter and safe-action layers,
+labels and banked launch-slot pads. V2 and a non-reference controller exercise
+the shared resolver; momentary Fill has captured release/cancellation,
+definition edits use unified history, and save/reopen is controller-independent.
+The complete production graphical category/object/typed-argument picker,
+broader momentary/toggle state discovery and physical validation remain open.
+See `TASK_096E_VALIDATION.md`.
+
 ### RC2-006 — Manual mapping closure (P2; AUD2-006)
 
 Finish manual source creation, typed argument editing/selection, conflicts,

@@ -1,6 +1,6 @@
 import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay, TouchKeyboard } from "components.slint";
 import { Theme } from "theme.slint";
-import { PerformancePage, PadItem, SceneItem } from "performance_page.slint";
+import { PerformancePage, PadItem, SceneItem, PerformanceBankItem } from "performance_page.slint";
 import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from "sequencer_page.slint";
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
@@ -93,6 +93,8 @@ export component PerformanceWindow inherits Window {
     in property <string> context-bank: "Primary";
     in property <[PadItem]> pads;
     in property <[SceneItem]> scenes;
+    in property <[PerformanceBankItem]> performance-banks;
+    in property <string> performance-bank-name: "No Performance bank";
     in property <[StepItem]> steps;
     in property <[PatternItem]> patterns;
     in property <[ArrangementItem]> arrangement-items;
@@ -196,6 +198,7 @@ export component PerformanceWindow inherits Window {
     callback page-selected(int); callback reference-shift-changed(bool); callback transport-invoked(string);
     callback track-selected(int); callback return-arrangement();
     callback scene-invoked(int); callback notification-dismissed();
+    callback performance-bank-selected(int); callback performance-bank-action(string);
     callback quantization-invoked();
     callback sequencer-step-invoked(int); callback pattern-invoked(int, bool);
     callback pattern-create(bool); callback resolution-invoked();
@@ -265,12 +268,15 @@ export component PerformanceWindow inherits Window {
             vertical-stretch: 1; transport-state: root.transport-state;
             selected-track: root.selected-track; track-owner: root.track-owner;
             active-content: root.active-content; launch-quantization: root.launch-quantization;
-            pads: root.pads; scenes: root.scenes;
+            pads: root.pads; scenes: root.scenes; banks: root.performance-banks;
+            bank-name: root.performance-bank-name;
             transport-invoked(action) => { root.transport-invoked(action); }
             track-selected(direction) => { root.track-selected(direction); }
             return-arrangement => { root.return-arrangement(); }
             quantization-invoked => { root.quantization-invoked(); }
             scene-invoked(index) => { root.scene-invoked(index); }
+            bank-selected(index) => { root.performance-bank-selected(index); }
+            bank-action(action) => { root.performance-bank-action(action); }
             pad-invoked(index, pressed) => { root.pad-invoked(index, pressed); }
         }
         if root.page-id == "sequencer": SequencerPage {

@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
+#include <map>
 #include <string>
+#include <variant>
 #include <string_view>
 #include <vector>
 
@@ -14,6 +16,8 @@ using AudioClipId = std::uint64_t;
 using AudioCrossfadeId = std::uint64_t;
 using PatternChainId = std::uint64_t;
 using LaunchSlotId = std::uint64_t;
+using PerformanceBankId = std::uint64_t;
+using PerformanceAssignmentId = std::uint64_t;
 using PerformanceSceneId = std::uint64_t;
 using InstrumentInstanceId = std::uint32_t;
 inline constexpr InstrumentInstanceId default_synth_instance_id = 1;
@@ -135,6 +139,45 @@ struct LaunchSlot {
     // expose any supported number of positions; -1 means unassigned.
     std::int32_t logical_position{-1};
 };
+using PerformanceArgumentValue =
+    std::variant<bool, std::int64_t, double, std::string>;
+enum class PerformanceActionBehavior : std::uint8_t {
+    one_shot,
+    toggle,
+    momentary
+};
+struct PerformanceParameterAssignment {
+    PerformanceAssignmentId id{};
+    std::uint32_t position{};
+    bool secondary{};
+    std::string parameter_id, label;
+    double scale{1.0};
+};
+struct PerformanceActionAssignment {
+    PerformanceAssignmentId id{};
+    std::uint32_t position{};
+    bool secondary{};
+    std::string action_id, label;
+    PerformanceActionBehavior behavior{PerformanceActionBehavior::one_shot};
+    std::map<std::string, PerformanceArgumentValue> arguments;
+    std::map<std::string, PerformanceArgumentValue> release_arguments;
+};
+struct PerformancePadAssignment {
+    PerformanceAssignmentId id{};
+    std::uint32_t position{};
+    LaunchSlotId launch_slot{};
+    std::string label;
+};
+struct PerformanceBank {
+    static constexpr std::size_t maximum_parameters = 64;
+    static constexpr std::size_t maximum_actions = 64;
+    static constexpr std::size_t maximum_pads = 128;
+    PerformanceBankId id{};
+    std::string name;
+    std::vector<PerformanceParameterAssignment> parameters;
+    std::vector<PerformanceActionAssignment> actions;
+    std::vector<PerformancePadAssignment> pads;
+};
 struct PerformanceSceneEntry {
     TrackId track{};
     LaunchSlotId slot{};
@@ -234,6 +277,7 @@ struct SongArrangement {
     std::vector<AudioClipCrossfade> audio_crossfades;
     std::vector<LaunchSlot> launch_slots;
     std::vector<PerformanceLaunchScene> performance_scenes;
+    std::vector<PerformanceBank> performance_banks;
     PerformancePlaybackMode performance_mode{PerformancePlaybackMode::arrangement};
     VelocityPolicy velocity_policy{VelocityPolicy::native};
     float fixed_velocity{1.0F};

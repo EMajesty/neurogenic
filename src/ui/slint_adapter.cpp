@@ -47,6 +47,24 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
         add(static_cast<std::uint64_t>(slot.logical_position + 1));
     }
     add(state.performance_launching.scenes.size());
+    add(state.performance_banks.active_bank);
+    add(state.performance_banks.banks.size());
+    for (const auto &bank : state.performance_banks.banks) {
+        add(bank.id);
+        add(std::hash<std::string>{}(bank.name));
+        add(bank.parameters.size()); add(bank.actions.size()); add(bank.pads.size());
+        for (const auto &assignment : bank.parameters) {
+            add(assignment.id); add(assignment.position); add(assignment.secondary);
+            add(std::hash<std::string>{}(assignment.parameter_id));
+        }
+        for (const auto &assignment : bank.actions) {
+            add(assignment.id); add(assignment.position); add(assignment.secondary);
+            add(std::hash<std::string>{}(assignment.action_id));
+        }
+        for (const auto &assignment : bank.pads) {
+            add(assignment.id); add(assignment.position); add(assignment.launch_slot);
+        }
+    }
     add(state.parameters.size()); add(state.sample_slots.size());
     add(state.modulation.modulator_count); add(state.modulation.route_count);
     for (std::size_t i = 0; i < state.modulation.modulator_count; ++i)
@@ -757,6 +775,13 @@ bool SlintFrontendAdapter::refresh() {
                                     destination.available});
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
+    for (const auto &bank : snapshot.performance_banks.banks) {
+        const auto selected = bank.id == snapshot.performance_banks.active_bank;
+        next.performance.banks.push_back({bank.id, bank.name, selected});
+        if (selected) next.performance.bank_name = bank.name;
+    }
+    next.performance.selected_assignment =
+        snapshot.performance_banks.selected_assignment;
     for (const auto &scene : snapshot.performance_launching.scenes) {
         const auto queued = std::any_of(
             snapshot.performance_launching.pending.begin(),
@@ -838,15 +863,34 @@ bool SlintFrontendAdapter::refresh() {
         auto &pad = next.performance.pads[i];
         pad.label = std::to_string(i + 1);
         pad.selected = snapshot.selected_pad == i;
+        const auto bank = std::find_if(
+            snapshot.performance_banks.banks.begin(),
+            snapshot.performance_banks.banks.end(), [&](const auto &value) {
+                return value.id == snapshot.performance_banks.active_bank;
+            });
+        const auto bank_assignment = bank == snapshot.performance_banks.banks.end()
+            ? static_cast<const PerformancePadAssignment *>(nullptr)
+            : [&]() -> const PerformancePadAssignment * {
+                  const auto found = std::find_if(
+                      bank->pads.begin(), bank->pads.end(), [&](const auto &value) {
+                          return value.position == i;
+                      });
+                  return found == bank->pads.end() ? nullptr : &*found;
+              }();
         const auto assigned = std::find_if(
             slots.begin(), slots.end(), [&](const auto &slot) {
-                return slot.logical_position == static_cast<std::int32_t>(i);
+                return bank_assignment ? slot.id == bank_assignment->launch_slot
+                                       : snapshot.performance_banks.banks.empty() &&
+                                             slot.logical_position ==
+                                                 static_cast<std::int32_t>(i);
             });
         if (assigned != slots.end()) {
             const auto &slot = *assigned;
             pad.slot_id = slot.id;
             pad.available = true;
-            pad.label = "Slot " + std::to_string(slot.id);
+            pad.label = bank_assignment && !bank_assignment->label.empty()
+                            ? bank_assignment->label
+                            : "Slot " + std::to_string(slot.id);
             const auto pending = std::find_if(
                 snapshot.performance_launching.pending.begin(),
                 snapshot.performance_launching.pending.end(),
@@ -863,6 +907,13 @@ bool SlintFrontendAdapter::refresh() {
             pad.active =
                 ownership != snapshot.performance_launching.ownership.end();
             pad.status = pad.queued ? "Queued" : pad.active ? "Playing" : "Stopped";
+        }
+        if (bank_assignment && assigned == slots.end()) {
+            pad.label = bank_assignment->label.empty()
+                            ? "Missing slot " +
+                                  std::to_string(bank_assignment->launch_slot)
+                            : bank_assignment->label;
+            pad.status = "Unavailable";
         }
     }
 
@@ -1775,6 +1826,30 @@ bool SlintFrontendAdapter::assign_performance_pad(std::size_t position,
         last_error_ = "Logical pad position is unavailable on this surface";
         return false;
     }
+    const auto snapshot = application_.snapshot();
+    if (snapshot.performance_banks.active_bank) {
+        PerformanceAssignmentId next{1};
+        for (const auto &bank : snapshot.performance_banks.banks) {
+            for (const auto &v : bank.parameters) next = std::max(next, v.id + 1);
+            for (const auto &v : bank.actions) next = std::max(next, v.id + 1);
+            for (const auto &v : bank.pads) next = std::max(next, v.id + 1);
+        }
+        const auto bank = std::find_if(snapshot.performance_banks.banks.begin(),
+            snapshot.performance_banks.banks.end(), [&](const auto &value) {
+                return value.id == snapshot.performance_banks.active_bank;
+            });
+        if (bank != snapshot.performance_banks.banks.end())
+            if (const auto existing = std::find_if(
+                    bank->pads.begin(), bank->pads.end(), [&](const auto &value) {
+                        return value.position == position;
+                    }); existing != bank->pads.end()) next = existing->id;
+        return execute({"performance.bank-pad-assign.v1",
+                        {{"bank", static_cast<std::int64_t>(
+                                      snapshot.performance_banks.active_bank)},
+                         {"assignment", static_cast<std::int64_t>(next)},
+                         {"position", static_cast<std::int64_t>(position)},
+                         {"slot", static_cast<std::int64_t>(slot_id)}}, {}, 0});
+    }
     return execute({"performance.pad-assign.v1",
                     {{"position", static_cast<std::int64_t>(position)},
                      {"slot", static_cast<std::int64_t>(slot_id)}}, {}, 0});
@@ -1785,8 +1860,90 @@ bool SlintFrontendAdapter::clear_performance_pad(std::size_t position) {
         last_error_ = "Logical pad position is unavailable on this surface";
         return false;
     }
+    const auto snapshot = application_.snapshot();
+    if (snapshot.performance_banks.active_bank) {
+        const auto bank = std::find_if(snapshot.performance_banks.banks.begin(),
+            snapshot.performance_banks.banks.end(), [&](const auto &value) {
+                return value.id == snapshot.performance_banks.active_bank;
+            });
+        if (bank == snapshot.performance_banks.banks.end()) return false;
+        const auto assignment = std::find_if(
+            bank->pads.begin(), bank->pads.end(), [&](const auto &value) {
+                return value.position == position;
+            });
+        if (assignment == bank->pads.end()) return true;
+        return execute({"performance.assignment-clear.v1",
+                        {{"bank", static_cast<std::int64_t>(bank->id)},
+                         {"assignment", static_cast<std::int64_t>(assignment->id)}},
+                        {}, 0});
+    }
     return execute({"performance.pad-clear.v1",
                     {{"position", static_cast<std::int64_t>(position)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::manage_performance_bank(std::string operation) {
+    const auto snapshot = application_.snapshot();
+    PerformanceBankId next{1};
+    for (const auto &bank : snapshot.performance_banks.banks)
+        next = std::max(next, bank.id + 1);
+    if (operation == "create")
+        return execute({"performance.bank-create.v1",
+                        {{"bank", static_cast<std::int64_t>(next)},
+                         {"name", std::string("Performance ") +
+                                      std::to_string(next)}}, {}, 0});
+    if (operation == "next")
+        return execute({"performance.bank-next.v1", {}, {}, 0});
+    if (operation == "previous")
+        return execute({"performance.bank-previous.v1", {}, {}, 0});
+    const auto active = snapshot.performance_banks.active_bank;
+    if (!active) return false;
+    if (operation == "duplicate")
+        return execute({"performance.bank-duplicate.v1",
+                        {{"source", static_cast<std::int64_t>(active)},
+                         {"bank", static_cast<std::int64_t>(next)},
+                         {"name", state_.performance.bank_name + " Copy"}}, {}, 0});
+    if (operation == "delete")
+        return execute({"performance.bank-delete.v1",
+                        {{"bank", static_cast<std::int64_t>(active)}}, {}, 0});
+    last_error_ = "Unknown Performance bank operation";
+    return false;
+}
+
+bool SlintFrontendAdapter::select_performance_bank(std::size_t index) {
+    if (index >= state_.performance.banks.size()) return false;
+    return execute({"performance.bank-select.v1",
+                    {{"bank", static_cast<std::int64_t>(
+                                  state_.performance.banks[index].id)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::assign_performance_parameter(
+    std::size_t position, bool secondary, std::string parameter_id,
+    std::string label) {
+    const auto snapshot = application_.snapshot();
+    if (!snapshot.performance_banks.active_bank || position > 65535) return false;
+    PerformanceAssignmentId next{1};
+    const PerformanceBank *active{};
+    for (const auto &bank : snapshot.performance_banks.banks) {
+        if (bank.id == snapshot.performance_banks.active_bank) active = &bank;
+        for (const auto &v : bank.parameters) next = std::max(next, v.id + 1);
+        for (const auto &v : bank.actions) next = std::max(next, v.id + 1);
+        for (const auto &v : bank.pads) next = std::max(next, v.id + 1);
+    }
+    if (active)
+        if (const auto existing = std::find_if(
+                active->parameters.begin(), active->parameters.end(),
+                [&](const auto &value) {
+                    return value.position == position &&
+                           value.secondary == secondary;
+                }); existing != active->parameters.end()) next = existing->id;
+    return execute({"performance.parameter-assign.v1",
+                    {{"bank", static_cast<std::int64_t>(
+                                  snapshot.performance_banks.active_bank)},
+                     {"assignment", static_cast<std::int64_t>(next)},
+                     {"position", static_cast<std::int64_t>(position)},
+                     {"secondary", secondary},
+                     {"parameter_id", std::move(parameter_id)},
+                     {"label", std::move(label)}}, {}, 0});
 }
 
 bool SlintFrontendAdapter::select_page(std::size_t index) {

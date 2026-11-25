@@ -1,5 +1,10 @@
 # Designing musical workflows with NEUROGENIC
 
+Performance banks are reusable workflow composition rather than a new musical
+engine: a tracker client, sampler surface or headless controller may group
+existing parameters, macros, safe actions and launch slots into its own named
+live contexts. Changing banks changes control meaning, not musical values.
+
 The Task 096D held-step workflow composes general services: captured stable
 selection, validated step/lock operations, and one grouped history transaction.
 A tracker or non-pad client can use the same operations without reproducing the

@@ -220,6 +220,55 @@ ActionRegistry::ActionRegistry() {
                {"slot", ValueType::integer}}));
     add(action("performance.pad-clear.v1", "Clear logical performance pad",
                "Performance", {{"position", ValueType::integer}}));
+    add(action("performance.bank-create.v1", "Create Performance bank",
+               "Performance", {{"bank", ValueType::integer},
+               {"name", ValueType::text}}));
+    add(action("performance.bank-rename.v1", "Rename Performance bank",
+               "Performance", {{"bank", ValueType::integer},
+               {"name", ValueType::text}}));
+    add(action("performance.bank-duplicate.v1", "Duplicate Performance bank",
+               "Performance", {{"source", ValueType::integer},
+               {"bank", ValueType::integer}, {"name", ValueType::text}}));
+    add(action("performance.bank-delete.v1", "Delete Performance bank",
+               "Performance", {{"bank", ValueType::integer}}));
+    add(action("performance.bank-select.v1", "Select Performance bank",
+               "Performance", {{"bank", ValueType::integer}}));
+    add(action("performance.bank-next.v1", "Select next Performance bank",
+               "Performance"));
+    add(action("performance.bank-previous.v1", "Select previous Performance bank",
+               "Performance"));
+    add(action("performance.assignment-select.v1", "Select Performance assignment",
+               "Performance", {{"assignment", ValueType::integer}}));
+    add(action("performance.parameter-assign.v1", "Assign Performance parameter",
+               "Performance", {{"bank", ValueType::integer},
+               {"assignment", ValueType::integer}, {"position", ValueType::integer},
+               {"secondary", ValueType::boolean}, {"parameter_id", ValueType::text},
+               {"label", ValueType::text, false}, {"scale", ValueType::real, false}}));
+    add(action("performance.action-assign.v1", "Assign Performance action",
+               "Performance", {{"bank", ValueType::integer},
+               {"assignment", ValueType::integer}, {"position", ValueType::integer},
+               {"secondary", ValueType::boolean}, {"action_id", ValueType::text},
+               {"behavior", ValueType::text}, {"label", ValueType::text, false},
+               {"argument_name", ValueType::text, false},
+               {"argument_bool", ValueType::boolean, false},
+               {"argument_integer", ValueType::integer, false},
+               {"argument_real", ValueType::real, false},
+               {"argument_text", ValueType::text, false},
+               {"argument_1_name", ValueType::text, false},
+               {"argument_1_value", ValueType::text, false},
+               {"argument_2_name", ValueType::text, false},
+               {"argument_2_value", ValueType::text, false},
+               {"argument_3_name", ValueType::text, false},
+               {"argument_3_value", ValueType::text, false},
+               {"argument_4_name", ValueType::text, false},
+               {"argument_4_value", ValueType::text, false}}));
+    add(action("performance.bank-pad-assign.v1", "Assign Performance bank pad",
+               "Performance", {{"bank", ValueType::integer},
+               {"assignment", ValueType::integer}, {"position", ValueType::integer},
+               {"slot", ValueType::integer}, {"label", ValueType::text, false}}));
+    add(action("performance.assignment-clear.v1", "Clear Performance assignment",
+               "Performance", {{"bank", ValueType::integer},
+               {"assignment", ValueType::integer}}));
     add(action("performance.slot-launch.v1", "Launch performance slot",
                "Performance", {{"slot", ValueType::integer}}));
     add(action("performance.slot-stop.v1", "Stop performance slot",
@@ -422,6 +471,8 @@ ActionRegistry::ActionRegistry() {
                 {"description", ValueType::text, false}}));
     add(action("macro.value-set.v1", "Set performance macro", "Performance",
                {{"id", ValueType::integer}, {"value", ValueType::real}}));
+    add(action("macro.value-adjust.v1", "Adjust performance macro", "Performance",
+               {{"id", ValueType::integer}, {"steps", ValueType::real}}));
     add(action("macro.assignment-set.v1", "Assign macro destination",
                "Performance",
                {{"macro_id", ValueType::integer},
@@ -1740,13 +1791,22 @@ CommandResult ApplicationService::execute_with_history(
          command.action_id != "effect.query.v1") ||
         (command.action_id.rfind("macro.", 0) == 0 &&
          command.action_id != "macro.value-set.v1" &&
+         command.action_id != "macro.value-adjust.v1" &&
          command.action_id != "macro.scene-recall.v1");
     const auto timeline_edit =
         command.action_id.rfind("step.", 0) == 0 ||
         command.action_id.rfind("track.", 0) == 0 ||
         command.action_id.rfind("pattern.", 0) == 0 ||
         command.action_id.rfind("arrangement.", 0) == 0 ||
-        command.action_id.rfind("timeline.", 0) == 0;
+        command.action_id.rfind("timeline.", 0) == 0 ||
+        command.action_id == "performance.bank-create.v1" ||
+        command.action_id == "performance.bank-rename.v1" ||
+        command.action_id == "performance.bank-duplicate.v1" ||
+        command.action_id == "performance.bank-delete.v1" ||
+        command.action_id == "performance.bank-pad-assign.v1" ||
+        command.action_id.rfind("performance.assignment-", 0) == 0 ||
+        command.action_id == "performance.parameter-assign.v1" ||
+        command.action_id == "performance.action-assign.v1";
     if (pending_history_restore_ &&
         (config_edit || timeline_edit ||
          command.action_id.rfind("preset.", 0) == 0 ||
@@ -2084,9 +2144,22 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             structural = performance_macros_.rename(
                 static_cast<PerformanceMacroId>(integer("id")), text("name"),
                 text("description"), error);
-        } else if (command.action_id == "macro.value-set.v1") {
+        } else if (command.action_id == "macro.value-set.v1" ||
+                   command.action_id == "macro.value-adjust.v1") {
             const auto id = static_cast<PerformanceMacroId>(integer("id"));
-            if (performance_macros_.set_value(id, static_cast<float>(real("value")),
+            auto requested = static_cast<float>(real("value"));
+            if (command.action_id == "macro.value-adjust.v1") {
+                const auto &macros = performance_macros_.project().macros;
+                const auto found = std::find_if(macros.begin(), macros.end(),
+                                                [=](const auto &macro) {
+                                                    return macro.id == id;
+                                                });
+                if (found == macros.end()) error = "performance macro does not exist";
+                else requested = std::clamp(
+                    found->value + static_cast<float>(real("steps") * 0.01),
+                    0.0F, 1.0F);
+            }
+            if (error.empty() && performance_macros_.set_value(id, requested,
                                               error)) {
                 const auto &macros = performance_macros_.project().macros;
                 const auto found = std::find_if(macros.begin(), macros.end(),
@@ -5537,6 +5610,364 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                          TimelineCommitPolicy::next_audio_callback, error)) {
             } else
                 changed_locked();
+        } else if (command.action_id == "performance.bank-select.v1" ||
+                   command.action_id == "performance.bank-next.v1" ||
+                   command.action_id == "performance.bank-previous.v1") {
+            const auto timeline = timeline_.snapshot();
+            auto id = state_.performance_banks.active_bank;
+            if (command.action_id == "performance.bank-select.v1")
+                id = static_cast<PerformanceBankId>(
+                    *argument<std::int64_t>(command, "bank"));
+            else if (!timeline.timeline.arrangement.performance_banks.empty()) {
+                const auto current = std::find_if(
+                    timeline.timeline.arrangement.performance_banks.begin(),
+                    timeline.timeline.arrangement.performance_banks.end(),
+                    [=](const auto &bank) { return bank.id == id; });
+                auto index = current == timeline.timeline.arrangement.performance_banks.end()
+                    ? std::size_t{} : static_cast<std::size_t>(
+                        current - timeline.timeline.arrangement.performance_banks.begin());
+                const auto size = timeline.timeline.arrangement.performance_banks.size();
+                index = command.action_id == "performance.bank-next.v1"
+                    ? (index + 1) % size : (index + size - 1) % size;
+                id = timeline.timeline.arrangement.performance_banks[index].id;
+            }
+            const auto found = std::find_if(
+                timeline.timeline.arrangement.performance_banks.begin(),
+                timeline.timeline.arrangement.performance_banks.end(),
+                [=](const auto &bank) { return bank.id == id; });
+            if (found == timeline.timeline.arrangement.performance_banks.end())
+                error = "Performance bank does not exist";
+            else {
+                state_.performance_banks.active_bank = id;
+                state_.performance_banks.selected_assignment = 0;
+                changed_locked();
+            }
+        } else if (command.action_id == "performance.assignment-select.v1") {
+            const auto id = static_cast<PerformanceAssignmentId>(
+                *argument<std::int64_t>(command, "assignment"));
+            const auto timeline = timeline_.snapshot();
+            const auto bank = std::find_if(
+                timeline.timeline.arrangement.performance_banks.begin(),
+                timeline.timeline.arrangement.performance_banks.end(),
+                [&](const auto &value) {
+                    return value.id == state_.performance_banks.active_bank;
+                });
+            const auto exists = bank != timeline.timeline.arrangement.performance_banks.end() &&
+                (std::any_of(bank->parameters.begin(), bank->parameters.end(),
+                             [=](const auto &value) { return value.id == id; }) ||
+                 std::any_of(bank->actions.begin(), bank->actions.end(),
+                             [=](const auto &value) { return value.id == id; }) ||
+                 std::any_of(bank->pads.begin(), bank->pads.end(),
+                             [=](const auto &value) { return value.id == id; }));
+            if (!exists) error = "Performance assignment does not exist";
+            else {
+                state_.performance_banks.selected_assignment = id;
+                changed_locked();
+            }
+        } else if (command.action_id == "performance.bank-create.v1" ||
+                   command.action_id == "performance.bank-rename.v1" ||
+                   command.action_id == "performance.bank-duplicate.v1" ||
+                   command.action_id == "performance.bank-delete.v1" ||
+                   command.action_id == "performance.parameter-assign.v1" ||
+                   command.action_id == "performance.action-assign.v1" ||
+                   command.action_id == "performance.bank-pad-assign.v1" ||
+                   command.action_id == "performance.assignment-clear.v1") {
+            auto transaction = timeline_.edit();
+            auto &arrangement = transaction.timeline().arrangement;
+            constexpr std::size_t maximum_banks = 32;
+            const auto bank_id = static_cast<PerformanceBankId>(
+                command.action_id == "performance.bank-duplicate.v1"
+                    ? *argument<std::int64_t>(command, "bank")
+                    : *argument<std::int64_t>(command, "bank"));
+            auto bank = std::find_if(arrangement.performance_banks.begin(),
+                                     arrangement.performance_banks.end(),
+                                     [=](const auto &value) {
+                                         return value.id == bank_id;
+                                     });
+            const auto valid_name = [](const std::string &name) {
+                return !name.empty() && name.size() <= 64;
+            };
+            const auto assignment_exists = [&](PerformanceAssignmentId id) {
+                for (const auto &candidate : arrangement.performance_banks) {
+                    if (std::any_of(candidate.parameters.begin(), candidate.parameters.end(),
+                                    [=](const auto &value) { return value.id == id; }) ||
+                        std::any_of(candidate.actions.begin(), candidate.actions.end(),
+                                    [=](const auto &value) { return value.id == id; }) ||
+                        std::any_of(candidate.pads.begin(), candidate.pads.end(),
+                                    [=](const auto &value) { return value.id == id; }))
+                        return true;
+                }
+                return false;
+            };
+            if (command.action_id == "performance.bank-create.v1") {
+                const auto &name = *argument<std::string>(command, "name");
+                if (!bank_id || bank != arrangement.performance_banks.end())
+                    error = "Performance bank ID already exists";
+                else if (!valid_name(name)) error = "Performance bank name is invalid";
+                else if (arrangement.performance_banks.size() >= maximum_banks)
+                    error = "Performance bank capacity is full";
+                else {
+                    PerformanceBank created;
+                    created.id = bank_id;
+                    created.name = name;
+                    arrangement.performance_banks.push_back(std::move(created));
+                }
+            } else if (command.action_id == "performance.bank-duplicate.v1") {
+                const auto source_id = static_cast<PerformanceBankId>(
+                    *argument<std::int64_t>(command, "source"));
+                const auto source = std::find_if(
+                    arrangement.performance_banks.begin(),
+                    arrangement.performance_banks.end(),
+                    [=](const auto &value) { return value.id == source_id; });
+                const auto &name = *argument<std::string>(command, "name");
+                if (source == arrangement.performance_banks.end())
+                    error = "source Performance bank does not exist";
+                else if (!bank_id || bank != arrangement.performance_banks.end())
+                    error = "Performance bank ID already exists";
+                else if (!valid_name(name)) error = "Performance bank name is invalid";
+                else if (arrangement.performance_banks.size() >= maximum_banks)
+                    error = "Performance bank capacity is full";
+                else {
+                    auto copy = *source;
+                    copy.id = bank_id;
+                    copy.name = name;
+                    PerformanceAssignmentId next = 1;
+                    for (const auto &candidate : arrangement.performance_banks)
+                        for (const auto id : [&] {
+                            std::vector<PerformanceAssignmentId> ids;
+                            for (const auto &v : candidate.parameters) ids.push_back(v.id);
+                            for (const auto &v : candidate.actions) ids.push_back(v.id);
+                            for (const auto &v : candidate.pads) ids.push_back(v.id);
+                            return ids;
+                        }()) next = std::max(next, id + 1);
+                    for (auto &v : copy.parameters) v.id = next++;
+                    for (auto &v : copy.actions) v.id = next++;
+                    for (auto &v : copy.pads) v.id = next++;
+                    arrangement.performance_banks.push_back(std::move(copy));
+                }
+            } else if (bank == arrangement.performance_banks.end())
+                error = "Performance bank does not exist";
+            else if (command.action_id == "performance.bank-rename.v1") {
+                const auto &name = *argument<std::string>(command, "name");
+                if (!valid_name(name)) error = "Performance bank name is invalid";
+                else bank->name = name;
+            } else if (command.action_id == "performance.bank-delete.v1") {
+                arrangement.performance_banks.erase(bank);
+            } else {
+                const auto id = static_cast<PerformanceAssignmentId>(
+                    *argument<std::int64_t>(command, "assignment"));
+                if (command.action_id == "performance.assignment-clear.v1") {
+                    const auto before = bank->parameters.size() + bank->actions.size() + bank->pads.size();
+                    std::erase_if(bank->parameters, [=](const auto &v) { return v.id == id; });
+                    std::erase_if(bank->actions, [=](const auto &v) { return v.id == id; });
+                    std::erase_if(bank->pads, [=](const auto &v) { return v.id == id; });
+                    if (before == bank->parameters.size() + bank->actions.size() + bank->pads.size())
+                        error = "Performance assignment does not exist";
+                } else {
+                    const auto in_current =
+                        std::any_of(bank->parameters.begin(), bank->parameters.end(),
+                                    [=](const auto &v) { return v.id == id; }) ||
+                        std::any_of(bank->actions.begin(), bank->actions.end(),
+                                    [=](const auto &v) { return v.id == id; }) ||
+                        std::any_of(bank->pads.begin(), bank->pads.end(),
+                                    [=](const auto &v) { return v.id == id; });
+                    if (!id || (assignment_exists(id) && !in_current))
+                        error = "Performance assignment ID already exists in another bank";
+                    else if (in_current) {
+                        std::erase_if(bank->parameters, [=](const auto &v) { return v.id == id; });
+                        std::erase_if(bank->actions, [=](const auto &v) { return v.id == id; });
+                        std::erase_if(bank->pads, [=](const auto &v) { return v.id == id; });
+                    }
+                }
+                if (error.empty() && command.action_id == "performance.parameter-assign.v1") {
+                    const auto position = *argument<std::int64_t>(command, "position");
+                    const auto secondary = *argument<bool>(command, "secondary");
+                    const auto &parameter_id = *argument<std::string>(command, "parameter_id");
+                    const auto descriptor = parameters_.get(parameter_id);
+                    PerformanceMacroId macro_id{};
+                    bool macro_target{};
+                    if (parameter_id.starts_with("macro.") &&
+                        parameter_id.ends_with(".value")) {
+                        const auto text = std::string_view(parameter_id).substr(
+                            6, parameter_id.size() - 12);
+                        const auto [end, parse_error] = std::from_chars(
+                            text.data(), text.data() + text.size(), macro_id);
+                        macro_target = parse_error == std::errc{} &&
+                            end == text.data() + text.size() &&
+                            std::any_of(performance_macros_.project().macros.begin(),
+                                        performance_macros_.project().macros.end(),
+                                        [=](const auto &value) {
+                                            return value.id == macro_id;
+                                        });
+                    }
+                    if (position < 0 || position > 65535)
+                        error = "Performance position is out of range";
+                    else if ((!descriptor || !is_numeric(descriptor->current_value)) &&
+                             !macro_target)
+                        error = "Performance parameter target is unavailable";
+                    else if (std::any_of(bank->parameters.begin(), bank->parameters.end(),
+                                        [&](const auto &v) { return v.position == position && v.secondary == secondary; }))
+                        error = "Performance parameter position is already assigned";
+                    else if (bank->parameters.size() >= PerformanceBank::maximum_parameters)
+                        error = "Performance parameter capacity is full";
+                    else {
+                        const auto label = argument<std::string>(command, "label");
+                        const auto scale = argument<double>(command, "scale");
+                        if (scale && (!std::isfinite(*scale) || *scale <= 0))
+                            error = "Performance parameter scale is invalid";
+                        else bank->parameters.push_back(
+                            {id, static_cast<std::uint32_t>(position), secondary,
+                             parameter_id,
+                             label ? *label
+                                   : macro_target ? "Macro " + std::to_string(macro_id)
+                                                  : descriptor->name,
+                             scale ? *scale : 1.0});
+                    }
+                } else if (error.empty() && command.action_id == "performance.bank-pad-assign.v1") {
+                    const auto position = *argument<std::int64_t>(command, "position");
+                    const auto slot = static_cast<LaunchSlotId>(*argument<std::int64_t>(command, "slot"));
+                    const auto target = std::find_if(arrangement.launch_slots.begin(), arrangement.launch_slots.end(),
+                                                     [=](const auto &v) { return v.id == slot; });
+                    if (position < 0 || position > 65535)
+                        error = "Performance pad position is out of range";
+                    else if (target == arrangement.launch_slots.end())
+                        error = "Performance launch target does not exist";
+                    else if (std::any_of(bank->pads.begin(), bank->pads.end(),
+                                        [=](const auto &v) { return v.position == position; }))
+                        error = "Performance pad position is already assigned";
+                    else if (bank->pads.size() >= PerformanceBank::maximum_pads)
+                        error = "Performance pad capacity is full";
+                    else {
+                        const auto label = argument<std::string>(command, "label");
+                        bank->pads.push_back(
+                            {id, static_cast<std::uint32_t>(position), slot,
+                             label ? *label : std::string{}});
+                    }
+                } else if (error.empty() && command.action_id == "performance.action-assign.v1") {
+                    const auto position = *argument<std::int64_t>(command, "position");
+                    const auto secondary = *argument<bool>(command, "secondary");
+                    const auto &action_id = *argument<std::string>(command, "action_id");
+                    const auto *descriptor = actions_.find(action_id);
+                    const auto safe = action_id == "performance.slot-launch.v1" ||
+                        action_id == "performance.slot-stop.v1" ||
+                        action_id == "performance.slot-retrigger.v1" ||
+                        action_id == "performance.scene-launch.v1" ||
+                        action_id == "performance.fill-set.v1" ||
+                        action_id == "performance.fill-latch.v1" ||
+                        action_id == "macro.value-set.v1" ||
+                        action_id == "macro.scene-recall.v1" ||
+                        action_id == "track.mute-toggle.v1" ||
+                        action_id == "mixer.mute-toggle.v1" ||
+                        action_id == "effect.bypass.v1" ||
+                        action_id == "transport.play.v1" ||
+                        action_id == "transport.stop.v1";
+                    const auto &behavior_name = *argument<std::string>(command, "behavior");
+                    PerformanceActionBehavior behavior{};
+                    if (behavior_name == "one-shot") behavior = PerformanceActionBehavior::one_shot;
+                    else if (behavior_name == "toggle") behavior = PerformanceActionBehavior::toggle;
+                    else if (behavior_name == "momentary") behavior = PerformanceActionBehavior::momentary;
+                    else error = "unknown Performance action behavior";
+                    std::map<std::string, PerformanceArgumentValue> arguments;
+                    if (const auto name = argument<std::string>(command, "argument_name")) {
+                        unsigned count{};
+                        if (const auto value = argument<bool>(command, "argument_bool")) { arguments[*name] = *value; ++count; }
+                        if (const auto value = argument<std::int64_t>(command, "argument_integer")) { arguments[*name] = *value; ++count; }
+                        if (const auto value = argument<double>(command, "argument_real")) { arguments[*name] = *value; ++count; }
+                        if (const auto value = argument<std::string>(command, "argument_text")) { arguments[*name] = *value; ++count; }
+                        if (count != 1) error = "Performance argument requires exactly one typed value";
+                    }
+                    if (descriptor)
+                        for (int index = 1; index <= 4 && error.empty(); ++index) {
+                            const auto prefix = "argument_" + std::to_string(index);
+                            const auto name = argument<std::string>(command, prefix + "_name");
+                            const auto text = argument<std::string>(command, prefix + "_value");
+                            if (!name && !text) continue;
+                            if (!name || !text || name->empty()) {
+                                error = "Performance typed argument pair is incomplete";
+                                break;
+                            }
+                            const auto spec = std::find_if(
+                                descriptor->arguments.begin(), descriptor->arguments.end(),
+                                [&](const auto &value) { return value.name == *name; });
+                            if (spec == descriptor->arguments.end()) {
+                                error = "Performance action argument is unknown";
+                                break;
+                            }
+                            if (spec->type == ValueType::boolean) {
+                                if (*text == "true" || *text == "1") arguments[*name] = true;
+                                else if (*text == "false" || *text == "0") arguments[*name] = false;
+                                else error = "Performance boolean argument is invalid";
+                            } else if (spec->type == ValueType::integer) {
+                                std::int64_t value{};
+                                const auto [end, parse_error] = std::from_chars(
+                                    text->data(), text->data() + text->size(), value);
+                                if (parse_error != std::errc{} || end != text->data() + text->size())
+                                    error = "Performance integer argument is invalid";
+                                else arguments[*name] = value;
+                            } else if (spec->type == ValueType::real) {
+                                try {
+                                    std::size_t end{};
+                                    const auto value = std::stod(*text, &end);
+                                    if (end != text->size() || !std::isfinite(value))
+                                        throw std::invalid_argument("real");
+                                    arguments[*name] = value;
+                                } catch (...) {
+                                    error = "Performance real argument is invalid";
+                                }
+                            } else if (spec->type == ValueType::text)
+                                arguments[*name] = *text;
+                            else
+                                error = "Performance action argument type is unsupported";
+                        }
+                    if (behavior == PerformanceActionBehavior::momentary)
+                        arguments["active"] = true;
+                    auto application_arguments = std::map<std::string, ApplicationValue>{};
+                    for (const auto &[name, value] : arguments)
+                        std::visit([&](const auto &item) { application_arguments[name] = item; }, value);
+                    std::string validation_error;
+                    if (error.empty() && (!descriptor || !safe))
+                        error = "action is not Performance-safe";
+                    else if (error.empty() && !actions_.validate(action_id, application_arguments, validation_error))
+                        error = validation_error;
+                    else if (behavior == PerformanceActionBehavior::momentary &&
+                             action_id != "performance.fill-set.v1")
+                        error = "action does not support Performance momentary ownership";
+                    else if (position < 0 || position > 65535)
+                        error = "Performance action position is out of range";
+                    else if (std::any_of(bank->actions.begin(), bank->actions.end(),
+                                        [&](const auto &v) { return v.position == position && v.secondary == secondary; }))
+                        error = "Performance action position is already assigned";
+                    else if (bank->actions.size() >= PerformanceBank::maximum_actions)
+                        error = "Performance action capacity is full";
+                    else if (error.empty()) {
+                        std::map<std::string, PerformanceArgumentValue> release;
+                        if (behavior == PerformanceActionBehavior::momentary) {
+                            release["active"] = false;
+                        }
+                        const auto label = argument<std::string>(command, "label");
+                        bank->actions.push_back(
+                            {id, static_cast<std::uint32_t>(position), secondary,
+                             action_id, label ? *label : descriptor->name,
+                             behavior, std::move(arguments), std::move(release)});
+                    }
+                }
+            }
+            if (error.empty() && timeline_.commit(
+                    std::move(transaction),
+                    TimelineCommitPolicy::next_audio_callback, error)) {
+                if (!state_.performance_banks.active_bank)
+                    state_.performance_banks.active_bank = bank_id;
+                if (command.action_id == "performance.bank-delete.v1" &&
+                    state_.performance_banks.active_bank == bank_id) {
+                    const auto snapshot = timeline_.snapshot();
+                    state_.performance_banks.active_bank =
+                        snapshot.timeline.arrangement.performance_banks.empty()
+                            ? 0
+                            : snapshot.timeline.arrangement.performance_banks.front().id;
+                }
+                state_.project_dirty = true;
+                changed_locked();
+            }
         } else if (command.action_id == "performance.scene-create.v1" ||
                    command.action_id == "performance.scene-delete.v1" ||
                    command.action_id == "performance.scene-rename.v1" ||
@@ -9945,6 +10376,19 @@ void ApplicationService::synchronize_locked() const {
                                                  performance_launcher_.pending().end());
     state_.performance_launching.ownership = performance_launcher_.ownership();
     state_.performance_launching.diagnostics = performance_launcher_.diagnostics();
+    state_.performance_banks.banks = arrangement.performance_banks;
+    if (state_.performance_banks.banks.empty()) {
+        state_.performance_banks.active_bank = 0;
+        state_.performance_banks.selected_assignment = 0;
+    } else if (std::none_of(
+                   state_.performance_banks.banks.begin(),
+                   state_.performance_banks.banks.end(), [&](const auto &bank) {
+                       return bank.id == state_.performance_banks.active_bank;
+                   })) {
+        state_.performance_banks.active_bank =
+            state_.performance_banks.banks.front().id;
+        state_.performance_banks.selected_assignment = 0;
+    }
     state_.song_start = arrangement.song_start;
     state_.song_end = arrangement.song_end;
     state_.arrangement_loop_enabled = arrangement.loop_enabled;

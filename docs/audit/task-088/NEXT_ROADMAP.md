@@ -89,9 +89,10 @@ issues; unperformed rows remain NOT RUN.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 
-Tasks 095 and 096A–096D now provide independent-client publication, gesture
-ownership, reference navigation, supported dedicated clusters, and stable
-Sequencer contextual property/lock authoring. The exact next bounded task is
-**Task 096E — project-owned Performance banks**: named primary/SHIFT P1-P8 and
-F1-F8 assignments, stable pads, labels, persistence/migration and target-loss
-availability, kept separate from appliance controller profiles.
+Tasks 095 and 096A–096E now provide independent-client publication, gesture
+ownership, reference navigation, supported dedicated clusters, stable
+Sequencer contextual editing, and portable project-owned Performance banks.
+The exact next bounded task is **Task 096F — manual controller mapping
+closure**: reuse Performance target selection and typed arguments for manual
+MIDI source/message/channel/number creation, relative encoding, scaling,
+pickup, conflicts, feedback and recoverable appliance profile persistence.

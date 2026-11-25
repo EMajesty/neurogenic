@@ -225,6 +225,15 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_reference_controller_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.reference-controller-tests.v1 passed"
     TIMEOUT 15)
+  add_executable(neurogenic_performance_banks_tests
+    tests/performance_banks_tests.cpp)
+  target_link_libraries(neurogenic_performance_banks_tests PRIVATE
+    neurogenic_engine)
+  add_test(NAME neurogenic_performance_banks_tests
+    COMMAND neurogenic_performance_banks_tests)
+  set_tests_properties(neurogenic_performance_banks_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.performance-banks-tests.v1 passed"
+    TIMEOUT 20)
   add_executable(neurogenic_modulation_authoring_tests
     tests/modulation_authoring_tests.cpp)
   target_link_libraries(neurogenic_modulation_authoring_tests PRIVATE

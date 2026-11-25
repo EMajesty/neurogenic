@@ -3,6 +3,7 @@ import { Theme } from "theme.slint";
 
 export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
 export struct SceneItem { label: string, queued: bool }
+export struct PerformanceBankItem { id: int, name: string, selected: bool }
 
 export component PerformancePage inherits VerticalLayout {
     in property <string> transport-state;
@@ -12,10 +13,23 @@ export component PerformancePage inherits VerticalLayout {
     in property <string> launch-quantization;
     in property <[PadItem]> pads;
     in property <[SceneItem]> scenes;
+    in property <[PerformanceBankItem]> banks;
+    in property <string> bank-name;
     callback transport-invoked(string); callback track-selected(int);
     callback return-arrangement(); callback quantization-invoked();
     callback scene-invoked(int); callback pad-invoked(int, bool);
+    callback bank-selected(int); callback bank-action(string);
     spacing: 6px;
+    HorizontalLayout {
+        height: 38px; spacing: 5px;
+        Text { text: "Bank: " + root.bank-name; color: Theme.accent; vertical-alignment: center; }
+        PageButton { text: "<"; implemented: root.banks.length > 0; clicked => { root.bank-action("previous"); } }
+        PageButton { text: ">"; implemented: root.banks.length > 0; clicked => { root.bank-action("next"); } }
+        for bank[i] in root.banks: PageButton { text: bank.name; selected: bank.selected; clicked => { root.bank-selected(i); } }
+        PageButton { text: "+ Bank"; clicked => { root.bank-action("create"); } }
+        PageButton { text: "Duplicate"; implemented: root.banks.length > 0; clicked => { root.bank-action("duplicate"); } }
+        PageButton { text: "Delete"; implemented: root.banks.length > 0; clicked => { root.bank-action("delete"); } }
+    }
     HorizontalLayout {
         height: 58px; spacing: 6px;
         TransportControls { state: root.transport-state; play => { root.transport-invoked("play"); } stop => { root.transport-invoked("stop"); } record => { root.transport-invoked("record"); } }

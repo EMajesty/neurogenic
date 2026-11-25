@@ -1,5 +1,17 @@
 # Test and validation audit
 
+## Task 096E additions
+
+`neurogenic_performance_banks_tests` covers bank lifecycle foundations,
+primary/SHIFT parameter isolation, macro control, typed safe action dispatch,
+momentary release and bank-change cancellation, banked launch pads,
+SHIFT-selection, missing-target retention/repair, unified Undo/Redo,
+format-12 persistence and a deliberately non-reference controller.
+Generated Slint callbacks cover bank creation/selection and banked pad
+assignment; rendered tests retain both supported resolutions. Coordinate,
+physical touch/controller and RGB validation remain **NOT RUN**. Full command
+evidence is recorded in `TASK_096E_VALIDATION.md`.
+
 Task 096D adds production V2 coverage for ordinary Sequencer taps, consumed
 held taps, later-page stable property editing, compatible lock creation with
 base preservation, one-entry gesture history, Undo/Redo, pattern isolation and

@@ -169,6 +169,13 @@ ContextControl action_control(std::uint16_t id, std::string label,
     c.role = "action";
     return c;
 }
+std::map<std::string, ApplicationValue> application_arguments(
+    const std::map<std::string, PerformanceArgumentValue> &arguments) {
+    std::map<std::string, ApplicationValue> result;
+    for (const auto &[name, value] : arguments)
+        std::visit([&](const auto &item) { result[name] = item; }, value);
+    return result;
+}
 std::string_view truncate_view(std::string_view value, std::size_t maximum) {
     return value.substr(0, std::min(value.size(), maximum));
 }
@@ -200,7 +207,103 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
     const auto bank = separator == std::string_view::npos
         ? std::string_view("primary") : context.substr(separator + 1);
     for (auto &control : result) control.bank_id = std::string(bank);
-    if (page == "mixer")
+    if (page == "performance") {
+        const auto selected = std::find_if(
+            state.performance_banks.banks.begin(),
+            state.performance_banks.banks.end(), [&](const auto &value) {
+                return value.id == state.performance_banks.active_bank;
+            });
+        if (selected != state.performance_banks.banks.end()) {
+            const auto secondary = modifiers.shift || modifiers.shift_latched;
+            for (const auto &assignment : selected->parameters) {
+                if (assignment.secondary != secondary || assignment.position >= 8)
+                    continue;
+                auto control = parameter_control(
+                    state, static_cast<std::uint16_t>(assignment.position),
+                    assignment.parameter_id);
+                PerformanceMacroId macro_id{};
+                if (!control.active && assignment.parameter_id.starts_with("macro.") &&
+                    assignment.parameter_id.ends_with(".value")) {
+                    const auto text = std::string_view(assignment.parameter_id).substr(
+                        6, assignment.parameter_id.size() - 12);
+                    const auto [end, parse_error] = std::from_chars(
+                        text.data(), text.data() + text.size(), macro_id);
+                    const auto macro = std::find_if(
+                        state.performance_macros.macros.begin(),
+                        state.performance_macros.macros.end(),
+                        [=](const auto &value) { return value.id == macro_id; });
+                    if (parse_error == std::errc{} &&
+                        end == text.data() + text.size() &&
+                        macro != state.performance_macros.macros.end()) {
+                        control.active = true;
+                        control.label = macro->name;
+                        control.value = formatted(static_cast<double>(macro->value));
+                        control.minimum = 0;
+                        control.maximum = 1;
+                        control.role = "performance-macro";
+                        control.arguments["macro_id"] =
+                            static_cast<std::int64_t>(macro_id);
+                    }
+                }
+                control.label = assignment.label.empty()
+                    ? control.label : assignment.label;
+                control.bank_id = "performance:" +
+                    std::to_string(selected->id) +
+                    (secondary ? ":secondary" : ":primary");
+                if (control.role != "performance-macro")
+                    control.role = "performance-parameter";
+                control.arguments["assignment"] =
+                    static_cast<std::int64_t>(assignment.id);
+                control.arguments["scale"] = assignment.scale;
+                control.assignment_id = assignment.id;
+                result[assignment.position] = std::move(control);
+            }
+            for (const auto &assignment : selected->actions) {
+                if (assignment.secondary != secondary || assignment.position >= 8)
+                    continue;
+                const auto arguments = application_arguments(assignment.arguments);
+                auto target_available = true;
+                if (assignment.action_id == "performance.slot-launch.v1" ||
+                    assignment.action_id == "performance.slot-stop.v1" ||
+                    assignment.action_id == "performance.slot-retrigger.v1") {
+                    const auto slot = arguments.find("slot");
+                    target_available = slot != arguments.end() &&
+                        std::holds_alternative<std::int64_t>(slot->second) &&
+                        std::any_of(state.performance_launching.slots.begin(),
+                                    state.performance_launching.slots.end(),
+                                    [&](const auto &value) {
+                                        return value.id == static_cast<LaunchSlotId>(
+                                            std::get<std::int64_t>(slot->second));
+                                    });
+                }
+                auto control = action_control(
+                    static_cast<std::uint16_t>(8 + assignment.position),
+                    assignment.label.empty() ? assignment.action_id
+                                             : assignment.label,
+                    assignment.action_id,
+                    target_available && std::find(state.available_actions.begin(),
+                              state.available_actions.end(),
+                              assignment.action_id) !=
+                        state.available_actions.end());
+                control.arguments = arguments;
+                control.assignment_id = assignment.id;
+                control.bank_id = "performance:" +
+                    std::to_string(selected->id) +
+                    (secondary ? ":secondary" : ":primary");
+                control.role = assignment.behavior ==
+                                       PerformanceActionBehavior::momentary
+                                   ? "performance-momentary"
+                                   : assignment.behavior ==
+                                             PerformanceActionBehavior::toggle
+                                         ? "performance-toggle"
+                                         : "performance-action";
+                result[8 + assignment.position] = std::move(control);
+            }
+        } else
+            set_parameters({"transport.tempo", "synth.cutoff", "synth.resonance",
+                            "synth.attack", "synth.release", "sample.gain",
+                            "mixer.selected.pan", "effect.delay.mix"});
+    } else if (page == "mixer")
         set_parameters({"mixer.selected.gain", "mixer.selected.pan",
                         "mixer.track.aux-1", "mixer.track.aux-2",
                         "mixer.aux.return", "mixer.master.gain",
@@ -347,7 +450,12 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[3] = {"REPLACE", "live-loop.replace.v1"};
         lower[4] = {"CANCEL", "live-loop.cancel.v1"};
     }
-    if (modifiers.shift || modifiers.shift_latched) {
+    const auto custom_performance = page == "performance" &&
+        std::any_of(state.performance_banks.banks.begin(),
+                    state.performance_banks.banks.end(), [&](const auto &value) {
+                        return value.id == state.performance_banks.active_bank;
+                    });
+    if ((modifiers.shift || modifiers.shift_latched) && !custom_performance) {
         if (page == "sequencer" && explicit_bank) {
             lower[0] = {"SELECT", "step.selection-toggle.v1"};
             lower[1] = {"CLEAR SEL", "step.selection-clear.v1"};
@@ -362,7 +470,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             lower[1] = {"REDO", "edit.redo.v1"};
         }
     }
-    for (std::size_t i = 0; i < 8; ++i) {
+    for (std::size_t i = 0; i < 8 && !custom_performance; ++i) {
         const bool available =
             std::find(state.available_actions.begin(),
                       state.available_actions.end(),

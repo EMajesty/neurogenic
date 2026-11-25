@@ -1,5 +1,12 @@
 # Project persistence
 
+Timeline format 12 persists named project-owned Performance banks, their
+primary/secondary parameter and action layers, typed arguments, labels and
+launcher-pad references. Pre-12 explicit logical pad positions migrate
+deterministically in memory and are not written back until an explicit save.
+The project restores without the originating controller or frontend. See
+[Performance banks](PERFORMANCE_BANKS.md).
+
 Modulation sources, routes and performance macros/scenes are project state.
 Stable source, route, macro, assignment and scene identities are serialized in
 the committed generation and validated before publication on reopen. Runtime
