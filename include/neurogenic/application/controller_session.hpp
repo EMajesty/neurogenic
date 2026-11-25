@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neurogenic/application/controller.hpp"
+#include "neurogenic/application/input_gesture.hpp"
 #include "neurogenic/application/parameter_binding.hpp"
 #include <deque>
 #include <unordered_map>
@@ -31,6 +32,7 @@ struct ControllerSessionState {
     std::uint64_t received{}, rejected{}, dropped_feedback{}, feedback_revision{};
     std::uint64_t local_revision{1}, delivered_local_revision{};
     bool resync_required{true};
+    GestureInteractionState interaction;
 };
 
 [[nodiscard]] std::array<ContextControl, 16>
@@ -52,6 +54,9 @@ class ControllerSession {
         return state_;
     }
     bool input(const ControllerInput &, std::string &error);
+    bool configure_gestures(GestureConfiguration, std::string &error);
+    bool update_gestures(std::string &error);
+    void set_modal_context(std::string modal_context);
     void observe(const ApplicationState &, bool full_refresh = false);
     [[nodiscard]] std::optional<ControllerFeedback> next_feedback();
     [[nodiscard]] bool has_pending_feedback() const noexcept {
@@ -63,7 +68,7 @@ class ControllerSession {
         return state_.resync_required || !feedback_.empty() ||
                state_.delivered_local_revision != state_.local_revision;
     }
-    void reconnect() noexcept;
+    void reconnect();
     void set_context(std::string context);
     bool set_binding(std::size_t index, ControlBinding, std::string &error);
     [[nodiscard]] const ControllerProfile &profile() const noexcept {
@@ -71,6 +76,10 @@ class ControllerSession {
     }
 
   private:
+    bool dispatch_legacy(const ControllerInput &, std::string &error);
+    bool dispatch_gesture(const GestureEvent &, const ControllerInput &,
+                          std::string &error);
+    void synchronize_interaction() noexcept;
     const ControlBinding *binding(std::string_view control) const;
     bool submit(ApplicationCommand, std::string &error);
     bool feedback(ControllerFeedback);
@@ -78,6 +87,7 @@ class ControllerSession {
     ControllerDeviceDescriptor descriptor_;
     ControllerProfile profile_;
     ParameterBindingService bindings_;
+    InputGestureArbiter gestures_;
     ControllerSessionState state_;
     std::deque<ControllerFeedback> feedback_;
     std::size_t capacity_{};

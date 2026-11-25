@@ -1,5 +1,9 @@
 # Dedicated controller protocol
 
+Input connection generations and gesture ownership are host-side in Task 096A;
+the wire format is unchanged. Firmware continues sending stable logical
+identities and press/release events. See [Input gestures](INPUT_GESTURES.md).
+
 ## Transport decision
 
 The first transport is USB CDC ACM serial at 115200 baud. CDC was selected

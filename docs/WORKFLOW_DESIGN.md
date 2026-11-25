@@ -1,5 +1,9 @@
 # Designing musical workflows with NEUROGENIC
 
+Multi-control workflows should compose logical controls and stable semantic
+targets through [gesture ownership](INPUT_GESTURES.md), not physical positions
+or a second musical-state authority.
+
 NEUROGENIC's engine and application services provide musical objects and
 validated semantic operations without prescribing one way to compose or
 perform. A workflow is an ordered interaction policy over those operations: it

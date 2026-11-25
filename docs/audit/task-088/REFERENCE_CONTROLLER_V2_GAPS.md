@@ -1,5 +1,12 @@
 # Reference Controller V2 implementation gaps
 
+Task 096A evidence: RC2-001 is **partially implemented** at the shared
+infrastructure layer by `InputGestureArbiter`, `ControllerSession` integration,
+and `neurogenic_input_gesture_tests`. V2-specific policies, full profile and
+physical validation remain open. RC2-007's foundational modal ownership and
+input generations are implemented; complete modal bindings and rendered V2
+presentation remain open. See `docs/INPUT_GESTURES.md`.
+
 This report reconciles the locked
 [Reference Controller V2](../../REFERENCE_CONTROLLER_V2.md) design with the
 production tree after Task 093 (`d60bc22`). It does not treat a semantic action,

@@ -1,5 +1,11 @@
 # Next development roadmap
 
+After Task 096A, Task 096B should consume effective SHIFT state, logical V2
+control identities, context/modal generations, and interaction feedback to
+implement primary/secondary page routing, root-page return, and contextual
+label publication. It must not yet absorb navigation/edit/transport binding,
+held-step locks, performance banks, or firmware feedback.
+
 ## Task 089 — unify reusable pattern editing and arrangement authoring
 
 **Objective:** remove the split between the step-editable track pattern and the

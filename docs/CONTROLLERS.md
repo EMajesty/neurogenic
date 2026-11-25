@@ -1,5 +1,9 @@
 # Application control and controller API
 
+Press/release ownership, chords, modifiers, modal precedence, and connection
+generations are defined in [Input gestures](INPUT_GESTURES.md). They use logical
+control identities and do not require the reference panel.
+
 The authoritative intended panel and default interaction design is
 [Reference Controller V2](REFERENCE_CONTROLLER_V2.md). Its inventory and
 relative placement are locked for current development; default assignments

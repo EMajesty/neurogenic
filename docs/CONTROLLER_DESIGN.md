@@ -1,5 +1,9 @@
 # Designing a controller for NEUROGENIC
 
+Devices needing held modifiers or chords can opt into the bounded
+[gesture ownership contract](INPUT_GESTURES.md). Simple MIDI profiles and direct
+semantic clients do not have to emulate Reference Controller V2.
+
 NEUROGENIC controllers are clients of the application semantic API. A control
 surface reports logical input, a profile maps that input to discovered actions
 or parameters, and authoritative application state drives feedback. Neither the

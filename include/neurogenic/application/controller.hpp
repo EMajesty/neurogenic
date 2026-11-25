@@ -73,7 +73,7 @@ struct ControllerInput {
     std::string control_id;
     double value{}, secondary{};
     bool pressed{};
-    std::uint64_t sequence{};
+    std::uint64_t sequence{}, connection_generation{};
 };
 struct ResolvedInput {
     std::optional<ApplicationCommand> action;

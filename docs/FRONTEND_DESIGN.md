@@ -1,5 +1,9 @@
 # Designing a frontend for NEUROGENIC
 
+Frontends may publish a presentation-local modal identity through the shared
+[input ownership contract](INPUT_GESTURES.md). Rendering remains frontend-local;
+modal transitions invalidate stale held input.
+
 NEUROGENIC does not require Slint, a window, or any particular page hierarchy.
 A frontend is a control-side client of `ApplicationService`: it discovers
 capabilities, reads copied revisioned state, invokes semantic operations, and

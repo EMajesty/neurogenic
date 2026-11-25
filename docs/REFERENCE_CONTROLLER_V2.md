@@ -1,5 +1,10 @@
 # Reference Controller V2 interaction design
 
+Task 096A supplies the presentation-neutral ownership, consume-on-chord,
+modifier, modal-context, repeat-timing, and reconnect-generation foundation.
+V2 page tables and bindings remain subsequent work; see
+[Input gestures](INPUT_GESTURES.md).
+
 This document is the authoritative design reference for NEUROGENIC's intended
 Reference Controller V2. It supersedes earlier simplified panel assumptions,
 but not the hardware-independent application architecture: application

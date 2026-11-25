@@ -111,6 +111,37 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
         ++state_.rejected;
         return false;
     }
+    if (gestures_.configured()) {
+        const bool encoder = control->type == ControlType::relative_encoder ||
+            control->type == ControlType::absolute_potentiometer ||
+            control->type == ControlType::fader ||
+            control->type == ControlType::crossfader;
+        const GestureInput gesture{input.control_id, input.value, input.pressed,
+                                   encoder, input.sequence,
+                                   input.connection_generation == 0
+                                       ? state_.interaction.connection_generation
+                                       : input.connection_generation};
+        auto events = gestures_.process(gesture, error);
+        synchronize_interaction();
+        if (!error.empty()) { ++state_.rejected; return false; }
+        for (const auto &event : events)
+            if (!dispatch_gesture(event, input, error)) return false;
+        ++state_.local_revision;
+        state_.resync_required = true;
+        return true;
+    }
+    return dispatch_legacy(input, error);
+}
+
+bool ControllerSession::dispatch_legacy(const ControllerInput &input,
+                                        std::string &error) {
+    const auto control = std::find_if(
+        descriptor_.controls.begin(), descriptor_.controls.end(),
+        [&](const auto &candidate) { return candidate.id == input.control_id; });
+    if (control == descriptor_.controls.end()) {
+        error = "gesture event references an unknown control";
+        return false;
+    }
     const auto *mapping = binding(input.control_id);
     if (!mapping || mapping->explicitly_unassigned) {
         error.clear();
@@ -280,6 +311,69 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
     return true;
 }
 
+bool ControllerSession::dispatch_gesture(const GestureEvent &event,
+                                         const ControllerInput &original,
+                                         std::string &error) {
+    if (!event.target.action_id.empty())
+        return submit({event.target.action_id, event.target.arguments,
+                       state_.session_id, original.sequence}, error);
+    if (!event.target.parameter_id.empty())
+        return submit({"parameter.adjust.v1",
+                       {{"parameter_id", event.target.parameter_id},
+                        {"steps", event.value}}, state_.session_id,
+                       original.sequence}, error);
+    if (event.kind == GestureEventKind::press ||
+        event.kind == GestureEventKind::tap ||
+        event.kind == GestureEventKind::repeat) {
+        auto dispatched = original;
+        dispatched.pressed = true;
+        return dispatch_legacy(dispatched, error);
+    }
+    error.clear();
+    return true;
+}
+
+void ControllerSession::synchronize_interaction() noexcept {
+    state_.interaction = gestures_.state();
+    state_.modifiers.shift = state_.interaction.held_controls.contains("shift");
+    state_.modifiers.shift_latched =
+        state_.interaction.latched_modifiers.contains("shift");
+    state_.modifiers.select =
+        state_.interaction.held_controls.contains("select");
+    state_.modifiers.select_latched =
+        state_.interaction.latched_modifiers.contains("select");
+}
+
+bool ControllerSession::configure_gestures(GestureConfiguration configuration,
+                                           std::string &error) {
+    if (!gestures_.configure(std::move(configuration), descriptor_.controls,
+                             error)) return false;
+    synchronize_interaction();
+    ++state_.local_revision;
+    invalidate_feedback();
+    return true;
+}
+
+bool ControllerSession::update_gestures(std::string &error) {
+    ControllerInput synthetic;
+    for (const auto &event : gestures_.update(error))
+        if (!dispatch_gesture(event, synthetic, error)) return false;
+    synchronize_interaction();
+    return error.empty();
+}
+
+void ControllerSession::set_modal_context(std::string modal_context) {
+    const auto events = gestures_.set_context(state_.context,
+                                              std::move(modal_context));
+    ControllerInput synthetic;
+    std::string ignored;
+    for (const auto &event : events)
+        (void)dispatch_gesture(event, synthetic, ignored);
+    synchronize_interaction();
+    ++state_.local_revision;
+    invalidate_feedback();
+}
+
 bool ControllerSession::feedback(ControllerFeedback value) {
     if (feedback_.size() >= capacity_) {
         ++state_.dropped_feedback;
@@ -396,8 +490,16 @@ std::optional<ControllerFeedback> ControllerSession::next_feedback() {
     return value;
 }
 
-void ControllerSession::reconnect() noexcept {
+void ControllerSession::reconnect() {
     feedback_.clear();
+    if (gestures_.configured()) {
+        const auto events = gestures_.reconnect();
+        ControllerInput synthetic;
+        std::string ignored;
+        for (const auto &event : events)
+            (void)dispatch_gesture(event, synthetic, ignored);
+        synchronize_interaction();
+    }
     ++state_.local_revision;
     invalidate_feedback();
 }
@@ -405,6 +507,15 @@ void ControllerSession::reconnect() noexcept {
 void ControllerSession::set_context(std::string context) {
     if (state_.context == context) return;
     state_.context = std::move(context);
+    if (gestures_.configured()) {
+        const auto events = gestures_.set_context(
+            state_.context, state_.interaction.modal_context);
+        ControllerInput synthetic;
+        std::string ignored;
+        for (const auto &event : events)
+            (void)dispatch_gesture(event, synthetic, ignored);
+        synchronize_interaction();
+    }
     ++state_.local_revision;
     state_.resync_required = true;
 }

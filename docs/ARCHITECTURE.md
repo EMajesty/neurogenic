@@ -1,5 +1,9 @@
 # Architecture
 
+Optional multi-control input uses the bounded, presentation-neutral
+[gesture ownership layer](INPUT_GESTURES.md). Direct semantic clients remain
+supported; gesture state is control-side and never enters the audio callback.
+
 ## Instrument-platform boundary
 
 NEUROGENIC's musical engine and application services do not prescribe a panel,

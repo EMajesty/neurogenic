@@ -1,5 +1,11 @@
 # Implementation status
 
+Task 096A adds opt-in presentation-neutral gesture arbitration to controller
+sessions: correlated presses/releases, bounded policies and repetition,
+consume-on-chord, stable semantic targets, modal/context generations, and safe
+disconnect reset. Reference Controller V2 page/binding integration and physical
+validation remain outstanding.
+
 ## Task 095 frontend verification and client independence
 
 Frontend refresh now consumes a revision-cached immutable application snapshot;
