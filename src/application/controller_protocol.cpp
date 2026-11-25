@@ -1,4 +1,5 @@
 #include "neurogenic/application/controller_protocol.hpp"
+#include "neurogenic/application/reference_controller.hpp"
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
@@ -20,6 +21,11 @@ std::uint16_t read16(const std::uint8_t *p) {
 std::uint32_t read32(const std::uint8_t *p) {
     return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 |
            std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
+}
+std::uint64_t read64(const std::uint8_t *p) {
+    std::uint64_t result{};
+    for (int i = 0; i < 8; ++i) result |= std::uint64_t(p[i]) << (i * 8);
+    return result;
 }
 void append16(std::vector<std::uint8_t> &v, std::uint16_t n) {
     v.push_back(n & 255);
@@ -68,6 +74,10 @@ std::string mode_name(std::uint16_t index) {
     }
 }
 std::string protocol_button_id(std::uint16_t id, std::uint8_t minor) {
+    if (minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR)
+        if (const auto *control = reference_v2_wire_control(id);
+            control && control->type == V2WireControlType::button)
+            return control->id;
     if (id < 16) return "grid." + std::to_string(id);
     if (id < 24) return "function." + std::to_string(id - 16);
     if (minor == 0 && id >= 24 && id <= 27)
@@ -87,12 +97,38 @@ std::string protocol_button_id(std::uint16_t id, std::uint8_t minor) {
         return "navigation." + std::string(navigation[id - 64]);
     return {};
 }
-std::string protocol_encoder_id(std::uint16_t id) {
+std::string protocol_encoder_id(std::uint16_t id, std::uint8_t minor) {
+    if (minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR)
+        if (const auto *control = reference_v2_wire_control(id);
+            control && control->type == V2WireControlType::relative_encoder)
+            return control->id;
     if (id < 8) return "parameter." + std::to_string(id);
     if (id == 8) return "data";
     return {};
 }
-std::optional<std::uint16_t> protocol_feedback_id(std::string_view id) {
+std::optional<std::uint16_t> protocol_feedback_id(std::string_view id,
+                                                  std::uint8_t minor) {
+    if (minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR)
+    {
+        if (id.starts_with("grid.")) {
+            std::uint16_t index{};
+            const auto text = id.substr(5);
+            const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), index);
+            if (ec == std::errc{} && end == text.data() + text.size() && index < 16)
+                return static_cast<std::uint16_t>(NG_V2_PAD_1 + index);
+        }
+        for (const auto [prefix, base] :
+             {std::pair<std::string_view, std::uint16_t>{"parameter.", NG_V2_PARAMETER_1},
+              {"function.", NG_V2_FUNCTION_1}}) {
+            if (!id.starts_with(prefix)) continue;
+            std::uint16_t index{};
+            const auto text = id.substr(prefix.size());
+            const auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), index);
+            if (ec == std::errc{} && end == text.data() + text.size() && index < 8)
+                return static_cast<std::uint16_t>(base + index);
+        }
+        return reference_v2_wire_id(id);
+    }
     const auto suffix = [&](std::string_view prefix)
         -> std::optional<std::uint16_t> {
         if (!id.starts_with(prefix)) return {};
@@ -111,6 +147,17 @@ std::optional<std::uint16_t> protocol_feedback_id(std::string_view id) {
     if (auto value = suffix("performance.")) return 54 + *value;
     if (auto value = suffix("parameter.")) return *value;
     return {};
+}
+std::optional<std::uint16_t> protocol_context_slot(std::uint16_t wire_id,
+                                                   std::uint8_t minor) {
+    if (minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR) {
+        if (wire_id >= NG_V2_PARAMETER_1 && wire_id <= NG_V2_PARAMETER_8)
+            return wire_id - NG_V2_PARAMETER_1;
+        if (wire_id >= NG_V2_FUNCTION_1 && wire_id <= NG_V2_FUNCTION_8)
+            return 8 + wire_id - NG_V2_FUNCTION_1;
+        return {};
+    }
+    return wire_id < 8 ? wire_id : 8 + (wire_id - 16);
 }
 double numeric(const ApplicationValue &value, double fallback = 0) {
     if (const auto *real = std::get_if<double>(&value))
@@ -630,6 +677,11 @@ void ControllerHost::connected() {
     state_.connection = ControllerConnection::negotiating;
     state_.feedback_revision = ~std::uint64_t{};
     force_full_refresh_ = true;
+    state_.inventory_valid = false;
+    state_.input_state_valid = false;
+    state_.last_input_sequence = 0;
+    state_.input_generation = next_input_generation_++;
+    quarantined_buttons_.assign(reference_v2_wire_controls().size(), false);
     enqueue({ControllerMessageType::hello,
              sequence_++,
              {controller_protocol_major, controller_protocol_minor}});
@@ -638,6 +690,8 @@ void ControllerHost::disconnected(std::string reason) {
     state_.connection = ControllerConnection::disconnected;
     state_.error = std::move(reason);
     output_.clear();
+    if (session_) session_->reconnect();
+    session_.reset();
 }
 bool ControllerHost::set_analog_calibration(std::size_t id,
                                             AnalogCalibration calibration,
@@ -664,7 +718,16 @@ bool ControllerHost::configure_session(std::uint32_t capabilities,
                                        std::string &error) {
     ControllerProfile profile;
     ControllerDeviceDescriptor descriptor;
-    if (state_.protocol_minor >= 2) {
+    if (state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR) {
+        const auto required = controller_buttons | controller_relative_encoders |
+            controller_inventory_v2 | controller_input_state;
+        if ((capabilities & required) != required || !state_.inventory_valid) {
+            error = "protocol 1.3 V2 device lacks validated inventory/input-state capabilities";
+            return false;
+        }
+        profile = reference_controller_v2_profile();
+        descriptor = reference_controller_v2_descriptor();
+    } else if (state_.protocol_minor >= 2) {
         if (!(capabilities & controller_inventory_068)) {
             error = "protocol 1.2 device lacks the dedicated inventory capability";
             return false;
@@ -696,7 +759,48 @@ bool ControllerHost::configure_session(std::uint32_t capabilities,
         session_.reset();
         return false;
     }
+    if (state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR &&
+        !session_->configure_gestures(reference_controller_v2_gestures(), error)) {
+        session_.reset();
+        return false;
+    }
     error.clear();
+    return true;
+}
+void ControllerHost::request_input_state() noexcept {
+    if (session_) session_->reconnect();
+    state_.input_state_valid = false;
+    std::vector<std::uint8_t> payload;
+    append32(payload, state_.input_generation);
+    enqueue({ControllerMessageType::state_sync, sequence_++, std::move(payload)});
+}
+bool ControllerHost::accept_input_sequence(const ControllerPacket &packet,
+                                           std::string &error) {
+    if (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR) return true;
+    if (!state_.input_state_valid) {
+        error = "V2 input received before full input-state synchronization";
+        ++state_.stale_input;
+        return false;
+    }
+    if (packet.payload.size() < 4 || read32(packet.payload.data()) !=
+                                       state_.input_generation) {
+        error = "stale V2 input generation";
+        ++state_.stale_input;
+        return false;
+    }
+    if (packet.sequence == state_.last_input_sequence) {
+        error = "duplicate V2 input sequence";
+        ++state_.duplicate_input;
+        return false;
+    }
+    if (state_.last_input_sequence &&
+        packet.sequence != state_.last_input_sequence + 1) {
+        ++state_.sequence_gaps;
+        request_input_state();
+        error = "V2 input sequence gap requires state synchronization";
+        return false;
+    }
+    state_.last_input_sequence = packet.sequence;
     return true;
 }
 bool ControllerHost::receive(const ControllerPacket &p,
@@ -729,6 +833,12 @@ bool ControllerHost::receive(const ControllerPacket &p,
             error = state_.error;
             return false;
         }
+        if (state_.protocol_minor > controller_protocol_minor) {
+            state_.connection = ControllerConnection::incompatible;
+            state_.error = "protocol minor version is newer than this host";
+            error = state_.error;
+            return false;
+        }
         if (!expected_device_id_.empty() &&
             state_.device_id != expected_device_id_) {
             state_.connection = ControllerConnection::incompatible;
@@ -737,7 +847,6 @@ bool ControllerHost::receive(const ControllerPacket &p,
             error = state_.error;
             return false;
         }
-        state_.connection = ControllerConnection::connected;
         ++state_.reconnects;
         if (state_.protocol_minor <= 1 &&
             !configure_session(controller_buttons | controller_relative_encoders |
@@ -751,34 +860,107 @@ bool ControllerHost::receive(const ControllerPacket &p,
             state_.error = error;
             return false;
         }
+        if (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR)
+            state_.connection = ControllerConnection::connected;
         enqueue({ControllerMessageType::capabilities, sequence_++, {}});
-        enqueue({ControllerMessageType::state_sync, sequence_++, {}});
+        if (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR)
+            enqueue({ControllerMessageType::state_sync, sequence_++, {}});
     } else if (p.type == ControllerMessageType::capabilities) {
         if (p.payload.size() != 4) {
             error = "invalid capability payload";
             return false;
         }
         state_.capabilities = read32(p.payload.data());
-        if (state_.protocol_minor >= 2 &&
+        if (state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR) {
+            const auto required = controller_inventory_v2 | controller_input_state;
+            if ((state_.capabilities & required) != required) {
+                error = "V2 capability response lacks inventory or input-state support";
+                state_.connection = ControllerConnection::incompatible;
+                return false;
+            }
+            enqueue({ControllerMessageType::inventory, sequence_++, {}});
+        } else if (state_.protocol_minor >= 2 &&
             !configure_session(state_.capabilities, error)) {
             state_.connection = ControllerConnection::incompatible;
             state_.error = error;
             return false;
         }
+    } else if (p.type == ControllerMessageType::inventory) {
+        if (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR ||
+            p.payload.size() != 6 || read16(p.payload.data()) !=
+                NG_CONTROLLER_V2_CONTROL_COUNT ||
+            read32(p.payload.data() + 2) !=
+                NG_CONTROLLER_V2_INVENTORY_FINGERPRINT) {
+            error = "Reference Controller V2 inventory mismatch";
+            state_.connection = ControllerConnection::incompatible;
+            return false;
+        }
+        state_.inventory_valid = true;
+        if (!configure_session(state_.capabilities, error)) {
+            state_.connection = ControllerConnection::incompatible;
+            state_.error = error;
+            return false;
+        }
+        request_input_state();
+    } else if (p.type == ControllerMessageType::input_state) {
+        constexpr std::size_t bitmap_size =
+            (NG_CONTROLLER_V2_CONTROL_COUNT + 7) / 8;
+        if (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR ||
+            p.payload.size() != 4 + bitmap_size ||
+            read32(p.payload.data()) != state_.input_generation) {
+            error = "invalid or stale V2 input-state snapshot";
+            ++state_.stale_input;
+            return false;
+        }
+        if (session_) session_->reconnect();
+        for (std::size_t i = 0; i < reference_v2_wire_controls().size(); ++i)
+            quarantined_buttons_[i] =
+                reference_v2_wire_controls()[i].type == V2WireControlType::button &&
+                (p.payload[4 + i / 8] & (1u << (i % 8)));
+        state_.input_state_valid = true;
+        state_.last_input_sequence = p.sequence;
+        ++state_.state_synchronizations;
+        state_.connection = ControllerConnection::connected;
+        force_full_refresh_ = true;
     } else if (p.type == ControllerMessageType::button) {
-        if (p.payload.size() != 3) {
+        if ((state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR &&
+             p.payload.size() != 7) ||
+            (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR &&
+             p.payload.size() != 3)) {
             error = "invalid button payload";
             return false;
         }
-        const auto id = read16(p.payload.data());
-        const bool pressed = p.payload[2] != 0;
+        if (!accept_input_sequence(p, error)) {
+            ++state_.dropped_input;
+            return false;
+        }
+        const auto offset = state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR ? 4u : 0u;
+        const auto id = read16(p.payload.data() + offset);
+        const bool pressed = p.payload[offset + 2] != 0;
         bool queued = true;
         if (session_) {
             const auto logical = protocol_button_id(id, state_.protocol_minor);
-            if (!logical.empty()) {
+            if (logical.empty()) {
+                queued = false;
+                state_.error = "unknown controller button identity";
+            } else {
+                if (state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR) {
+                    const auto &controls = reference_v2_wire_controls();
+                    const auto index = std::find_if(controls.begin(), controls.end(),
+                        [=](const auto &value) { return value.wire_id == id; });
+                    if (index != controls.end()) {
+                        const auto position = static_cast<std::size_t>(index - controls.begin());
+                        if (quarantined_buttons_[position]) {
+                            if (!pressed) quarantined_buttons_[position] = false;
+                            error.clear();
+                            return true;
+                        }
+                    }
+                }
                 std::string session_error;
                 queued = session_->input({logical, pressed ? 1.0 : 0.0, 0,
-                                          pressed, p.sequence},
+                                          pressed, p.sequence,
+                                          0},
                                          session_error);
                 if (!queued) state_.error = std::move(session_error);
             }
@@ -789,21 +971,30 @@ bool ControllerHost::receive(const ControllerPacket &p,
         if (!queued)
             ++state_.dropped_input;
     } else if (p.type == ControllerMessageType::encoder) {
-        if (p.payload.size() != 4) {
+        if ((state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR &&
+             p.payload.size() != 8) ||
+            (state_.protocol_minor < NG_CONTROLLER_V2_PROTOCOL_MINOR &&
+             p.payload.size() != 4)) {
             error = "invalid encoder payload";
             return false;
         }
-        const auto id = read16(p.payload.data());
+        if (!accept_input_sequence(p, error)) {
+            ++state_.dropped_input;
+            return false;
+        }
+        const auto offset = state_.protocol_minor >= NG_CONTROLLER_V2_PROTOCOL_MINOR ? 4u : 0u;
+        const auto id = read16(p.payload.data() + offset);
         const auto delta =
-            static_cast<std::int16_t>(read16(p.payload.data() + 2));
+            static_cast<std::int16_t>(read16(p.payload.data() + offset + 2));
         if (id < state_.encoders.size())
             state_.encoders[id] += delta;
         if (session_) {
-            const auto logical = protocol_encoder_id(id);
+            const auto logical = protocol_encoder_id(id, state_.protocol_minor);
             if (!logical.empty()) {
                 std::string session_error;
                 if (!session_->input({logical, static_cast<double>(delta), 0,
-                                      true, p.sequence},
+                                      true, p.sequence,
+                                      0},
                                      session_error)) {
                     ++state_.dropped_input;
                     state_.error = std::move(session_error);
@@ -850,8 +1041,11 @@ bool ControllerHost::receive(const ControllerPacket &p,
         force_full_refresh_ = true;
         if (session_) session_->reconnect();
     }
-    else if (p.type == ControllerMessageType::heartbeat)
+    else if (p.type == ControllerMessageType::heartbeat) {
+        if (p.payload.size() == 8) last_receive_ms_ = read64(p.payload.data());
+        ++state_.heartbeats;
         enqueue({ControllerMessageType::heartbeat, sequence_++, p.payload});
+    }
     else if (p.type == ControllerMessageType::reset) {
         state_.connection = ControllerConnection::negotiating;
         connected();
@@ -870,7 +1064,8 @@ void ControllerHost::publish(const ApplicationState &s) {
         while (output_.size() < capacity_ && session_->has_pending_feedback()) {
             auto item = session_->next_feedback();
             if (!item) break;
-            const auto id = protocol_feedback_id(item->control_id);
+            const auto id = protocol_feedback_id(item->control_id,
+                                                 state_.protocol_minor);
             if (!id) continue;
             std::vector<std::uint8_t> payload;
             append16(payload, *id);
@@ -878,7 +1073,17 @@ void ControllerHost::publish(const ApplicationState &s) {
                 item->kind == ControllerFeedbackKind::indicator) {
                 append32(payload, item->color);
                 payload.push_back(std::min(item->brightness, brightness_limit_));
-                if (!enqueue({ControllerMessageType::led, sequence_++,
+                const auto message = state_.protocol_minor >=
+                        NG_CONTROLLER_V2_PROTOCOL_MINOR
+                    ? ControllerMessageType::led_render
+                    : ControllerMessageType::led;
+                if (message == ControllerMessageType::led_render) {
+                    payload.push_back(static_cast<std::uint8_t>(
+                        item->brightness ? ControllerLedMode::steady
+                                         : ControllerLedMode::off));
+                    append16(payload, 0); // firmware-default temporal period
+                }
+                if (!enqueue({message, sequence_++,
                               std::move(payload)})) {
                     state_.feedback_revision = ~std::uint64_t{};
                     break;
@@ -886,7 +1091,9 @@ void ControllerHost::publish(const ApplicationState &s) {
                 if (*id < state_.leds.size()) state_.leds[*id] = item->color;
             } else if (item->kind == ControllerFeedbackKind::context) {
                 auto context = std::move(item->context);
-                context.control_id = *id < 8 ? *id : 8 + (*id - 16);
+                const auto slot = protocol_context_slot(*id, state_.protocol_minor);
+                if (!slot || *slot >= state_.context.size()) continue;
+                context.control_id = *slot;
                 payload.clear();
                 append16(payload, context.control_id);
                 if (state_.protocol_minor == 0) {
@@ -927,6 +1134,18 @@ void ControllerHost::publish(const ApplicationState &s) {
             state_.feedback_revision = s.revision;
         return;
     }
+}
+void ControllerHost::tick(std::uint64_t now) noexcept {
+    if (state_.connection == ControllerConnection::disconnected ||
+        state_.connection == ControllerConnection::incompatible) return;
+    if (!last_heartbeat_ms_ || now - last_heartbeat_ms_ >= 500) {
+        std::vector<std::uint8_t> payload;
+        append64(payload, now);
+        enqueue({ControllerMessageType::heartbeat, sequence_++, std::move(payload)});
+        last_heartbeat_ms_ = now;
+    }
+    if (last_receive_ms_ && now > last_receive_ms_ + 2000)
+        disconnected("controller heartbeat timeout");
 }
 std::optional<ControllerPacket> ControllerHost::next_output() noexcept {
     if (output_.empty())
@@ -1064,6 +1283,115 @@ std::vector<ControllerPacket> SimulatedController::drain_feedback() {
         r.push_back(std::move(*p));
     return r;
 }
+ReferenceV2FirmwareSimulator::ReferenceV2FirmwareSimulator(ControllerHost &host)
+    : host_(&host), buttons_(reference_v2_wire_controls().size(), false) {}
+bool ReferenceV2FirmwareSimulator::send(
+    ControllerMessageType type, std::vector<std::uint8_t> payload,
+    std::optional<std::uint32_t> sequence) {
+    const ControllerPacket source{type, sequence.value_or(sequence_++),
+                                  std::move(payload)};
+    const auto bytes = encode_controller_packet(source);
+    host_decoder_.push(bytes);
+    const auto decoded = host_decoder_.pop();
+    if (!decoded) return false;
+    std::string error;
+    const auto accepted = host_->receive(*decoded, error);
+    consume_host_output();
+    return accepted;
+}
+void ReferenceV2FirmwareSimulator::consume_host_output() {
+    while (auto output = host_->next_output()) {
+        const auto bytes = encode_controller_packet(*output);
+        firmware_decoder_.push(bytes);
+        while (auto decoded = firmware_decoder_.pop()) {
+            if (decoded->type == ControllerMessageType::state_sync &&
+                decoded->payload.size() == 4)
+                generation_ = read32(decoded->payload.data());
+            else
+                feedback_.push_back(std::move(*decoded));
+        }
+    }
+}
+bool ReferenceV2FirmwareSimulator::negotiate() {
+    host_->connected();
+    consume_host_output();
+    const std::string id = NG_CONTROLLER_V2_DEVICE_ID;
+    const std::string firmware = "v2-simulator";
+    std::vector<std::uint8_t> hello{controller_protocol_major,
+        NG_CONTROLLER_V2_PROTOCOL_MINOR, static_cast<std::uint8_t>(id.size()),
+        static_cast<std::uint8_t>(firmware.size())};
+    hello.insert(hello.end(), id.begin(), id.end());
+    hello.insert(hello.end(), firmware.begin(), firmware.end());
+    if (!send(ControllerMessageType::hello_reply, std::move(hello))) return false;
+    const std::uint32_t capabilities = controller_buttons |
+        controller_relative_encoders | controller_rgb |
+        controller_context_feedback | controller_heartbeat |
+        controller_inventory_v2 | controller_input_state |
+        controller_led_render | controller_diagnostics;
+    std::vector<std::uint8_t> caps;
+    append32(caps, capabilities);
+    if (!send(ControllerMessageType::capabilities, std::move(caps))) return false;
+    std::vector<std::uint8_t> inventory;
+    append16(inventory, NG_CONTROLLER_V2_CONTROL_COUNT);
+    append32(inventory, NG_CONTROLLER_V2_INVENTORY_FINGERPRINT);
+    if (!send(ControllerMessageType::inventory, std::move(inventory))) return false;
+    return synchronize_input_state();
+}
+bool ReferenceV2FirmwareSimulator::button(std::string_view id, bool pressed,
+                                          bool transmit) {
+    const auto wire = reference_v2_wire_id(id);
+    if (!wire) return false;
+    const auto &controls = reference_v2_wire_controls();
+    const auto found = std::find_if(controls.begin(), controls.end(),
+        [&](const auto &value) { return value.id == id; });
+    if (found == controls.end() || found->type != V2WireControlType::button)
+        return false;
+    buttons_[static_cast<std::size_t>(found - controls.begin())] = pressed;
+    if (!transmit) return true;
+    std::vector<std::uint8_t> payload;
+    append32(payload, generation_);
+    append16(payload, *wire);
+    payload.push_back(pressed);
+    return send(ControllerMessageType::button, std::move(payload));
+}
+bool ReferenceV2FirmwareSimulator::encoder(std::string_view id,
+                                           std::int16_t delta) {
+    const auto wire = reference_v2_wire_id(id);
+    const auto *control = wire ? reference_v2_wire_control(*wire) : nullptr;
+    if (!control || control->type != V2WireControlType::relative_encoder)
+        return false;
+    std::vector<std::uint8_t> payload;
+    append32(payload, generation_);
+    append16(payload, *wire);
+    append16(payload, static_cast<std::uint16_t>(delta));
+    return send(ControllerMessageType::encoder, std::move(payload));
+}
+bool ReferenceV2FirmwareSimulator::synchronize_input_state() {
+    constexpr std::size_t bitmap_size =
+        (NG_CONTROLLER_V2_CONTROL_COUNT + 7) / 8;
+    std::vector<std::uint8_t> payload;
+    append32(payload, generation_);
+    payload.resize(4 + bitmap_size);
+    for (std::size_t i = 0; i < buttons_.size(); ++i)
+        if (buttons_[i]) payload[4 + i / 8] |= 1u << (i % 8);
+    return send(ControllerMessageType::input_state, std::move(payload));
+}
+bool ReferenceV2FirmwareSimulator::heartbeat(std::uint64_t now) {
+    std::vector<std::uint8_t> payload;
+    append64(payload, now);
+    return send(ControllerMessageType::heartbeat, std::move(payload));
+}
+void ReferenceV2FirmwareSimulator::reboot() {
+    (void)send(ControllerMessageType::reset, {});
+    generation_ = 0;
+    std::fill(buttons_.begin(), buttons_.end(), false);
+}
+std::vector<ControllerPacket> ReferenceV2FirmwareSimulator::drain_host_output() {
+    consume_host_output();
+    auto result = std::move(feedback_);
+    feedback_.clear();
+    return result;
+}
 std::string controller_protocol_json(const ControllerProtocolState &s) {
     std::string pickup = "[";
     for (std::size_t i = 0; i < s.pickup_direction.size(); ++i) {
@@ -1100,6 +1428,15 @@ std::string controller_protocol_json(const ControllerProtocolState &s) {
            ",\"dropped_input\":" + std::to_string(s.dropped_input) +
            ",\"dropped_output\":" + std::to_string(s.dropped_output) +
            ",\"reconnects\":" + std::to_string(s.reconnects) +
+           ",\"input_generation\":" + std::to_string(s.input_generation) +
+           ",\"last_input_sequence\":" + std::to_string(s.last_input_sequence) +
+           ",\"sequence_gaps\":" + std::to_string(s.sequence_gaps) +
+           ",\"stale_input\":" + std::to_string(s.stale_input) +
+           ",\"state_synchronizations\":" +
+               std::to_string(s.state_synchronizations) +
+           ",\"heartbeats\":" + std::to_string(s.heartbeats) +
+           ",\"inventory_valid\":" + (s.inventory_valid ? "true" : "false") +
+           ",\"input_state_valid\":" + (s.input_state_valid ? "true" : "false") +
            ",\"feedback_revision\":" + std::to_string(s.feedback_revision) +
            ",\"pickup\":" + pickup + ",\"context\":" + context + "}";
 }

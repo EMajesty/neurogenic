@@ -3,7 +3,9 @@
 Task 096F does not change the locked inventory. Its shared picker and mapping
 proposal path let the V2 profile and non-reference controllers address the same
 semantic targets. Complete RGB/heartbeat/firmware conformance remains Task
-096G; PCB and physical validation remain NOT RUN.
+096G. Physical V2 now uses the protocol-1.3 contract in
+[REFERENCE_CONTROLLER_V2_FIRMWARE.md](REFERENCE_CONTROLLER_V2_FIRMWARE.md);
+PCB firmware and physical validation remain NOT RUN.
 
 Task 096E implements named project-owned banks with stable primary/SHIFT P/F
 assignments, macro/parameter targets and launcher-pad references independently

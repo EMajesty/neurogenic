@@ -1,5 +1,17 @@
 # Test and validation audit
 
+## Task 096G additions
+
+`neurogenic_controller_v2_protocol_tests` validates the canonical 67-control
+manifest, independent byte-level CRC vector, protocol-1.3 identity/inventory/
+state negotiation, production page and shifted routing, contextual parameter
+dispatch, Performance Fill lost-release recovery, reconnect generation
+rejection, heartbeat and full feedback refresh. The firmware simulator feeds
+encoded bytes through the production frame decoder and `ControllerHost`; it is
+not a direct-session substitute. `neurogenic-diagnostics
+--controller-v2-sim-test` provides a no-audio host diagnostic smoke test.
+Physical USB, MCU, PCB, RGB/electrical and timing validation remain **NOT RUN**.
+
 ## Task 096F additions
 
 - `controller_mapping_authoring_tests`: disconnected manual source proposals,

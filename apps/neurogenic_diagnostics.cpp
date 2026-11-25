@@ -22,7 +22,7 @@ namespace {
 using namespace neurogenic;
 struct Options {
     bool json{}, headless{}, stress{}, realtime{}, controller_inspect{},
-        controller_protocol_test{}, display_test{}, lifecycle_test{};
+        controller_protocol_test{}, controller_v2_sim_test{}, display_test{}, lifecycle_test{};
     double seconds{2.0};
     std::uint32_t buffer{256}, sample_voices{8}, synth_voices{4};
     std::uint16_t input_channels{}, output_channels{2};
@@ -70,7 +70,8 @@ void usage() {
            "stages\n"
            "  --controller-inspect   inspect lines: CONTROL TYPE RAW [ACTION]\n"
            "  --controller-protocol-test emit simulated controller protocol "
-           "JSON\n";
+           "JSON\n"
+           "  --controller-v2-sim-test run byte-stream V2 negotiation and inventory diagnostics\n";
 }
 PerformanceSnapshot performance(AudioEngine &engine) {
     PerformanceSnapshot result;
@@ -172,6 +173,36 @@ void display_test() {
                  "\"onscreen_keyboard\":true,\"fullscreen_supported\":"
               << (native.available ? "true" : "false") << "}}\n";
 }
+void controller_v2_sim_test() {
+    AudioEngine engine;
+    Timeline initial;
+    initial.tracks = {{1, "diagnostic", false, {3840, {}}}};
+    TimelineService timeline([&](const Timeline &value, std::string &error) {
+        return engine.queue_timeline(value, error);
+    }, initial);
+    SampleManager samples(engine);
+    ApplicationService application(engine, timeline, samples, 64);
+    ControllerHost host(application, 128, NG_CONTROLLER_V2_DEVICE_ID);
+    ReferenceV2FirmwareSimulator firmware(host);
+    std::string manifest_error;
+    const auto manifest_valid = validate_reference_v2_wire_manifest(manifest_error);
+    const auto negotiated = manifest_valid && firmware.negotiate();
+    const auto state = host.snapshot();
+    std::cout << "{\"schema\":\"neurogenic.controller-v2-diagnostic.v1\","
+                 "\"physical_hardware\":false,\"manifest_valid\":"
+              << (manifest_valid ? "true" : "false")
+              << ",\"negotiated\":" << (negotiated ? "true" : "false")
+              << ",\"device_id\":\"" << json_escape(state.device_id)
+              << "\",\"protocol\":\"" << unsigned(state.protocol_major) << "."
+              << unsigned(state.protocol_minor) << "\",\"control_count\":"
+              << reference_v2_wire_controls().size()
+              << ",\"generation\":" << state.input_generation
+              << ",\"input_state_valid\":"
+              << (state.input_state_valid ? "true" : "false")
+              << ",\"error\":\"" << json_escape(manifest_error.empty()
+                    ? state.error : manifest_error) << "\"}\n";
+    samples.shutdown();
+}
 PerformanceSnapshot stress(AudioEngine &engine, const Options &options,
                            AudioDevice &device, std::string &error) {
     Sample sample{48000, 1, std::vector<float>(48000)};
@@ -223,6 +254,8 @@ int main(int argc, char **argv) {
                 options.controller_inspect = true;
             else if (arg == "--controller-protocol-test")
                 options.controller_protocol_test = true;
+            else if (arg == "--controller-v2-sim-test")
+                options.controller_v2_sim_test = true;
             else if (arg == "--display-test")
                 options.display_test = true;
             else if (arg == "--lifecycle-test")
@@ -282,6 +315,10 @@ int main(int argc, char **argv) {
                                 "transport.tempo", {}, 20, 300, true, false,
                                 false, 0, 1};
             std::cout << controller_protocol_json(state) << '\n';
+            return 0;
+        }
+        if (options.controller_v2_sim_test) {
+            controller_v2_sim_test();
             return 0;
         }
         if (options.display_test) {

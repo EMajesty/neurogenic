@@ -1,5 +1,11 @@
 # Architecture
 
+Physical V2 preserves the controller boundary: firmware reports versioned
+logical transitions and renders host instructions, while gesture and musical
+semantics remain in control-side application services. Protocol 1.3 inventory,
+generations, snapshots and feedback queues run outside the audio callback.
+Canonical wire IDs contain no GPIO, matrix, panel-coordinate or LED-chain data.
+
 ## Shared assignment authoring boundary
 
 Task 096F adds a presentation-neutral target projection above the existing

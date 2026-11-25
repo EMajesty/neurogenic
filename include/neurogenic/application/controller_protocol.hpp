@@ -1,5 +1,6 @@
 #pragma once
 #include "neurogenic/application/controller_session.hpp"
+#include "neurogenic/application/controller_v2_protocol.hpp"
 #include <array>
 #include <cstdint>
 #include <deque>
@@ -11,7 +12,7 @@
 
 namespace neurogenic {
 inline constexpr std::uint8_t controller_protocol_major = 1;
-inline constexpr std::uint8_t controller_protocol_minor = 2;
+inline constexpr std::uint8_t controller_protocol_minor = 3;
 inline constexpr std::size_t controller_maximum_payload = 256;
 inline constexpr std::size_t controller_maximum_frame = 268;
 
@@ -27,7 +28,11 @@ enum class ControllerMessageType : std::uint8_t {
     state_sync,
     heartbeat,
     error,
-    reset
+    reset,
+    inventory,
+    input_state,
+    led_render,
+    diagnostic
 };
 struct ControllerPacket {
     ControllerMessageType type{};
@@ -118,7 +123,15 @@ enum ControllerCapability : std::uint32_t {
     controller_rgb = 1u << 3,
     controller_context_feedback = 1u << 4,
     controller_heartbeat = 1u << 5,
-    controller_inventory_068 = 1u << 6
+    controller_inventory_068 = 1u << 6,
+    controller_inventory_v2 = 1u << 7,
+    controller_input_state = 1u << 8,
+    controller_led_render = 1u << 9,
+    controller_diagnostics = 1u << 10
+};
+enum class ControllerLedMode : std::uint8_t {
+    off = NG_LED_OFF, steady = NG_LED_STEADY, dim = NG_LED_DIM,
+    blink = NG_LED_BLINK, pulse = NG_LED_PULSE
 };
 struct AnalogCalibration {
     std::uint16_t minimum{}, maximum{65535}, dead_zone{128};
@@ -129,7 +142,10 @@ struct ControllerProtocolState {
     std::uint8_t protocol_major{}, protocol_minor{};
     std::uint32_t capabilities{};
     std::uint64_t received{}, sent{}, dropped_input{}, dropped_output{},
-        reconnects{}, event_rate{}, feedback_revision{};
+        reconnects{}, event_rate{}, feedback_revision{}, sequence_gaps{},
+        duplicate_input{}, stale_input{}, state_synchronizations{}, heartbeats{};
+    std::uint32_t input_generation{}, last_input_sequence{};
+    bool inventory_valid{}, input_state_valid{};
     std::array<std::uint16_t, 5> analog{};
     std::array<AnalogCalibration, 5> calibration{};
     std::array<bool, 5> pickup_acquired{};
@@ -151,6 +167,7 @@ class ControllerHost {
     bool set_analog_calibration(std::size_t, AnalogCalibration,
                                 std::string &error) noexcept;
     void set_brightness_limit(std::uint8_t value) noexcept;
+    void tick(std::uint64_t monotonic_milliseconds) noexcept;
     [[nodiscard]] std::optional<ControllerPacket> next_output() noexcept;
     [[nodiscard]] ControllerProtocolState snapshot() const { return state_; }
     [[nodiscard]] ControllerSessionState session_snapshot() const {
@@ -160,6 +177,8 @@ class ControllerHost {
   private:
     bool enqueue(ControllerPacket) noexcept;
     bool configure_session(std::uint32_t capabilities, std::string &error);
+    bool accept_input_sequence(const ControllerPacket &, std::string &error);
+    void request_input_state() noexcept;
     ApplicationService *application_{};
     std::deque<ControllerPacket> output_;
     std::size_t capacity_{};
@@ -169,6 +188,9 @@ class ControllerHost {
     std::optional<ControllerSession> session_;
     std::uint8_t brightness_limit_{224};
     bool force_full_refresh_{true};
+    std::uint64_t last_receive_ms_{}, last_heartbeat_ms_{};
+    std::uint32_t next_input_generation_{1};
+    std::vector<bool> quarantined_buttons_;
 };
 
 class ControllerSerialTransport {
@@ -197,7 +219,7 @@ class SimulatedController {
   public:
     explicit SimulatedController(ControllerHost &host) : host_(&host) {}
     bool negotiate(std::string device_id = "neurogenic.simulator",
-                   std::uint8_t minor = controller_protocol_minor);
+                   std::uint8_t minor = 2);
     bool button(std::uint16_t id, bool pressed);
     bool encoder(std::uint16_t id, std::int16_t delta);
     bool analog(std::uint16_t id, std::uint16_t value);
@@ -207,6 +229,34 @@ class SimulatedController {
     bool send(ControllerMessageType, std::vector<std::uint8_t>);
     ControllerHost *host_{};
     std::uint32_t sequence_{1};
+};
+
+// Byte-stream fixture implementing the firmware side of protocol 1.3. It uses
+// production framing/decoding and never calls ControllerSession directly.
+class ReferenceV2FirmwareSimulator {
+  public:
+    explicit ReferenceV2FirmwareSimulator(ControllerHost &host);
+    bool negotiate();
+    bool button(std::string_view logical_id, bool pressed,
+                bool transmit = true);
+    bool encoder(std::string_view logical_id, std::int16_t delta);
+    bool synchronize_input_state();
+    bool heartbeat(std::uint64_t monotonic_milliseconds);
+    void reboot();
+    [[nodiscard]] std::vector<ControllerPacket> drain_host_output();
+    [[nodiscard]] std::uint32_t generation() const noexcept { return generation_; }
+    [[nodiscard]] const std::vector<ControllerPacket> &received_feedback() const {
+        return feedback_;
+    }
+  private:
+    bool send(ControllerMessageType, std::vector<std::uint8_t>,
+              std::optional<std::uint32_t> sequence = {});
+    void consume_host_output();
+    ControllerHost *host_{};
+    ControllerFrameDecoder host_decoder_, firmware_decoder_;
+    std::uint32_t sequence_{1}, generation_{};
+    std::vector<bool> buttons_;
+    std::vector<ControllerPacket> feedback_;
 };
 [[nodiscard]] std::string
 controller_protocol_json(const ControllerProtocolState &);

@@ -21,7 +21,9 @@ buttons, eight page buttons, two ten-button clusters, and six navigation
 buttons. It has no faders, crossfader, or encoder switches. Protocol 1.2 still
 advertises capability groups rather than this complete inventory; the host
 selects this descriptor after identity/version negotiation and does not claim
-wire-level inventory discovery.
+wire-level inventory discovery. `reference_controller_v2_descriptor()` is a
+separate USB CDC protocol-1.3 descriptor. Its exact 67-control manifest is
+negotiated and validated before the V2 profile or musical input becomes active.
 
 ## Profiles and sessions
 
@@ -94,10 +96,18 @@ shutdown, so the dispatcher cannot retain a stale adapter pointer. MIDI
 feedback send failure retains one bounded pending message; disconnect/reconnect
 invalidates queued feedback and regenerates a full authoritative refresh.
 
+For V2, generic authoritative session feedback is translated through the
+canonical logical-to-wire manifest into `LED_RENDER`. Changed values are
+coalesced; overflow requests a bounded full refresh so final state converges.
+The host never exposes a PCB LED index. Firmware renders temporal modes and
+enforces board electrical limits. Input generation and full-state recovery
+cancel lost momentary ownership without replaying physically held controls.
+
 ## Compatibility and limitations
 
 CDC protocol 1.0, 1.1 and 1.2 framing, CRC, sequence and reconnect behavior is
-preserved. Explicit 1.0/1.1 descriptors supply historical aliases because
+preserved. Protocol 1.3 extends the same framing for physical V2. Explicit
+1.0/1.1 descriptors supply historical aliases because
 those firmwares do not advertise a full inventory. A profile is validated as a
 subset of its descriptor and cannot create hardware capability. No project format changed;
 controller profiles remain user/device configuration.

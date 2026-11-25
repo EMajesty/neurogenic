@@ -1,4 +1,5 @@
 #include "neurogenic/application/reference_controller.hpp"
+#include "neurogenic/controller_v2_wire.h"
 #include <algorithm>
 
 namespace neurogenic {
@@ -74,9 +75,9 @@ ControllerDeviceDescriptor reference_controller_v2_descriptor() {
     result.descriptor_id = "neurogenic.reference-controller-v2.v1";
     result.device_id = "neurogenic.reference-controller-v2";
     result.display_name = "NEUROGENIC Reference Controller V2";
-    result.transport = ControllerTransport::simulated;
-    result.protocol_major = 2;
-    result.protocol_minor = 0;
+    result.transport = ControllerTransport::usb_cdc;
+    result.protocol_major = NG_CONTROLLER_PROTOCOL_MAJOR;
+    result.protocol_minor = NG_CONTROLLER_V2_PROTOCOL_MINOR;
     for (int i = 1; i <= 8; ++i)
         result.controls.push_back(
             button("page." + std::to_string(i), "Page " + std::to_string(i)));

@@ -89,10 +89,12 @@ issues; unperformed rows remain NOT RUN.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 
-Tasks 095 and 096A–096E now provide independent-client publication, gesture
+Tasks 095 and 096A–096G now provide independent-client publication, gesture
 ownership, reference navigation, supported dedicated clusters, stable
-Sequencer contextual editing, and portable project-owned Performance banks.
-The exact next bounded task is **Task 096F — manual controller mapping
-closure**: reuse Performance target selection and typed arguments for manual
-MIDI source/message/channel/number creation, relative encoding, scaling,
-pickup, conflicts, feedback and recoverable appliance profile persistence.
+Sequencer contextual editing, portable Performance banks, mapping authoring and
+an implementation-ready protocol-1.3 firmware contract. The exact next bounded
+milestone is **Task 097 — V2 interaction and presentation closure**, sequenced
+as shared modal/focus ownership, graphical assignment/profile lifecycle,
+remaining contextual/pad binding matrices, stronger controller-authored lock
+and feedback evidence, then physical bring-up when PCB firmware exists. The
+closure matrix and acceptance criteria are in `TASK_096G_VALIDATION.md`.

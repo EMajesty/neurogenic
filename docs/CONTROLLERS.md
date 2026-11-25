@@ -1,5 +1,15 @@
 # Application control and controller API
 
+## Physical Reference Controller V2
+
+The reference panel is a normal descriptor/profile consumer, not a core engine
+assumption. Its USB CDC contract is protocol 1.3 and negotiates exact identity,
+the canonical 67-control inventory, a fresh input generation and a full button
+snapshot before enabling musical input. Wire IDs come from
+[`controller_v2_wire.h`](../include/neurogenic/controller_v2_wire.h); see the
+[firmware guide](REFERENCE_CONTROLLER_V2_FIRMWARE.md). Protocols 1.0–1.2 and
+generic MIDI retain their existing behavior.
+
 ## Shared assignment authoring
 
 Task 096F uses `AssignmentTargetPicker` as a presentation-neutral view of the

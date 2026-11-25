@@ -331,6 +331,24 @@ validate touch calibration, compositor scaling, display latency, controller
 ergonomics or physical readability.
 ### Reference Controller V2 validation (NOT RUN)
 
+Follow the normative [firmware guide](REFERENCE_CONTROLLER_V2_FIRMWARE.md).
+Record every result against the exact firmware, host commit and PCB revision.
+
+1. **Electrical:** unpowered inspection and continuity/short checks;
+   current-limited first power; rail verification; MCU program/recovery; USB
+   enumeration. Use board-owner limits—this repository specifies none.
+2. **Standalone:** verify 58 button identities and transitions, simultaneous
+   combinations, nine encoder direction/detent counts, each logical RGB output,
+   brightness caps and full-load behavior within firmware electrical limits.
+3. **Protocol:** verify exact identity, protocol 1.3, 67-control fingerprint,
+   initial bitmap, heartbeat, deliberate sequence-loss recovery, reset,
+   reconnect and bounded feedback convergence.
+4. **Musical:** verify page/SHIFT navigation, contextual controls, pads,
+   Sequencer held-step editing, dedicated transport and lost-release recovery
+   for momentary Fill.
+5. **Physical:** measure debounce, rollover/ghosting, encoder reliability, LED
+   readability, USB stability, input latency and ergonomics.
+
 - Verify the locked inventory, relative groups and every primary/SHIFT page,
   encoder, function, editing, navigation and transport assignment. Exact CAD
   geometry remains owner-supplied.

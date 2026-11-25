@@ -1,5 +1,11 @@
 # Input gesture ownership
 
+Protocol 1.3 supplies each physical V2 connection with a host-issued generation
+and full-state reconciliation. Sequence gaps, reset, disconnect and state
+mismatches cancel arbiter ownership; snapshots release missing holds and
+quarantine buttons already down until a fresh transition. Snapshots never
+synthesize presses, and physical reconnection clears latched modifiers.
+
 Task 096D adds context-scoped deferred taps and wildcard logical chord inputs.
 V2 pads remain immediate generally but become deferred in Sequencer: release
 toggles once, while P1-P8 movement consumes the pending tap and begins a stable

@@ -199,6 +199,16 @@ color/brightness/pulse/non-color cues; implement simulator conformance tests.
 Firmware and panel validation remain separate. Acceptance requires both software
 tests and later physical rollover, reconnect and illumination evidence.
 
+**Task 096G status: software contract implemented; hardware validation open.**
+Protocol 1.3 preserves 1.x framing and legacy descriptors while adding exact V2
+identity/inventory negotiation, host generations, sequenced input, full button
+state recovery, heartbeat/reset behavior and bounded `LED_RENDER`. A canonical
+portable header defines all 67 wire IDs and a byte-stream firmware simulator
+exercises production framing, session and semantic paths. Semantic palette and
+render modes are specified independently of PCB LED mapping. Actual MCU
+firmware, electrical caps, USB behavior, debounce, rollover, encoder and RGB
+visibility remain NOT RUN, so RC2-007 is not physically closed.
+
 ### RC2-008 — Optional musical semantics (P2/P3)
 
 After capability review, implement missing metronome/tap/count-in,

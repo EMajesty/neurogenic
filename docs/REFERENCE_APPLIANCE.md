@@ -1,5 +1,10 @@
 # Reference appliance deployment
 
+The intended G10 appliance will connect the reference panel through an
+explicitly configured USB CDC serial path. Bring-up must validate protocol-1.3
+identity, the 67-control inventory, input synchronization, heartbeat and a full
+feedback refresh before musical testing. Physical results remain **NOT RUN**.
+
 This guide prepares software for the G10 primary x86 reference appliance,
 Intel N150-class x86_64 comparison systems, and Raspberry Pi 5 as the secondary
 AArch64 reference target. The G10's detailed component specification is not yet

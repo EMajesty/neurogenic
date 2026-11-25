@@ -1,5 +1,22 @@
 # Implementation status
 
+## Task 096G physical V2 protocol and firmware conformance
+
+Reference Controller V2 now has a concrete USB CDC protocol-1.3 contract:
+canonical dependency-free wire IDs for all 67 controls, exact identity and
+inventory negotiation, host-issued input generations, sequence rejection,
+full button-state recovery, heartbeat/reset handling, and bounded logical RGB
+rendering. A byte-stream firmware simulator traverses the production decoder,
+host, controller session and semantic dispatch path; the headless diagnostic
+mode reports negotiation and synchronization without an audio device. See the
+[firmware guide](REFERENCE_CONTROLLER_V2_FIRMWARE.md) and
+[Task 096G validation](audit/task-088/TASK_096G_VALIDATION.md).
+
+RC2-007 is implemented as a software protocol/firmware contract but remains
+hardware-bound: MCU firmware, PCB electrical behavior, USB reliability,
+debounce, rollover, encoder and illumination validation are **NOT RUN**.
+Earlier contextual/presentation gaps keep AUD2-007 partial.
+
 ## Task 096F controller mapping and shared assignment authoring
 
 Task 096F introduces a shared discovery-backed target picker used by controller

@@ -1,5 +1,11 @@
 # Designing a controller for NEUROGENIC
 
+The V2 reference implementation demonstrates a negotiated physical device,
+but custom controllers need not use its inventory or protocol. Dedicated CDC
+devices use the versioned framing and descriptor negotiation in
+[Controller protocol](CONTROLLER_PROTOCOL.md); a different inventory must use
+its own stable logical and wire identities rather than reinterpreting V2 IDs.
+
 ## Shared authoring contract
 
 Task 096F exposes the existing discovery registries through a copy-only target

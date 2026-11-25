@@ -33,6 +33,9 @@ listed physical evidence; simulation is not physical evidence.
 | MIDI lifecycle | Multiple endpoints, disconnect/reconnect | No substitution; routes recover | NOT RUN |
 | Controller | Handshake/profile, pads, encoders, functions/pages | Event and feedback log | NOT RUN |
 | Controller recovery | Reconnect and invalid-profile maintenance | Full refresh; recovery succeeds | NOT RUN |
+| Controller standalone | Inventory, transitions, combinations, encoders, each RGB channel | Diagnostic report; counts/direction/identity match protocol manifest | NOT RUN |
+| Controller protocol 1.3 | Identity/fingerprint, generation, bitmap, heartbeat, reset and gap recovery | No pre-sync input; ownership cancels; final feedback converges | NOT RUN |
+| Controller electrical | Current-limited bring-up and owner-specified rail/current limits | PCB-revision-specific measured record | NOT RUN |
 | Touch 1920x1200 | Eight pages, keyboard, picker, workflows | No essential clipping; calibration/readability accepted | NOT RUN |
 | Touch 1024x600 | Repeat focused/minimum layouts | Essential actions reachable; scrolling works | NOT RUN |
 | Storage | Save/reopen, relink, preset, removable-media removal | Prior valid file survives; expected PCM after recovery | NOT RUN |

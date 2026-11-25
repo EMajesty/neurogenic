@@ -1,9 +1,13 @@
 # Dedicated controller protocol
 
-Task 096F requires no wire-format change: manual source proposals and connection
-generation invalidation are host-side. Task 096G must define the concrete V2
-identity/version negotiation, input sequencing, lost-release recovery,
-heartbeat and bounded RGB feedback contract without reinterpreting legacy IDs.
+Physical Reference Controller V2 uses protocol **1.3**. V2 is a panel revision,
+not a protocol-major number: 1.3 preserves the 1.x frame and legacy behavior
+while adding explicit inventory, a host-issued input generation, full input
+state recovery and bounded LED rendering. The normative firmware contract and
+golden vectors are in
+[REFERENCE_CONTROLLER_V2_FIRMWARE.md](REFERENCE_CONTROLLER_V2_FIRMWARE.md);
+portable constants are in
+[`controller_v2_wire.h`](../include/neurogenic/controller_v2_wire.h).
 
 Input connection generations and gesture ownership are host-side in Task 096A;
 the wire format is unchanged. Firmware continues sending stable logical
@@ -13,9 +17,9 @@ Task 096B adds the host-side descriptor
 `neurogenic.reference-controller-v2.v1`. Its 67 stable logical identities are
 eight `page.N`, eight `function.N`, eight `parameter.N`, `data`, six
 `navigation.*`, ten `edit.*`, ten `transport.*`, and sixteen `pad.N` controls.
-These names do not assign wire numbers, GPIOs, matrix positions, or LED-chain
-offsets. Existing protocol 1.x descriptors are not reinterpreted; a physical V2
-firmware inventory requires explicit future negotiation in Task 096G.
+The 1.3 manifest assigns separate 16-bit wire IDs to these names. GPIOs, matrix
+positions and LED-chain offsets remain firmware board-abstraction details.
+Existing protocol 1.x IDs are not reinterpreted.
 
 ## Transport decision
 
@@ -52,16 +56,18 @@ All integers are little-endian. Messages are bounded to 256 payload bytes and
 
 The decoder resynchronizes after malformed bytes, rejects oversized and
 CRC-invalid frames, and retains incomplete frames. A major-version mismatch is
-fatal for that connection. Protocol 1.2 is current. A 1.0 device remains valid
+fatal for that connection. Protocol 1.3 is current. A 1.0 device remains valid
 and receives the original label-only `CONTEXT` payload; 1.1 retains its extended
 context and historical inventory. Version 1.2 changes no framing or message
-encoding. It adds an inventory capability and non-overlapping IDs.
+encoding. Protocol 1.3 adds V2 inventory/state/render messages and does not
+change legacy packet interpretation.
 
 ## Messages and control IDs
 
 Stable message IDs are `HELLO=1`, `HELLO_REPLY=2`, `CAPABILITIES=3`,
 `BUTTON=4`, `ENCODER=5`, `ANALOG=6`, `LED=7`, `CONTEXT=8`, `STATE_SYNC=9`,
-`HEARTBEAT=10`, `ERROR=11`, and `RESET=12`.
+`HEARTBEAT=10`, `ERROR=11`, and `RESET=12`. Protocol 1.3 adds
+`INVENTORY=13`, `INPUT_STATE=14`, `LED_RENDER=15`, and `DIAGNOSTIC=16`.
 
 - `HELLO`: host major and minor (`u8`, `u8`).
 - `HELLO_REPLY`: major, minor, device-ID length, firmware-string length, then
@@ -86,6 +92,14 @@ Stable message IDs are `HELLO=1`, `HELLO_REPLY=2`, `CAPABILITIES=3`,
 - `HEARTBEAT`: opaque bounded payload echoed by the host.
 - `ERROR`: bounded diagnostic data; never audio-callback logging.
 - `RESET`: device reboot indication; negotiation restarts.
+- `INVENTORY`: control count (`u16`) and manifest fingerprint (`u32`). V2 must
+  report 67 and `0x3256434e`.
+- `INPUT_STATE`: generation (`u32`) and a nine-byte bitmap for the 58 V2
+  buttons. It reconciles ownership but never synthesizes presses.
+- V2 `BUTTON`: generation (`u32`), wire ID (`u16`), pressed (`u8`). V2
+  `ENCODER`: generation, wire ID and signed detent delta (`i16`).
+- `LED_RENDER`: wire ID, RGB, brightness, rendering mode and period. Supported
+  modes are off, steady, dim, blink and pulse; temporal rendering is local.
 
 ## Host behavior
 
@@ -99,8 +113,11 @@ architecture and MIDI adapter are in
 [CONTROLLER_INTEGRATION.md](CONTROLLER_INTEGRATION.md).
 
 The negotiated protocol selects a descriptor before the mapping profile is
-validated. Protocol 1.2 requires the inventory capability and uses the Task 068
-descriptor; 1.0/1.1 select explicit legacy descriptors. Profile controls never
+validated. Protocol 1.3 requires the V2 inventory/input-state capabilities,
+validates the exact identity/count/fingerprint, installs the V2 profile, issues
+a connection generation, and requires an input snapshot before accepting
+musical input. Protocol 1.2 retains the Task 068 descriptor; 1.0/1.1 select
+explicit legacy descriptors. Profile controls never
 replace or extend that inventory. Unknown physical IDs are rejected; known but
 unassigned controls remain harmless.
 
