@@ -5,6 +5,11 @@ NEUROGENIC resolves optional multi-control gestures in a bounded control-side
 `ControllerSession` semantic dispatch. It is not part of the audio engine and
 is not required by clients that invoke semantic actions directly.
 
+Task 096C exercises this ownership in the production V2 profile. TRACK, PAGE,
+MUTE and ERASE own pad chords and consume normal pad behavior; Fill has paired
+press/release ownership; SHIFT+Fill latches; and TAP+DATA captures the tempo
+target. Reconnect cancels these owners and stale generations remain rejected.
+
 ## Investigation result
 
 Before Task 096A, `ControllerSession::input()` dispatched presses immediately,

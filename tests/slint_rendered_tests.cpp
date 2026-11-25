@@ -21,6 +21,11 @@ int main(int argc, char **argv) {
         timeline_data.tracks.front().pattern.events.push_back(
             {1, ticks_per_quarter * 4, MusicalEventType::note, 60, 0.8F,
              ticks_per_quarter / 4});
+        auto rendered_second_track = timeline_data.tracks.front();
+        rendered_second_track.id = 2;
+        rendered_second_track.name = "Rendered Track 2";
+        rendered_second_track.pattern.events.clear();
+        timeline_data.tracks.push_back(std::move(rendered_second_track));
         PatternDefinition rendered_pattern;
         rendered_pattern.id = 70;
         rendered_pattern.name = "Rendered Pattern";

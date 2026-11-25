@@ -209,6 +209,16 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         return submit({"recording.start.v1", {}, state_.session_id,
                        input.sequence}, error);
     }
+    if (mapping->semantic == "focus-data") {
+        auto steps = input.value;
+        if (mapping->invert) steps = -steps;
+        if (state_.modifiers.shift || state_.modifiers.shift_latched)
+            steps *= mapping->fine_scale;
+        else if (std::abs(input.value) >= 4)
+            steps *= mapping->acceleration;
+        return submit({"navigation.adjust.v1", {{"steps", steps}},
+                       state_.session_id, input.sequence}, error);
+    }
     if (mapping->semantic == "performance-pad") {
         if (state_.context.starts_with("performance")) {
             const auto slot = std::find_if(
@@ -336,6 +346,8 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
 bool ControllerSession::dispatch_gesture(const GestureEvent &event,
                                          const ControllerInput &original,
                                          std::string &error) {
+    if (event.target.action_id.starts_with("reference."))
+        return dispatch_reference_gesture(event, original, error);
     if (!event.target.action_id.empty())
         return submit({event.target.action_id, event.target.arguments,
                        state_.session_id, original.sequence}, error);
@@ -353,6 +365,73 @@ bool ControllerSession::dispatch_gesture(const GestureEvent &event,
     }
     error.clear();
     return true;
+}
+
+bool ControllerSession::dispatch_reference_gesture(
+    const GestureEvent &event, const ControllerInput &original,
+    std::string &error) {
+    const auto pad_index = [&]() -> std::optional<std::size_t> {
+        constexpr std::string_view prefix{"pad."};
+        if (!event.control_id.starts_with(prefix)) return {};
+        try {
+            const auto value = std::stoul(event.control_id.substr(prefix.size()));
+            if (value == 0 || value > 16) return {};
+            return value - 1;
+        } catch (...) {
+            return {};
+        }
+    }();
+    const auto snapshot = application_->snapshot();
+    if (event.target.action_id == "reference.tempo-data.v1") {
+        auto steps = event.value;
+        if (state_.modifiers.shift || state_.modifiers.shift_latched)
+            steps *= 0.1;
+        else if (std::abs(steps) >= 4)
+            steps *= 2.0;
+        return submit({"parameter.adjust.v1",
+                       {{"parameter_id", std::string("transport.tempo")},
+                        {"steps", steps}},
+                       state_.session_id, original.sequence}, error);
+    }
+    if (!pad_index) {
+        error = "reference gesture has an invalid logical pad identity";
+        return false;
+    }
+    if (event.target.action_id == "reference.page-pad.v1")
+        return submit({"step.page-select.v1",
+                       {{"page", static_cast<std::int64_t>(*pad_index)},
+                        {"pattern_id", static_cast<std::int64_t>(
+                                           snapshot.selected_pattern)},
+                        {"track_id", static_cast<std::int64_t>(
+                                         snapshot.selected_track)}},
+                       state_.session_id, original.sequence}, error);
+    if (event.target.action_id == "reference.track-pad.v1" ||
+        event.target.action_id == "reference.mute-pad.v1") {
+        if (*pad_index >= snapshot.tracks.size()) {
+            error.clear();
+            return true;
+        }
+        const auto track_id = static_cast<std::int64_t>(
+            snapshot.tracks[*pad_index].id);
+        return submit({event.target.action_id == "reference.track-pad.v1"
+                           ? "track.select.v1"
+                           : "track.mute-toggle.v1",
+                       {{"track_id", track_id}}, state_.session_id,
+                       original.sequence}, error);
+    }
+    if (event.target.action_id == "reference.erase-pad.v1") {
+        const auto step = static_cast<std::int64_t>(snapshot.step_page * 16 +
+                                                    *pad_index);
+        return submit({"step.erase.v1",
+                       {{"pattern_id", static_cast<std::int64_t>(
+                                            snapshot.selected_pattern)},
+                        {"track_id", static_cast<std::int64_t>(
+                                          snapshot.selected_track)},
+                        {"step", step}},
+                       state_.session_id, original.sequence}, error);
+    }
+    error = "unsupported reference gesture target";
+    return false;
 }
 
 void ControllerSession::synchronize_interaction() noexcept {

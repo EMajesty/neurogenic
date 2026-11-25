@@ -1,5 +1,10 @@
 # Musical timeline
 
+Task 096C adds stable controller editing without a second timeline model.
+TRACK/PAGE/MUTE/ERASE chords carry stable track/pattern IDs and absolute steps;
+`step.erase.v1` removes existing events transactionally and participates in
+unified Undo/Redo. PAGE selection never mutates events.
+
 Performance capture uses audio-engine activation acknowledgements and commits a
 single prepared timeline transaction; requested or canceled launches are not
 treated as musical activations.

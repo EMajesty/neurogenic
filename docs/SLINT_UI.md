@@ -8,6 +8,10 @@ Alternative graphical and non-graphical clients are described in
 [Frontend Design](FRONTEND_DESIGN.md); Slint is the production reference, not a
 mandatory engine dependency or interchangeable runtime plugin system.
 
+Task 096C adds no Slint-owned musical authority. Focus, history, recording,
+Fill and transport remain copied application state. The shared bridge from
+physical ENTER/BACK to a frontend-owned visual modal remains open.
+
 The Task 096B reference shell has four functional zones: eight shared page
 labels at the top, existing editors in the central region, eight contextual
 parameter fields ordered P1/P2 through P7/P8 in a right-side 2×4 grid, and

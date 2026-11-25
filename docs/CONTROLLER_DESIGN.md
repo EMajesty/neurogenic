@@ -6,6 +6,10 @@ need not expose pages, pads, SHIFT, eight encoders, or reference destinations.
 Reference screen placement and firmware scan positions are deliberately absent
 from `ControllerDeviceDescriptor`.
 
+The V2 cluster is profile policy, not an API requirement. Its bindings use
+ordinary descriptors, gesture configuration and semantic commands. A custom
+device may bind actions directly and omit navigation, modifiers or pads.
+
 Devices needing held modifiers or chords can opt into the bounded
 [gesture ownership contract](INPUT_GESTURES.md). Simple MIDI profiles and direct
 semantic clients do not have to emulate Reference Controller V2.

@@ -10,7 +10,14 @@ destination table as the explicit reference descriptor/profile. The production
 Slint reference shell consumes the same destination definitions as controller
 routing and composes a top page strip, central content, right-side 2×4 encoder
 zone, and bottom function strip. Dedicated edit/navigation/transport defaults
-and page-specific banks remain Task 096C/096D work. Physical validation remains
+are integrated to the extent supported by existing semantics in Task 096C;
+page-specific banks remain Task 096D work. Physical validation remains NOT RUN.
+
+Task 096C now integrates the supported dedicated-cluster subset: focus-aware
+DATA, stable TRACK/PAGE/MUTE/ERASE pad chords, unified Undo/Redo, Fill,
+configured recording and supported transport controls. The authoritative
+[availability matrix](audit/task-088/TASK_096C_VALIDATION.md) identifies every
+unavailable operation and its first missing layer. Physical validation remains
 NOT RUN.
 
 This document is the authoritative design reference for NEUROGENIC's intended

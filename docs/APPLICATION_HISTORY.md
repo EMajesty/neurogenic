@@ -1,5 +1,9 @@
 # Application history and content transactions
 
+The V2 UNDO and SHIFT+UNDO controls submit `edit.undo.v1` and `edit.redo.v1` to
+this single authority. Controller input retains no private history stack;
+stable event erasure is an ordinary timeline transaction.
+
 ## Authority
 
 `ApplicationService` owns the single user-facing chronological Undo/Redo

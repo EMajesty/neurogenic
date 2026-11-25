@@ -7,6 +7,12 @@ and subview without creating musical state. `ControllerSession` and the Slint
 reference shell consume the same tables. Alternative clients may ignore them,
 invoke semantic actions directly, or provide unrelated navigation.
 
+Task 096C resolves reference chords from immutable copied state and submits
+typed stable IDs. `track.mute-toggle.v1` accepts an optional `track_id`, and
+`step.erase.v1(pattern_id, track_id, step)` transactionally removes existing
+events without toggle semantics. Gesture/focus/history work remains off the
+audio callback and uses existing bounded publication.
+
 Normal context changes cancel context-owned gestures. Only explicitly global
 policies (V2 SHIFT and the page press initiating navigation) survive and are
 rebound to the new context generation. Modal transitions retain precedence and

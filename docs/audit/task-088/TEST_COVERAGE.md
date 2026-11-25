@@ -7,6 +7,13 @@ validates top/central/right-2×4/bottom shell geometry at both resolutions. See
 [Task 096B validation](TASK_096B_VALIDATION.md). Coordinate input and physical
 validation are NOT RUN.
 
+Task 096C extends the same production executable through V2 TRACK/PAGE/MUTE/
+ERASE chords, ordinary-pad suppression, absolute page addressing, reusable-
+pattern erasure, unified Undo/Redo, momentary Fill, TAP+DATA, play/stop and
+disconnect cleanup. See [Task 096C validation](TASK_096C_VALIDATION.md).
+The generated component fixture now also invokes `track-selected` against a
+two-track project and verifies the authoritative stable selection round trip.
+
 ## Commands executed at `d8172a7`
 
 Task 090 superseding validation is recorded in

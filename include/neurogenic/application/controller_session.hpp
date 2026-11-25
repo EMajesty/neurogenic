@@ -82,6 +82,8 @@ class ControllerSession {
     bool dispatch_legacy(const ControllerInput &, std::string &error);
     bool dispatch_gesture(const GestureEvent &, const ControllerInput &,
                           std::string &error);
+    bool dispatch_reference_gesture(const GestureEvent &,
+                                    const ControllerInput &, std::string &error);
     void synchronize_interaction() noexcept;
     const ControlBinding *binding(std::string_view control) const;
     bool submit(ApplicationCommand, std::string &error);

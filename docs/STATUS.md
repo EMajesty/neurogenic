@@ -888,3 +888,15 @@ reusable typed contexts, descriptors, logical pad assignments and feedback;
 shifted page routing, dedicated cluster mappings, held-pad lock path,
 project-owned encoder/function banks, modal focus, RGB policy and firmware/
 physical validation. All physical V2 validation remains NOT RUN.
+
+## Task 096C Reference Controller V2 dedicated clusters
+
+The optional V2 reference profile now drives the existing semantic application
+through focus-aware DATA, bounded directional repetition, BACK/ENTER, stable
+TRACK/PAGE/MUTE/ERASE pad chords, unified Undo/Redo, conditional Fill,
+configured recording, tempo, play/stop/restart and MIDI panic controls. The
+stable erase action removes only existing reusable-pattern events and remains
+transactional. Unsupported solo/arm pad modes, typed clipboard, metronome,
+count-in, note repeat, groove, live erase and ambiguous loop shortcuts remain
+unassigned and visible in the Task 096C matrix. Software simulation passes;
+physical validation remains **NOT RUN**.

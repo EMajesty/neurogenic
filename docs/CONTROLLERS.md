@@ -7,6 +7,11 @@ navigation/edit/transport controls not yet implemented are explicitly
 unassigned. Older dedicated profiles and generic MIDI profiles retain their
 identities and behavior.
 
+Task 096C binds the supported cluster controls without changing that boundary.
+DATA uses shared application focus; TRACK/PAGE/MUTE/ERASE use stable-ID pad
+chords; Undo/Redo, Fill, configured recording and transport use registered
+semantic actions. See the [complete matrix](audit/task-088/TASK_096C_VALIDATION.md).
+
 One shared primary/secondary destination table drives controller and Slint
 routing. Held or latched SHIFT selects the secondary table; releasing SHIFT
 changes labels back without navigating away. Repeating the active destination

@@ -1,5 +1,10 @@
 # Audio recording and internal resampling
 
+Reference Controller V2 Task 096C binds REC to the existing configured
+recording coordinator only. It does not infer or switch recording families,
+sources or destinations. SHIFT+REC and REC MODE remain unavailable until a
+stable focused-session contract is added.
+
 The bounded recorder also backs live-loop sessions. A fixed first pass may write
 directly into a preallocated sample and activate its reserved voice at the exact
 stop frame; see [LIVE_LOOP_HANDOFF.md](LIVE_LOOP_HANDOFF.md). Prepared overdub/replace

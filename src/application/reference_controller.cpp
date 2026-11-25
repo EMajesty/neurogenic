@@ -36,6 +36,21 @@ ControlBinding binding(std::string id, std::string semantic, int index = -1) {
     result.index = index;
     return result;
 }
+ControlBinding action_binding(std::string id, std::string action,
+                              bool shifted = false) {
+    ControlBinding result;
+    result.control_id = std::move(id);
+    result.action_id = std::move(action);
+    result.shift = shifted;
+    return result;
+}
+GestureChord chord(std::string owner, std::string input, std::string action) {
+    GestureChord result;
+    result.owner_control = std::move(owner);
+    result.input_control = std::move(input);
+    result.target.action_id = std::move(action);
+    return result;
+}
 } // namespace
 
 const std::array<ReferenceDestination, 8> &reference_primary_destinations() {
@@ -105,6 +120,34 @@ ControllerProfile reference_controller_v2_profile() {
         result.bindings.push_back(binding("parameter." + std::to_string(i),
                                           "context-encoder", i - 1));
     result.bindings.push_back(binding("edit.shift", "modifier-shift"));
+    result.bindings.push_back(binding("edit.select", "modifier-select"));
+    result.bindings.push_back(binding("data", "focus-data"));
+    result.bindings.push_back(
+        action_binding("navigation.back", "navigation.cancel.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.enter", "navigation.confirm.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.enter", "project.save.v1", true));
+    result.bindings.push_back(
+        action_binding("navigation.up", "navigation.focus-previous.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.down", "navigation.focus-next.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.left", "navigation.focus-previous.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.right", "navigation.focus-next.v1"));
+    result.bindings.push_back(action_binding("edit.undo", "edit.undo.v1"));
+    result.bindings.push_back(
+        action_binding("edit.undo", "edit.redo.v1", true));
+    result.bindings.push_back(
+        action_binding("transport.play", "transport.play.v1"));
+    result.bindings.push_back(
+        action_binding("transport.play", "transport.restart.v1", true));
+    result.bindings.push_back(
+        action_binding("transport.stop", "transport.stop.v1"));
+    result.bindings.push_back(
+        action_binding("transport.stop", "midi.panic.v1", true));
+    result.bindings.push_back(binding("transport.record", "recording-toggle"));
     for (int i = 1; i <= 16; ++i)
         result.bindings.push_back(
             binding("pad." + std::to_string(i), "performance-pad", i - 1));
@@ -134,9 +177,46 @@ GestureConfiguration reference_controller_v2_gestures() {
             policy.policy = GestureDispatchPolicy::modifier_only;
             policy.latchable = true;
             policy.global_across_context = true;
+        } else if (control.id == "edit.select") {
+            policy.modifier = "select";
+            policy.policy = GestureDispatchPolicy::modifier_only;
+        } else if (control.id == "edit.track" ||
+                   control.id == "edit.page" ||
+                   control.id == "edit.mute" ||
+                   control.id == "edit.erase" ||
+                   control.id == "transport.tap") {
+            policy.modifier = control.id;
+            policy.policy = GestureDispatchPolicy::modifier_only;
+        } else if (control.id == "transport.fill") {
+            policy.policy = GestureDispatchPolicy::momentary;
+            policy.press_target.action_id = "performance.fill-set.v1";
+            policy.press_target.arguments = {{"active", true}};
+            policy.release_target.action_id = "performance.fill-set.v1";
+            policy.release_target.arguments = {{"active", false}};
+            policy.global_across_context = true;
+        } else if (control.id == "navigation.up" ||
+                   control.id == "navigation.down" ||
+                   control.id == "navigation.left" ||
+                   control.id == "navigation.right") {
+            policy.policy = GestureDispatchPolicy::repeatable;
         }
         result.controls.push_back(std::move(policy));
     }
+    for (int i = 1; i <= 16; ++i) {
+        const auto pad = "pad." + std::to_string(i);
+        result.chords.push_back(
+            chord("edit.track", pad, "reference.track-pad.v1"));
+        result.chords.push_back(
+            chord("edit.page", pad, "reference.page-pad.v1"));
+        result.chords.push_back(
+            chord("edit.mute", pad, "reference.mute-pad.v1"));
+        result.chords.push_back(
+            chord("edit.erase", pad, "reference.erase-pad.v1"));
+    }
+    result.chords.push_back(
+        chord("transport.tap", "data", "reference.tempo-data.v1"));
+    result.chords.push_back(
+        chord("edit.shift", "transport.fill", "performance.fill-latch.v1"));
     return result;
 }
 } // namespace neurogenic

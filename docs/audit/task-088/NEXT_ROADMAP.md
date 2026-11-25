@@ -89,7 +89,9 @@ issues; unperformed rows remain NOT RUN.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 
-After Task 094, the exact next task is **Task 095 — frontend verification and
-measured publication closure**. It is independent of physical hardware and
-should resolve AUD2-011/AUD2-012 before Task 096 maps the locked Reference
-Controller V2 design onto the shared semantic and history contracts.
+Tasks 095 and 096A–096C now provide independent-client publication, gesture
+ownership, reference navigation and the supported dedicated clusters. The exact
+next bounded implementation task is **Task 096D — descriptor-driven contextual
+banks and held-step parameter locks**. It should consume stable gesture targets
+and unified history without expanding optional transport algorithms or making
+the V2 profile mandatory.

@@ -135,6 +135,16 @@ semantics. Acceptance: production-path simulation traverses and edits a song,
 records/loops, saves safely, panics safely and proves consumed modifiers do not
 fire taps.
 
+**Task 096C status: Partially implemented with the supported semantic set.**
+Focus-aware DATA, repeated linear focus navigation, BACK/ENTER, TRACK/PAGE/
+MUTE/ERASE pad chords, Undo/Redo, momentary/latched Fill, configured recording
+toggle, play/stop/restart, MIDI panic and TAP+DATA are production bindings.
+Stable track/pattern/step arguments prevent selection redirection. The complete
+matrix and evidence are in `TASK_096C_VALIDATION.md`. RC2-003 remains open for
+shared visual-modal ENTER/BACK ownership, per-track solo/arm semantics, typed
+clipboard, contextual loop/record configuration, unified voice+MIDI panic and
+the intentionally absent optional musical capabilities.
+
 ### RC2-004 — Descriptor-driven page banks and held-step locks (P1)
 
 Populate primary/secondary encoder/function banks for the V2 destinations;

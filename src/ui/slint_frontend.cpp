@@ -1189,6 +1189,11 @@ int run_slint_frontend(ApplicationService &application,
             if (!application.snapshot().playing)
                 throw std::runtime_error("generated transport callback did not start playback");
             window->invoke_transport_invoked("stop");
+            const auto initial_track = application.snapshot().selected_track;
+            window->invoke_track_selected(1);
+            if (application.snapshot().selected_track == initial_track)
+                throw std::runtime_error(
+                    "generated track-navigation callback did not change the stable target");
             window->show();
             const auto capture_headless = [&](const std::string &path) {
                 if (path.empty() || !options.interaction_test_backend ||

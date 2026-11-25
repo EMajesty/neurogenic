@@ -155,7 +155,8 @@ ActionRegistry::ActionRegistry() {
                {{"track_id", ValueType::integer}}));
     add(action("track.next.v1", "Next track", "Tracks"));
     add(action("track.previous.v1", "Previous track", "Tracks"));
-    add(action("track.mute-toggle.v1", "Toggle track mute", "Tracks"));
+    add(action("track.mute-toggle.v1", "Toggle track mute", "Tracks",
+               {{"track_id", ValueType::integer, false}}));
     add(action("track.create.v1", "Create track", "Tracks",
                {{"track_id", ValueType::integer, false},
                 {"name", ValueType::text, false},
@@ -482,6 +483,10 @@ ActionRegistry::ActionRegistry() {
                {{"step", ValueType::integer, false},
                 {"velocity", ValueType::real, false},
                 {"duration_ticks", ValueType::integer, false}}));
+    add(action("step.erase.v1", "Erase step events", "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"step", ValueType::integer}}));
     add(action("step.event-select.v1", "Select event at step", "Sequencer",
                {{"step", ValueType::integer, false},
                 {"event_id", ValueType::integer, false}}));
@@ -524,7 +529,9 @@ ActionRegistry::ActionRegistry() {
     add(action("step.page-next.v1", "Next step page", "Sequencer"));
     add(action("step.page-previous.v1", "Previous step page", "Sequencer"));
     add(action("step.page-select.v1", "Select step page", "Sequencer",
-               {{"page", ValueType::integer}}));
+               {{"page", ValueType::integer},
+                {"pattern_id", ValueType::integer, false},
+                {"track_id", ValueType::integer, false}}));
     add(action("step.resolution-set.v1", "Set step resolution", "Sequencer",
                {{"resolution", ValueType::text}}));
     add(action("track.note-target-set.v1", "Set track note target", "Tracks",
@@ -5455,7 +5462,11 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             }
         } else if (command.action_id == "track.mute-toggle.v1") {
             auto transaction = timeline_.edit();
-            auto *track = transaction.find_track(state_.selected_track);
+            const auto requested = argument<std::int64_t>(command, "track_id");
+            const auto track_id = requested
+                ? static_cast<TrackId>(*requested)
+                : state_.selected_track;
+            auto *track = transaction.find_track(track_id);
             if (!track)
                 error = "selected track does not exist";
             else if (!transaction.set_track_muted(track->id, !track->muted,
@@ -7004,6 +7015,18 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    command.action_id == "step.page-previous.v1" ||
                    command.action_id == "step.page-select.v1") {
             const auto snapshot = timeline_.snapshot();
+            const auto requested_pattern =
+                argument<std::int64_t>(command, "pattern_id");
+            const auto requested_track =
+                argument<std::int64_t>(command, "track_id");
+            if ((requested_pattern &&
+                 static_cast<PatternId>(*requested_pattern) !=
+                     state_.selected_pattern) ||
+                (requested_track && static_cast<TrackId>(*requested_track) !=
+                                        state_.selected_track)) {
+                error = "stable step-page target is no longer selected";
+                return {false, sequence, before.revision, std::move(error)};
+            }
             const auto found = std::find_if(
                 snapshot.timeline.tracks.begin(),
                 snapshot.timeline.tracks.end(), [&](const Track &track) {
@@ -7065,6 +7088,46 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 track_targets_[state_.selected_track] =
                     static_cast<std::uint8_t>(note);
                 changed_locked();
+            }
+        } else if (command.action_id == "step.erase.v1") {
+            const auto pattern_id = static_cast<PatternId>(
+                *argument<std::int64_t>(command, "pattern_id"));
+            const auto track_id = static_cast<TrackId>(
+                *argument<std::int64_t>(command, "track_id"));
+            const auto step = *argument<std::int64_t>(command, "step");
+            auto transaction = timeline_.edit();
+            auto *pattern = transaction.find_edit_pattern(pattern_id, track_id);
+            if (!pattern)
+                error = "stable pattern-track erase target is unavailable";
+            else if (step < 0 ||
+                     step > std::numeric_limits<MusicalTick>::max() /
+                                state_.step_ticks)
+                error = "step is outside its range";
+            else {
+                const auto tick = step * state_.step_ticks;
+                std::vector<EventId> matching;
+                for (const auto &event : pattern->events)
+                    if (event.tick == tick) matching.push_back(event.id);
+                if (matching.empty())
+                    error = "step contains no erasable events";
+                else {
+                    for (const auto id : matching)
+                        if (!transaction.remove_event(pattern_id, track_id, id,
+                                                      error))
+                            break;
+                    if (error.empty() && timeline_.commit(
+                            std::move(transaction),
+                            TimelineCommitPolicy::next_audio_callback, error)) {
+                        if (state_.selected_pattern == pattern_id &&
+                            state_.selected_track == track_id) {
+                            state_.selected_step = step;
+                            state_.step_page =
+                                static_cast<std::uint64_t>(step) / 16;
+                            selected_event_id_.reset();
+                        }
+                        changed_locked();
+                    }
+                }
             }
         } else if (command.action_id == "step.toggle.v1") {
             auto transaction = edit_group_ ? *edit_group_ : timeline_.edit();
