@@ -1,5 +1,14 @@
 # Reference Controller V2 interaction design
 
+### Assignment authoring status (Task 097B)
+
+The reference shell exposes P1–P8/F1–F8 primary and secondary positions and
+PAD1–PAD16 through a policy-derived chooser. SHIFT+pad selection and chooser pad
+selection enter assignment mode without launching material. Shared typed target
+metadata and Setup conflict presentation are implemented in software. Physical
+panel validation remains **NOT RUN**, and full controller profile-library
+lifecycle remains blocked on a coordinator-owned library service.
+
 Task 096F does not change the locked inventory. Its shared picker and mapping
 proposal path let the V2 profile and non-reference controllers address the same
 semantic targets. Complete RGB/heartbeat/firmware conformance remains Task

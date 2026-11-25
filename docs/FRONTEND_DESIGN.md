@@ -1,5 +1,13 @@
 # Designing a frontend for NEUROGENIC
 
+## Shared assignment forms
+
+An alternative frontend may consume `AssignmentTargetPicker` metadata and
+retain its own bounded form/focus state. Confirmation must still call the
+project Performance service or appliance controller coordinator appropriate to
+the editor. The reference Slint form is an example, not a required UI runtime;
+indexed roles and typed argument descriptors contain no Slint types.
+
 Assignment editors should consume the shared copied target model and submit a
 proposal to their owning service. The Performance editor commits project
 transactions; the Setup mapping editor commits appliance profile candidates.

@@ -103,3 +103,9 @@ Task 097A completed shared modal/focus ownership. The exact next milestone is
 **Task 097B — graphical assignment and profile-management closure**: finish
 Performance positions/layers/pads and Setup typed arguments, profile lifecycle,
 conflicts and feedback authoring using the same contract.
+
+Task 097B completed all 48 reference Performance positions and the graphical
+fields backed by current assignment/profile services. The exact next milestone
+is **Task 097C — supported contextual-bank and pad-mode closure** across all
+sixteen destinations. The missing coordinator-owned profile library is retained
+as a focused RC2-006 follow-up rather than simulated in frontend state.

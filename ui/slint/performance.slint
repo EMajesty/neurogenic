@@ -1,6 +1,6 @@
 import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay, TouchKeyboard } from "components.slint";
 import { Theme } from "theme.slint";
-import { PerformancePage, PadItem, SceneItem, PerformanceBankItem, PerformanceAssignmentTargetItem } from "performance_page.slint";
+import { PerformancePage, PadItem, SceneItem, PerformanceBankItem, PerformanceAssignmentTargetItem, PerformancePositionItem } from "performance_page.slint";
 import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from "sequencer_page.slint";
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
@@ -102,7 +102,24 @@ export component PerformanceWindow inherits Window {
     in property <[PerformanceBankItem]> performance-banks;
     in property <string> performance-bank-name: "No Performance bank";
     in property <[PerformanceAssignmentTargetItem]> performance-assignment-targets;
+    in property <[PerformancePositionItem]> performance-assignment-positions;
     in property <bool> performance-assignment-editor-visible: false;
+    in property <int> performance-assignment-editor-position: 0;
+    in property <bool> performance-assignment-editor-secondary: false;
+    in property <bool> performance-assignment-editor-action: false;
+    in property <bool> performance-assignment-editor-pad: false;
+    in-out property <string> performance-assignment-argument-1-name;
+    in-out property <string> performance-assignment-argument-1-value;
+    in-out property <string> performance-assignment-argument-2-name;
+    in-out property <string> performance-assignment-argument-2-value;
+    in-out property <string> performance-assignment-argument-3-name;
+    in-out property <string> performance-assignment-argument-3-value;
+    in-out property <string> performance-assignment-argument-4-name;
+    in-out property <string> performance-assignment-argument-4-value;
+    in property <string> performance-assignment-argument-1-hint;
+    in property <string> performance-assignment-argument-2-hint;
+    in property <string> performance-assignment-argument-3-hint;
+    in property <string> performance-assignment-argument-4-hint;
     in property <[StepItem]> steps;
     in property <[PatternItem]> patterns;
     in property <[ArrangementItem]> arrangement-items;
@@ -169,11 +186,19 @@ export component PerformanceWindow inherits Window {
     in property <float> setup-callback-peak: 0; in property <int> setup-xruns: 0;
     in property <bool> setup-xruns-available: false; in property <string> setup-error: "";
     in property <string> setup-learn-status: "Idle"; in property <[SetupDeviceItem]> setup-audio-inputs;
+    in property <bool> setup-conflict-visible: false;
+    in property <string> setup-conflict-existing-source; in property <string> setup-conflict-existing-target;
+    in property <string> setup-conflict-proposed-source; in property <string> setup-conflict-proposed-target;
+    in property <string> setup-conflict-reason;
     in property <[SetupDeviceItem]> setup-audio-outputs; in property <[SetupDeviceItem]> setup-midi-inputs;
     in property <[SetupDeviceItem]> setup-midi-outputs; in property <[SetupControllerItem]> setup-controllers;
     in property <[SetupMidiRouteItem]> setup-midi-routes;
     in property <[SetupMappingItem]> setup-mappings;
     in property <[SetupMappingTargetItem]> setup-mapping-targets;
+    in-out property <string> setup-mapping-argument-1-value; in-out property <string> setup-mapping-argument-2-value;
+    in-out property <string> setup-mapping-argument-3-value; in-out property <string> setup-mapping-argument-4-value;
+    in property <string> setup-mapping-argument-1-hint; in property <string> setup-mapping-argument-2-hint;
+    in property <string> setup-mapping-argument-3-hint; in property <string> setup-mapping-argument-4-hint;
     in-out property <string> setup-learn-control: "encoder.1"; in-out property <string> setup-learn-mode: "cc-absolute";
     in-out property <string> setup-profile-path: "";
     in-out property <bool> modal-visible: false;
@@ -209,8 +234,9 @@ export component PerformanceWindow inherits Window {
     callback performance-bank-selected(int); callback performance-bank-action(string);
     callback performance-assignment-open(int, bool, bool);
     callback performance-assignment-target-selected(int);
-    callback performance-assignment-confirm(string, string, string, string, string, string);
+    callback performance-assignment-confirm(string, string, string, string, string, string, string, string, string, string);
     callback performance-assignment-cancel();
+    callback performance-assignment-clear(); callback performance-pad-assignment-edit(int);
     callback quantization-invoked();
     callback sequencer-step-invoked(int); callback pattern-invoked(int, bool);
     callback pattern-create(bool); callback resolution-invoked();
@@ -262,8 +288,10 @@ export component PerformanceWindow inherits Window {
     callback setup-midi-learn(string, string, string); callback setup-profile-save(string); callback setup-exit();
     callback setup-midi-route-selected(int); callback setup-midi-route-action(string);
     callback setup-mapping-selected(int); callback setup-mapping-remove();
-    callback setup-mapping-target-selected(int); callback setup-mapping-target-apply();
+    callback setup-mapping-target-selected(int); callback setup-mapping-target-apply(string, string, string, string);
     callback setup-mapping-source-apply(int, int, int, string, string, bool, bool);
+    callback setup-mapping-behavior-apply(bool, bool, float, float);
+    callback setup-mapping-conflict-action(string);
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -291,6 +319,19 @@ export component PerformanceWindow inherits Window {
             pads: root.pads; scenes: root.scenes; banks: root.performance-banks;
             bank-name: root.performance-bank-name;
             assignment-targets: root.performance-assignment-targets;
+            assignment-positions: root.performance-assignment-positions;
+            argument-1-name: root.performance-assignment-argument-1-name;
+            argument-1-value: root.performance-assignment-argument-1-value;
+            argument-2-name: root.performance-assignment-argument-2-name;
+            argument-2-value: root.performance-assignment-argument-2-value;
+            argument-3-name: root.performance-assignment-argument-3-name;
+            argument-3-value: root.performance-assignment-argument-3-value;
+            argument-4-name: root.performance-assignment-argument-4-name;
+            argument-4-value: root.performance-assignment-argument-4-value;
+            argument-1-hint: root.performance-assignment-argument-1-hint;
+            argument-2-hint: root.performance-assignment-argument-2-hint;
+            argument-3-hint: root.performance-assignment-argument-3-hint;
+            argument-4-hint: root.performance-assignment-argument-4-hint;
             assignment-editor-visible: root.performance-assignment-editor-visible;
             transport-invoked(action) => { root.transport-invoked(action); }
             track-selected(direction) => { root.track-selected(direction); }
@@ -301,8 +342,10 @@ export component PerformanceWindow inherits Window {
             bank-action(action) => { root.performance-bank-action(action); }
             assignment-open(position, secondary, action) => { root.performance-assignment-open(position, secondary, action); }
             assignment-target-selected(index) => { root.performance-assignment-target-selected(index); }
-            assignment-confirm(label, behavior, n1, v1, n2, v2) => { root.performance-assignment-confirm(label, behavior, n1, v1, n2, v2); }
+            assignment-confirm(label, behavior, n1, v1, n2, v2, n3, v3, n4, v4) => { root.performance-assignment-confirm(label, behavior, n1, v1, n2, v2, n3, v3, n4, v4); }
             assignment-cancel => { root.performance-assignment-cancel(); }
+            assignment-clear => { root.performance-assignment-clear(); }
+            pad-assignment-edit(position) => { root.performance-pad-assignment-edit(position); }
             pad-invoked(index, pressed) => { root.pad-invoked(index, pressed); }
         }
         if root.page-id == "sequencer": SequencerPage {
@@ -410,7 +453,13 @@ export component PerformanceWindow inherits Window {
             midi-clock: root.setup-midi-clock; system: root.setup-system; version: root.setup-version; callback-load: root.setup-callback-load;
             callback-peak: root.setup-callback-peak; xruns: root.setup-xruns; xruns-available: root.setup-xruns-available;
             error: root.setup-error; learn-status: root.setup-learn-status; audio-inputs: root.setup-audio-inputs; audio-outputs: root.setup-audio-outputs;
+            conflict-visible: root.setup-conflict-visible; conflict-existing-source: root.setup-conflict-existing-source; conflict-existing-target: root.setup-conflict-existing-target;
+            conflict-proposed-source: root.setup-conflict-proposed-source; conflict-proposed-target: root.setup-conflict-proposed-target; conflict-reason: root.setup-conflict-reason;
             midi-inputs: root.setup-midi-inputs; midi-outputs: root.setup-midi-outputs; controllers: root.setup-controllers; midi-routes: root.setup-midi-routes; mappings: root.setup-mappings; mapping-targets: root.setup-mapping-targets;
+            mapping-argument-1-value: root.setup-mapping-argument-1-value; mapping-argument-2-value: root.setup-mapping-argument-2-value;
+            mapping-argument-3-value: root.setup-mapping-argument-3-value; mapping-argument-4-value: root.setup-mapping-argument-4-value;
+            mapping-argument-1-hint: root.setup-mapping-argument-1-hint; mapping-argument-2-hint: root.setup-mapping-argument-2-hint;
+            mapping-argument-3-hint: root.setup-mapping-argument-3-hint; mapping-argument-4-hint: root.setup-mapping-argument-4-hint;
             learn-control <=> root.setup-learn-control; learn-mode <=> root.setup-learn-mode;
             subview-selected(value) => { root.setup-subview-selected(value); } device-selected(kind, index) => { root.setup-device-selected(kind, index); }
             value-adjusted(property, direction) => { root.setup-value-adjusted(property, direction); }
@@ -418,10 +467,14 @@ export component PerformanceWindow inherits Window {
             controller-selected(index) => { root.setup-controller-selected(index); } midi-learn(action, control, mode) => { root.setup-midi-learn(action, control, mode); }
             midi-route-selected(index) => { root.setup-midi-route-selected(index); } midi-route-action(action) => { root.setup-midi-route-action(action); }
             mapping-selected(index) => { root.setup-mapping-selected(index); } mapping-remove => { root.setup-mapping-remove(); }
-            mapping-target-selected(index) => { root.setup-mapping-target-selected(index); } mapping-target-apply => { root.setup-mapping-target-apply(); }
+            mapping-target-selected(index) => { root.setup-mapping-target-selected(index); } mapping-target-apply(v1, v2, v3, v4) => { root.setup-mapping-target-apply(v1, v2, v3, v4); }
             mapping-source-apply(port, channel, number, mode, control, feedback, replace-conflict) => {
                 root.setup-mapping-source-apply(port, channel, number, mode, control, feedback, replace-conflict);
             }
+            mapping-behavior-apply(pickup, invert, fine-scale, acceleration) => {
+                root.setup-mapping-behavior-apply(pickup, invert, fine-scale, acceleration);
+            }
+            mapping-conflict-action(action) => { root.setup-mapping-conflict-action(action); }
             text-requested(operation, current) => { root.text-entry-requested(operation, current); } exit-requested => { root.setup-exit(); }
         }
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }

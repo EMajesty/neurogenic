@@ -1,5 +1,19 @@
 # Slint frontend performance and rendered validation
 
+## Task 097B measurement (2026-11-25)
+
+The unchanged `./build/slint/neurogenic_slint_benchmark` workload, Debug Slint
+build, reported: idle median/p95/p99/max 52,668/82,183/107,390/192,720 ns;
+full 129,552/192,519/227,786/273,029 ns; incremental
+67,786/89,316/118,912/146,584 ns; copied snapshot median 38,682 ns; shared
+snapshot median 19,676 ns. There were 259 full rebuilds, 257 telemetry updates,
+255 skipped refreshes and exactly one assignment-discovery rebuild.
+
+The Task 097A full median was approximately 124,843 ns. The 3.8% difference is
+consistent with the larger 48-row assignment presentation and local run noise;
+no repeated discovery or unrelated telemetry reconstruction regression was
+observed. CI retains structural counters rather than a wall-clock threshold.
+
 Task 082 established incremental publication. Task 095 remeasured the current
 frontend and added revision-cached immutable snapshot handles. See
 [Task 095 validation](audit/task-088/TASK_095_VALIDATION.md) for current

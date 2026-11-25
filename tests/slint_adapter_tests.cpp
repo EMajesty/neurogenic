@@ -166,8 +166,9 @@ int main() {
         require(adapter.manage_performance_bank("create") &&
                     adapter.open_performance_assignment_editor(0, false, false) &&
                     adapter.state().performance.editor_visible &&
-                    !adapter.state().performance.assignment_targets.empty(),
-                "Performance shared target editor opens on a named bank");
+                    !adapter.state().performance.assignment_targets.empty() &&
+                    adapter.state().performance.assignment_positions.size() == 48,
+                "Performance shared target editor exposes all reference positions");
         const auto parameter_target = std::find_if(
             adapter.state().performance.assignment_targets.begin(),
             adapter.state().performance.assignment_targets.end(),
@@ -1077,12 +1078,20 @@ int main() {
                 ("manual mapping target apply: " + adapter.last_error()).c_str());
         require(!adapter.author_setup_midi_mapping(
                     1, 0, 74, "cc-absolute", "encoder.1", false, false) &&
-                    adapter.last_error().find("conflict") != std::string::npos,
-                "manual mapping conflict requires explicit replacement");
-        require(adapter.author_setup_midi_mapping(
-                    1, 0, 74, "cc-absolute", "encoder.1", false, true) &&
+                    adapter.last_error().find("conflict") != std::string::npos &&
+                    adapter.state().setup.conflict_visible &&
+                    !adapter.state().setup.conflict_existing_source.empty() &&
+                    !adapter.state().setup.conflict_proposed_source.empty(),
+                "manual mapping conflict publishes a structured candidate-first view");
+        adapter.cancel_setup_mapping_conflict();
+        require(!adapter.state().setup.conflict_visible &&
+                    !manual_mapping_set,
+                "cancelled conflict preserves the existing active mapping");
+        require(!adapter.author_setup_midi_mapping(
+                    1, 0, 74, "cc-absolute", "encoder.1", false, false) &&
+                    adapter.confirm_setup_mapping_conflict() &&
                     manual_mapping_set,
-                "confirmed manual mapping replacement uses coordinator service");
+                "confirmed structured replacement uses coordinator service");
         require(adapter.select_setup_mapping(0) && adapter.remove_setup_mapping() &&
                     mapping_removed && adapter.state().setup.mappings.empty(),
                 "controller mappings are removed through coordinator services");

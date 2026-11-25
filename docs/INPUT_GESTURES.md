@@ -1,5 +1,14 @@
 # Input gesture ownership
 
+## Assignment-mode ownership
+
+Opening a Performance or Setup assignment proposal captures the bank/profile,
+logical position/source and layer. Selecting a pad target is an editor gesture,
+not a performance press. Telemetry and later selection changes do not rewrite
+the proposal; confirmation validates the captured target and cancellation
+restores the prior assignment. Active-session mapping replacement continues to
+use the existing generation cancellation and feedback resynchronization path.
+
 Protocol 1.3 supplies each physical V2 connection with a host-issued generation
 and full-state reconciliation. Sequence gaps, reset, disconnect and state
 mismatches cancel arbiter ownership; snapshots release missing holds and

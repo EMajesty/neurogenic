@@ -116,3 +116,18 @@ category/object/typed-argument picker and shared-keyboard label workflow still
 needs the Task 096F target-selector reuse. Toggle-state discovery is limited to
 actions whose authoritative state is already published. Physical hardware and
 touchscreen validation are **NOT RUN**.
+
+## Task 097B graphical authoring
+
+The production Performance page now derives a 48-entry reference chooser from
+presentation policy: P1–P8 and F1–F8 on primary and secondary layers, plus
+PAD1–PAD16. Selecting any row captures bank, logical position and layer before
+opening the shared editor. Pad rows open a launch-target editor and never
+dispatch the pad. Parameter and safe-action rows use the same discovery and
+typed validation used by Setup; four descriptor-defined argument fields are
+currently renderable. Assignment confirmation remains a project transaction,
+while cancel leaves the prior assignment unchanged.
+
+The 48 positions are not a project-format limit. They describe the Reference
+Controller V2 presentation; other clients may address any validated logical
+position supported by the bounded bank model.

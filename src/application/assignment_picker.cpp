@@ -69,17 +69,30 @@ AssignmentTargetPicker::targets(ActionFilter filter) const {
         }
         result.push_back(std::move(target));
     }
-    static constexpr std::string_view contexts[]{"context.encoder", "context.function",
-                                                 "context.pad", "focus.data"};
-    for (const auto role : contexts)
-        result.push_back({AssignmentTargetKind::contextual_role, "Contextual roles",
-                          {}, std::string(role), std::string(role), {}, true, false, {}});
-    static constexpr std::string_view performance[]{"performance.parameter",
-                                                    "performance.action",
-                                                    "performance.pad"};
-    for (const auto role : performance)
-        result.push_back({AssignmentTargetKind::performance_role, "Performance roles",
-                          {}, std::string(role), std::string(role), {}, true, false, {}});
+    for (std::uint32_t index = 0; index < 8; ++index) {
+        result.push_back({AssignmentTargetKind::contextual_role, "Contextual roles", {},
+            "context.encoder." + std::to_string(index),
+            "Context encoder " + std::to_string(index + 1), {}, true, false, {}});
+        result.push_back({AssignmentTargetKind::contextual_role, "Contextual roles", {},
+            "context.function." + std::to_string(index),
+            "Context function " + std::to_string(index + 1), {}, true, false, {}});
+        result.push_back({AssignmentTargetKind::performance_role, "Performance roles", {},
+            "performance.parameter." + std::to_string(index),
+            "Performance parameter " + std::to_string(index + 1), {}, true, false, {}});
+        result.push_back({AssignmentTargetKind::performance_role, "Performance roles", {},
+            "performance.action." + std::to_string(index),
+            "Performance action " + std::to_string(index + 1), {}, true, false, {}});
+    }
+    for (std::uint32_t index = 0; index < 16; ++index) {
+        result.push_back({AssignmentTargetKind::contextual_role, "Contextual roles", {},
+            "context.pad." + std::to_string(index),
+            "Context pad " + std::to_string(index + 1), {}, true, false, {}});
+        result.push_back({AssignmentTargetKind::performance_role, "Performance roles", {},
+            "performance.pad." + std::to_string(index),
+            "Performance pad " + std::to_string(index + 1), {}, true, false, {}});
+    }
+    result.push_back({AssignmentTargetKind::contextual_role, "Contextual roles", {},
+        "focus.data", "Focused DATA", {}, true, false, {}});
     return result;
 }
 

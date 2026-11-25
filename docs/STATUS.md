@@ -969,3 +969,13 @@ modal state. V2 ENTER/BACK, shifted navigation, root navigation and physical
 Save now reach production Slint workflows. A protocol-level scenario covers
 captured destructive confirmation, Browser navigation, Save As and reconnect
 cleanup. Assignment/profile forms and physical validation remain open.
+
+Task 097B completes the policy-derived 48-position Performance chooser,
+descriptor-driven parameter/safe-action arguments, non-triggering pad launch
+assignment form, indexed contextual/Performance role targets, manual MIDI
+behavior fields and structured conflict confirmation in the generated Slint
+shell. RC2-005 graphical authoring is closed in software. RC2-006/AUD2-006 stay
+partial at an exact service boundary: the coordinator does not yet own a
+multi-profile create/rename/duplicate/select/remove/recovery library, and the
+current profile schema has no detailed context/modifier or temporal RGB
+feedback authoring records. Physical validation remains **NOT RUN**.

@@ -1,5 +1,14 @@
 # Typed parameter bindings
 
+## Graphical assignment forms
+
+Performance encoder assignments and Setup direct-parameter mappings resolve
+through `AssignmentTargetPicker` and `ParameterBindingService`. The form shows
+descriptor labels, units and validation metadata; pickup, inversion, fine
+scale and acceleration configure the existing controller binding rather than a
+frontend scaling path. Indexed Performance roles remain logical indirection,
+whereas a direct parameter binding retains its stable parameter identity.
+
 Task 096F reuses `ParameterBindingService` for manual absolute and relative
 controller mappings and Performance assignments. The shared picker publishes
 stable parameter identity, ranges and units but never caches the authoritative

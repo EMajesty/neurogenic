@@ -1,5 +1,20 @@
 # Designing a controller for NEUROGENIC
 
+## Authoring mappings in the reference frontend
+
+The Setup editor and project Performance editor share discovered target and
+typed-argument metadata, but retain separate ownership. A controller profile
+may bind directly to a stable parameter, action or contextual role, or follow
+an indexed project Performance role. A direct binding never follows bank
+changes; a Performance role intentionally does. Conflicts retain the complete
+candidate until explicit replace or cancel.
+
+Known disconnected MIDI descriptors can be edited without MIDI learn. The
+current graphical surface covers the dispatch-supported MIDI encodings and
+binding behaviors. A multi-profile library service is not yet implemented, so
+profile lifecycle beyond saving the active endpoint profile requires
+source-level/coordinator work.
+
 The V2 reference implementation demonstrates a negotiated physical device,
 but custom controllers need not use its inventory or protocol. Dedicated CDC
 devices use the versioned framing and descriptor negotiation in

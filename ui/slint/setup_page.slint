@@ -5,7 +5,7 @@ import { ScrollView, LineEdit } from "std-widgets.slint";
 export struct SetupDeviceItem { name: string, detail: string, selected: bool, available: bool }
 export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, learn-status: string, connected: bool, feedback: bool, selected: bool }
 export struct SetupMidiRouteItem { id: int, input: string, output: string, channels: string, flags: string, enabled: bool, selected: bool }
-export struct SetupMappingItem { endpoint: string, control: string, source: string, mode: string, feedback: bool, selected: bool }
+export struct SetupMappingItem { endpoint: string, control: string, source: string, mode: string, target: string, feedback: bool, pickup: bool, invert: bool, fine-scale: float, acceleration: float, selected: bool }
 export struct SetupMappingTargetItem { kind: string, id: string, label: string, selected: bool }
 
 export component SetupPage inherits Rectangle {
@@ -25,6 +25,10 @@ export component SetupPage inherits Rectangle {
     in property <float> callback-load: 0; in property <float> callback-peak: 0;
     in property <int> xruns: 0; in property <bool> xruns-available: false;
     in property <string> error; in property <string> learn-status: "Idle";
+    in property <bool> conflict-visible: false;
+    in property <string> conflict-existing-source; in property <string> conflict-existing-target;
+    in property <string> conflict-proposed-source; in property <string> conflict-proposed-target;
+    in property <string> conflict-reason;
     in property <[SetupDeviceItem]> audio-inputs; in property <[SetupDeviceItem]> audio-outputs;
     in property <[SetupDeviceItem]> midi-inputs; in property <[SetupDeviceItem]> midi-outputs;
     in property <[SetupControllerItem]> controllers;
@@ -35,14 +39,20 @@ export component SetupPage inherits Rectangle {
     in-out property <string> manual-port: "1"; in-out property <string> manual-channel: "1";
     in-out property <string> manual-number: "0"; in-out property <string> manual-control: "encoder.1";
     in-out property <string> manual-mode: "cc-absolute"; in-out property <bool> manual-feedback: false;
+    in-out property <string> mapping-argument-1-value; in-out property <string> mapping-argument-2-value;
+    in-out property <string> mapping-argument-3-value; in-out property <string> mapping-argument-4-value;
+    in property <string> mapping-argument-1-hint; in property <string> mapping-argument-2-hint;
+    in property <string> mapping-argument-3-hint; in property <string> mapping-argument-4-hint;
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
     callback preferences-action(string); callback controller-selected(int);
     callback midi-learn(string, string, string); callback text-requested(string, string); callback exit-requested();
     callback midi-route-selected(int); callback midi-route-action(string);
     callback mapping-selected(int); callback mapping-remove();
-    callback mapping-target-selected(int); callback mapping-target-apply();
+    callback mapping-target-selected(int); callback mapping-target-apply(string, string, string, string);
     callback mapping-source-apply(int, int, int, string, string, bool, bool);
+    callback mapping-behavior-apply(bool, bool, float, float);
+    callback mapping-conflict-action(string);
 
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
@@ -134,15 +144,36 @@ export component SetupPage inherits Rectangle {
                 }
                 Text { text: "Mappings"; color: Theme.foreground; font-size: 18px; }
                 ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 3px;
-                    for mapping[i] in root.mappings: PageButton { text: mapping.control + " ← " + mapping.source + " (" + mapping.mode + ")"; selected: mapping.selected; clicked => { root.mapping-selected(i); } }
+                    for mapping[i] in root.mappings: PageButton { text: mapping.control + " ← " + mapping.source + " → " + mapping.target + " (" + mapping.mode + ")"; selected: mapping.selected; clicked => { root.mapping-selected(i); } }
                 } }
                 Text { text: "Compatible semantic targets"; color: Theme.foreground; }
                 ScrollView { height: 100px; VerticalLayout { spacing: 2px;
                     for target[i] in root.mapping-targets: PageButton { text: target.label + " (" + target.kind + ")"; selected: target.selected; clicked => { root.mapping-target-selected(i); } }
                 } }
-                PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-target-apply(); } }
+                LineEdit { text <=> root.mapping-argument-1-value; placeholder-text: root.mapping-argument-1-hint; }
+                LineEdit { text <=> root.mapping-argument-2-value; placeholder-text: root.mapping-argument-2-hint; }
+                LineEdit { text <=> root.mapping-argument-3-value; placeholder-text: root.mapping-argument-3-hint; }
+                LineEdit { text <=> root.mapping-argument-4-value; placeholder-text: root.mapping-argument-4-hint; }
+                PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-target-apply(root.mapping-argument-1-value, root.mapping-argument-2-value, root.mapping-argument-3-value, root.mapping-argument-4-value); } }
+                for mapping[i] in root.mappings: HorizontalLayout { visible: mapping.selected; height: mapping.selected ? 34px : 0px;
+                    PageButton { text: mapping.pickup ? "Pickup On" : "Pickup Off"; clicked => { root.mapping-behavior-apply(!mapping.pickup, mapping.invert, mapping.fine-scale, mapping.acceleration); } }
+                    PageButton { text: mapping.invert ? "Inverted" : "Normal"; clicked => { root.mapping-behavior-apply(mapping.pickup, !mapping.invert, mapping.fine-scale, mapping.acceleration); } }
+                    PageButton { text: "Fine −"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, max(0.01, mapping.fine-scale - 0.01), mapping.acceleration); } }
+                    PageButton { text: "Fine +"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, min(1, mapping.fine-scale + 0.01), mapping.acceleration); } }
+                    PageButton { text: "Accel −"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, mapping.fine-scale, max(0, mapping.acceleration - 0.25)); } }
+                    PageButton { text: "Accel +"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, mapping.fine-scale, min(8, mapping.acceleration + 0.25)); } }
+                }
                 PageButton { text: "Remove selected mapping"; implemented: root.mappings.length > 0; clicked => { root.mapping-remove(); } }
                 PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }
+                if root.conflict-visible: Rectangle { height: 150px; background: #553820; border-radius: Theme.radius;
+                    VerticalLayout { padding: 6px; spacing: 3px;
+                        Text { text: "Mapping conflict"; color: Theme.accent; font-size: 18px; }
+                        Text { text: "Existing: " + root.conflict-existing-source + " → " + root.conflict-existing-target; color: Theme.foreground; wrap: word-wrap; }
+                        Text { text: "Proposed: " + root.conflict-proposed-source + " → " + root.conflict-proposed-target; color: Theme.foreground; wrap: word-wrap; }
+                        Text { text: root.conflict-reason; color: Theme.muted; wrap: word-wrap; }
+                        HorizontalLayout { PageButton { text: "Replace"; clicked => { root.mapping-conflict-action("replace"); } } PageButton { text: "Cancel"; clicked => { root.mapping-conflict-action("cancel"); } } }
+                    }
+                }
                 Text { text: "Manual and learned sources share validation. Targets come from application discovery; replacement is explicit and atomic."; color: Theme.muted; wrap: word-wrap; }
             } }
         }

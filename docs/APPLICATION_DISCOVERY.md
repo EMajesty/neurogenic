@@ -1,5 +1,14 @@
 # Application discovery contract
 
+## Assignment editor caching
+
+Task 097B keeps picker metadata behind a structural fingerprint containing
+action availability, parameter identity/name/unit/type/step/compatibility and
+choices, plus stable track, pattern, macro and scene identities and labels.
+Create, delete, rename, project replacement and descriptor metadata changes
+therefore invalidate the picker. Mutable parameter values are deliberately not
+cached and ordinary telemetry does not discard a pending form proposal.
+
 ## Assignment target projection
 
 `AssignmentTargetPicker` is a bounded, copy-only projection of application

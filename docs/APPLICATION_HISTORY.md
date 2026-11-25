@@ -1,5 +1,13 @@
 # Application history and content transactions
 
+## Performance authoring versus appliance mapping
+
+Task 097B keeps the established boundary: creating, replacing or clearing a
+project Performance assignment is persistent musical authoring and uses the
+unified application history. Editing a controller profile is appliance
+configuration and uses candidate cancellation, atomic replacement and known
+valid profile recovery instead of project Undo/Redo. The shared target picker
+does not alter that ownership distinction.
 Performance bank definition edits (create, rename, duplicate, delete and
 assignment create/replace/clear) use the existing timeline transaction and
 single chronological history. Active-bank selection and live parameter/macro

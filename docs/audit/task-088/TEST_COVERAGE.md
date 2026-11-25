@@ -1,5 +1,19 @@
 # Test and validation audit
 
+## Task 097B additions
+
+- Generated Slint: every one of the 48 Performance chooser rows is opened with
+  stable bank/position/layer ownership and cancelled; representative P1/P8,
+  F1/F8 and PAD1/PAD16 assignments are committed.
+- Generated Setup: disconnected-device mapping target application, structured
+  conflict cancel/replace, and MIDI-learn start/cancel use production callbacks.
+- Adapter/service: descriptor-driven typed action validation, indexed
+  contextual/Performance roles, conflict proposal retention, cancellation and
+  confirmation.
+- Rendering: the same generated workflow runs at 1920x1200 and 1024x600.
+- Not covered by hardware evidence: physical touchscreen, USB controller PCB,
+  encoder ergonomics and focus reachability on the unfinished panel.
+
 ## Task 096G additions
 
 `neurogenic_controller_v2_protocol_tests` validates the canonical 67-control

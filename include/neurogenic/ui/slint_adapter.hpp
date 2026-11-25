@@ -2,6 +2,7 @@
 #include "neurogenic/midi/mapping.hpp"
 
 #include "neurogenic/application/controller_protocol.hpp"
+#include "neurogenic/application/assignment_picker.hpp"
 #include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/application/parameter_binding.hpp"
 #include "neurogenic/application/recording_workflow.hpp"
@@ -87,14 +88,21 @@ struct SlintPerformancePageState {
     struct AssignmentTargetItem {
         std::string kind, id, label, category;
         bool selected{}, available{true};
+        std::vector<AssignmentArgumentField> arguments;
     };
     std::vector<AssignmentTargetItem> assignment_targets;
+    struct PositionItem {
+        std::uint32_t position{};
+        std::string label, category;
+        bool secondary{}, action{}, pad{}, assigned{}, selected{};
+    };
+    std::vector<PositionItem> assignment_positions;
     std::size_t selected_assignment_target{};
     std::uint32_t editor_position{};
-    bool editor_secondary{}, editor_action{}, editor_visible{};
+    bool editor_secondary{}, editor_action{}, editor_pad{}, editor_visible{};
     std::string editor_label, editor_behavior{"one-shot"};
     std::array<std::string, 4> editor_argument_names,
-        editor_argument_values;
+        editor_argument_values, editor_argument_hints;
 };
 
 struct SlintStepItem {
@@ -412,6 +420,7 @@ struct SlintSetupMappingItem {
 struct SlintSetupMappingTargetItem {
     std::string kind, id, label;
     bool selected{};
+    std::vector<AssignmentArgumentField> arguments;
 };
 
 // Copy-only runtime data supplied by the appliance.  This deliberately keeps
@@ -478,6 +487,11 @@ struct SlintSetupPageState {
     std::vector<SlintSetupMappingTargetItem> mapping_targets;
     std::vector<SlintSetupMidiRouteItem> midi_routes;
     std::vector<std::string> warnings;
+    std::array<std::string, 4> mapping_argument_names,
+        mapping_argument_values, mapping_argument_hints;
+    bool conflict_visible{};
+    std::string conflict_existing_source, conflict_existing_target,
+        conflict_proposed_source, conflict_proposed_target, conflict_reason;
 };
 
 struct SlintUiState {
@@ -547,6 +561,8 @@ class SlintFrontendAdapter {
         std::string label, std::string behavior,
         std::array<std::string, 4> argument_names = {},
         std::array<std::string, 4> argument_values = {});
+    [[nodiscard]] bool clear_performance_assignment_editor();
+    [[nodiscard]] bool select_performance_pad_assignment(std::size_t position);
     void cancel_performance_assignment_editor() noexcept;
     [[nodiscard]] bool select_page(std::size_t index);
     [[nodiscard]] bool select_reference_page(std::size_t index);
@@ -687,13 +703,16 @@ class SlintFrontendAdapter {
         std::uint32_t port, std::uint8_t channel, std::uint8_t number,
         std::string mode, std::string control_id, bool feedback,
         bool replace_conflict);
+    [[nodiscard]] bool confirm_setup_mapping_conflict();
+    void cancel_setup_mapping_conflict() noexcept;
     [[nodiscard]] bool edit_setup_mapping(std::string target_kind,
                                           std::string target_id,
                                           bool pickup, bool invert,
                                           double fine_scale,
                                           double acceleration);
     [[nodiscard]] bool select_setup_mapping_target(std::size_t index);
-    [[nodiscard]] bool apply_setup_mapping_target();
+    [[nodiscard]] bool apply_setup_mapping_target(
+        std::array<std::string, 4> argument_values = {});
     [[nodiscard]] bool save_setup_controller_profile(std::string path);
     [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;
@@ -726,6 +745,13 @@ class SlintFrontendAdapter {
         cached_performance_parameters_, cached_performance_actions_;
     std::vector<SlintSetupMappingTargetItem> cached_setup_targets_;
     std::uint64_t assignment_discovery_fingerprint_{};
+    struct PendingMappingConflict {
+        std::uint32_t port{};
+        std::uint8_t channel{}, number{};
+        std::string mode, control_id;
+        bool feedback{};
+    };
+    std::optional<PendingMappingConflict> pending_mapping_conflict_;
     std::vector<std::string> browser_recent_locations_;
     class BrowserWorker;
     std::unique_ptr<BrowserWorker> browser_worker_;

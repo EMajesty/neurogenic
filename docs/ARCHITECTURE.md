@@ -1,5 +1,15 @@
 # Architecture
 
+## Assignment authoring boundary
+
+Task 097B reuses one discovery/typed-target model for two authorities. Project
+Performance definitions are application state and participate in unified
+musical history. MIDI sources, controller bindings and feedback preferences are
+appliance-owned coordinator/profile state and do not. Slint stores only bounded
+proposal and focus copies. No UI model, role index or V2 control count became
+engine state, and no assignment discovery or persistence occurs in the audio
+callback.
+
 Physical V2 preserves the controller boundary: firmware reports versioned
 logical transitions and renders host instructions, while gesture and musical
 semantics remain in control-side application services. Protocol 1.3 inventory,

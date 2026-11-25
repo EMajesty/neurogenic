@@ -493,3 +493,15 @@ focus. The active frontend reports copied focus and DATA roles and consumes
 revisioned requests. Modal and connection generations prevent stale events from
 confirming replacement dialogs. Generic MIDI and direct actions remain valid
 without this optional bridge.
+
+Task 097B exposes indexed contextual and Performance roles in the shared target
+picker (`context.encoder.0` through `.7`, functions, pads, and corresponding
+Performance roles). Setup presents absolute, two's-complement relative,
+binary-offset relative and note sources, pickup, inversion, fine scale,
+acceleration, semantic targets and candidate-first conflicts. These edit the
+active appliance profile; they never enter project Undo/Redo.
+
+The coordinator still has no profile-library authority for graphical
+create/rename/duplicate/select/remove/recovery. Save As for an active endpoint
+is supported, but presenting a fake frontend-only library would violate profile
+ownership. This remains an explicit RC2-006 blocker.

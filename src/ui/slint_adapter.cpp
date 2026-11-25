@@ -7,6 +7,7 @@
 #include <atomic>
 #include <bit>
 #include <chrono>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <condition_variable>
@@ -791,8 +792,46 @@ bool SlintFrontendAdapter::refresh() {
     for (const auto &action : snapshot.available_actions)
         hash_combine(discovery_fingerprint, std::hash<std::string>{}(action));
     for (const auto &parameter : snapshot.parameters)
+    {
         hash_combine(discovery_fingerprint,
                      std::hash<std::string>{}(parameter.id));
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(parameter.name));
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(parameter.unit));
+        hash_combine(discovery_fingerprint,
+                     static_cast<std::uint64_t>(parameter.type));
+        hash_combine(discovery_fingerprint,
+                     std::hash<double>{}(parameter.step));
+        hash_combine(discovery_fingerprint,
+                     parameter.continuous | (parameter.automatable << 1U) |
+                         (parameter.modulatable << 2U));
+        for (const auto &choice : parameter.choices)
+            hash_combine(discovery_fingerprint,
+                         std::hash<std::string>{}(choice));
+    }
+    // Object choices are copied metadata used by typed object-reference fields.
+    // Include stable identity and labels, but never mutable parameter values.
+    for (const auto &track : snapshot.tracks) {
+        hash_combine(discovery_fingerprint, track.id);
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(track.name));
+    }
+    for (const auto &pattern : snapshot.patterns) {
+        hash_combine(discovery_fingerprint, pattern.id);
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(pattern.name));
+    }
+    for (const auto &macro : snapshot.performance_macros.macros) {
+        hash_combine(discovery_fingerprint, macro.id);
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(macro.name));
+    }
+    for (const auto &scene : snapshot.performance_macros.scenes) {
+        hash_combine(discovery_fingerprint, scene.id);
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(scene.name));
+    }
     if (assignment_discovery_fingerprint_ != discovery_fingerprint) {
         ++refresh_diagnostics_.assignment_discovery_rebuilds;
         cached_performance_parameters_.clear();
@@ -800,12 +839,14 @@ bool SlintFrontendAdapter::refresh() {
         cached_setup_targets_.clear();
         AssignmentTargetPicker picker(application_);
         for (const auto &target : picker.targets()) {
-            if (target.kind == AssignmentTargetKind::action ||
-                target.kind == AssignmentTargetKind::parameter)
-                cached_setup_targets_.push_back(
-                    {target.kind == AssignmentTargetKind::action ? "action"
-                                                                 : "parameter",
-                     target.id, target.label, false});
+            auto kind = std::string("performance-role");
+            if (target.kind == AssignmentTargetKind::action) kind = "action";
+            else if (target.kind == AssignmentTargetKind::parameter) kind = "parameter";
+            else if (target.kind == AssignmentTargetKind::contextual_role)
+                kind = "contextual-role";
+            cached_setup_targets_.push_back(
+                {std::move(kind), target.id, target.label, false,
+                 target.arguments});
         }
         for (const auto &target : picker.targets([](const auto &action) {
                  return performance_safe_assignment_action(action);
@@ -814,7 +855,7 @@ bool SlintFrontendAdapter::refresh() {
                 target.kind == AssignmentTargetKind::action ? "action"
                                                              : "parameter",
                 target.id, target.label, target.category, false,
-                target.available};
+                target.available, target.arguments};
             if (target.kind == AssignmentTargetKind::action)
                 cached_performance_actions_.push_back(std::move(item));
             else if (target.kind == AssignmentTargetKind::parameter)
@@ -835,22 +876,72 @@ bool SlintFrontendAdapter::refresh() {
     next.performance.editor_position = state_.performance.editor_position;
     next.performance.editor_secondary = state_.performance.editor_secondary;
     next.performance.editor_action = state_.performance.editor_action;
+    next.performance.editor_pad = state_.performance.editor_pad;
     next.performance.editor_label = state_.performance.editor_label;
     next.performance.editor_behavior = state_.performance.editor_behavior;
     next.performance.editor_argument_names =
         state_.performance.editor_argument_names;
     next.performance.editor_argument_values =
         state_.performance.editor_argument_values;
+    next.performance.editor_argument_hints =
+        state_.performance.editor_argument_hints;
     next.performance.selected_assignment_target =
         state_.performance.selected_assignment_target;
     next.performance.assignment_targets = next.performance.editor_action
         ? cached_performance_actions_ : cached_performance_parameters_;
+    if (next.performance.editor_pad) {
+        next.performance.assignment_targets.clear();
+        for (const auto &slot : snapshot.performance_launching.slots)
+            next.performance.assignment_targets.push_back(
+                {"launch-slot", std::to_string(slot.id),
+                 "Launch slot " + std::to_string(slot.id), "Musical launch",
+                 false, true, {}});
+    }
     if (next.performance.selected_assignment_target >=
         next.performance.assignment_targets.size())
         next.performance.selected_assignment_target = 0;
     if (!next.performance.assignment_targets.empty())
         next.performance.assignment_targets[
             next.performance.selected_assignment_target].selected = true;
+    const PerformanceBank *position_bank{};
+    for (const auto &bank : snapshot.performance_banks.banks)
+        if (bank.id == snapshot.performance_banks.active_bank) position_bank = &bank;
+    for (std::uint32_t position = 0; position < 8; ++position) {
+        for (const bool secondary : {false, true}) {
+            const auto parameter_assigned = position_bank && std::any_of(
+                position_bank->parameters.begin(), position_bank->parameters.end(),
+                [&](const auto &value) { return value.position == position &&
+                    value.secondary == secondary; });
+            next.performance.assignment_positions.push_back(
+                {position, std::string(secondary ? "SHIFT+P" : "P") +
+                     std::to_string(position + 1), "Encoder", secondary, false,
+                 false, parameter_assigned,
+                 next.performance.editor_visible && !next.performance.editor_action &&
+                     next.performance.editor_position == position &&
+                     next.performance.editor_secondary == secondary});
+            const auto action_assigned = position_bank && std::any_of(
+                position_bank->actions.begin(), position_bank->actions.end(),
+                [&](const auto &value) { return value.position == position &&
+                    value.secondary == secondary; });
+            next.performance.assignment_positions.push_back(
+                {position, std::string(secondary ? "SHIFT+F" : "F") +
+                     std::to_string(position + 1), "Function", secondary, true,
+                 false, action_assigned,
+                 next.performance.editor_visible && next.performance.editor_action &&
+                     next.performance.editor_position == position &&
+                     next.performance.editor_secondary == secondary});
+        }
+    }
+    for (std::uint32_t position = 0; position < 16; ++position) {
+        const auto assigned = position_bank && std::any_of(
+            position_bank->pads.begin(), position_bank->pads.end(),
+            [&](const auto &value) { return value.position == position; });
+        next.performance.assignment_positions.push_back(
+            {position, "PAD" + std::to_string(position + 1), "Pad", false,
+             false, true, assigned,
+             next.performance.editor_visible && next.performance.editor_pad &&
+                 next.performance.editor_position == position});
+    }
     for (const auto &scene : snapshot.performance_launching.scenes) {
         const auto queued = std::any_of(
             snapshot.performance_launching.pending.begin(),
@@ -2122,6 +2213,7 @@ bool SlintFrontendAdapter::open_performance_assignment_editor(
     state_.performance.editor_position = static_cast<std::uint32_t>(position);
     state_.performance.editor_secondary = secondary;
     state_.performance.editor_action = action;
+    state_.performance.editor_pad = false;
     state_.performance.editor_visible = true;
     state_.performance.selected_assignment_target = 0;
     ++local_revision_;
@@ -2131,6 +2223,31 @@ bool SlintFrontendAdapter::open_performance_assignment_editor(
 bool SlintFrontendAdapter::select_performance_assignment_target(std::size_t index) {
     if (index >= state_.performance.assignment_targets.size()) return false;
     state_.performance.selected_assignment_target = index;
+    state_.performance.editor_argument_names.fill({});
+    state_.performance.editor_argument_values.fill({});
+    state_.performance.editor_argument_hints.fill({});
+    const auto &arguments = state_.performance.assignment_targets[index].arguments;
+    for (std::size_t field = 0;
+         field < std::min(arguments.size(),
+                          state_.performance.editor_argument_names.size()); ++field) {
+        const auto &argument = arguments[field];
+        state_.performance.editor_argument_names[field] = argument.name;
+        auto type = std::string("text");
+        if (argument.type == ValueType::boolean) type = "boolean";
+        else if (argument.type == ValueType::integer) type = "integer";
+        else if (argument.type == ValueType::real) type = "real";
+        state_.performance.editor_argument_hints[field] =
+            argument.label + " · " + type +
+            (argument.required ? " · required" : " · optional");
+        if (!argument.choices.empty()) {
+            state_.performance.editor_argument_hints[field] += " · ";
+            for (std::size_t choice = 0; choice < argument.choices.size(); ++choice) {
+                if (choice) state_.performance.editor_argument_hints[field] += " | ";
+                state_.performance.editor_argument_hints[field] +=
+                    argument.choices[choice].label;
+            }
+        }
+    }
     ++local_revision_;
     return refresh();
 }
@@ -2147,6 +2264,21 @@ bool SlintFrontendAdapter::confirm_performance_assignment(
     }
     const auto target = state_.performance.assignment_targets[
         state_.performance.selected_assignment_target];
+    if (state_.performance.editor_pad) {
+        std::uint64_t slot{};
+        const auto parsed = std::from_chars(target.id.data(),
+                                             target.id.data() + target.id.size(),
+                                             slot);
+        if (parsed.ec != std::errc{} ||
+            parsed.ptr != target.id.data() + target.id.size()) {
+            last_error_ = "Selected launch target has an invalid stable identity";
+            return false;
+        }
+        const auto accepted = assign_performance_pad(
+            state_.performance.editor_position, slot);
+        if (accepted) cancel_performance_assignment_editor();
+        return accepted;
+    }
     if (!state_.performance.editor_action) {
         const auto accepted = assign_performance_parameter(
             state_.performance.editor_position,
@@ -2219,10 +2351,74 @@ bool SlintFrontendAdapter::confirm_performance_assignment(
 
 void SlintFrontendAdapter::cancel_performance_assignment_editor() noexcept {
     state_.performance.editor_visible = false;
+    state_.performance.editor_pad = false;
     state_.performance.editor_label.clear();
     state_.performance.editor_argument_names.fill({});
     state_.performance.editor_argument_values.fill({});
+    state_.performance.editor_argument_hints.fill({});
     ++local_revision_;
+}
+
+bool SlintFrontendAdapter::clear_performance_assignment_editor() {
+    if (!state_.performance.editor_visible) return false;
+    const auto snapshot = application_.snapshot();
+    const auto bank = snapshot.performance_banks.active_bank;
+    if (!bank) return false;
+    const auto active = std::find_if(snapshot.performance_banks.banks.begin(),
+        snapshot.performance_banks.banks.end(),
+        [&](const auto &value) { return value.id == bank; });
+    if (active == snapshot.performance_banks.banks.end()) return false;
+    PerformanceAssignmentId assignment{};
+    if (state_.performance.editor_pad) {
+        const auto found = std::find_if(active->pads.begin(), active->pads.end(),
+            [&](const auto &value) { return value.position ==
+                state_.performance.editor_position; });
+        if (found != active->pads.end()) assignment = found->id;
+    } else if (state_.performance.editor_action) {
+        const auto found = std::find_if(active->actions.begin(), active->actions.end(),
+            [&](const auto &value) { return value.position ==
+                state_.performance.editor_position && value.secondary ==
+                state_.performance.editor_secondary; });
+        if (found != active->actions.end()) assignment = found->id;
+    } else {
+        const auto found = std::find_if(active->parameters.begin(), active->parameters.end(),
+            [&](const auto &value) { return value.position ==
+                state_.performance.editor_position && value.secondary ==
+                state_.performance.editor_secondary; });
+        if (found != active->parameters.end()) assignment = found->id;
+    }
+    if (!assignment) {
+        last_error_ = "The selected Performance position is already unassigned";
+        return false;
+    }
+    const auto accepted = execute({"performance.assignment-clear.v1",
+        {{"bank", static_cast<std::int64_t>(bank)},
+         {"assignment", static_cast<std::int64_t>(assignment)}}, {}, 0});
+    if (accepted) cancel_performance_assignment_editor();
+    return accepted;
+}
+
+bool SlintFrontendAdapter::select_performance_pad_assignment(
+    std::size_t position) {
+    const auto snapshot = application_.snapshot();
+    const auto bank = std::find_if(snapshot.performance_banks.banks.begin(),
+        snapshot.performance_banks.banks.end(), [&](const auto &value) {
+            return value.id == snapshot.performance_banks.active_bank;
+        });
+    if (bank == snapshot.performance_banks.banks.end() || position >= 16) {
+        last_error_ = "Select a Performance bank and logical pad";
+        return false;
+    }
+    state_.performance.editor_position = static_cast<std::uint32_t>(position);
+    state_.performance.editor_secondary = false;
+    state_.performance.editor_action = false;
+    state_.performance.editor_pad = true;
+    state_.performance.editor_visible = true;
+    state_.performance.selected_assignment_target = 0;
+    state_.performance.assignment_status = "Editing PAD" +
+        std::to_string(position + 1) + " without triggering it";
+    ++local_revision_;
+    return refresh();
 }
 
 bool SlintFrontendAdapter::select_page(std::size_t index) {
@@ -4632,6 +4828,25 @@ bool SlintFrontendAdapter::author_setup_midi_mapping(
         }
     if (conflict && !replace_conflict) {
         last_error_ = "Mapping conflict requires explicit replacement confirmation";
+        const auto existing = std::find_if(state_.setup.mappings.begin(),
+            state_.setup.mappings.end(), [&](const auto &value) {
+                return value.endpoint_id == endpoint &&
+                       value.binding_index == *conflict;
+            });
+        state_.setup.conflict_visible = true;
+        state_.setup.conflict_existing_source = existing == state_.setup.mappings.end()
+            ? "Unavailable" : existing->source;
+        state_.setup.conflict_existing_target = existing == state_.setup.mappings.end()
+            ? "Unavailable" : existing->target_label;
+        state_.setup.conflict_proposed_source = "Port " + std::to_string(port) +
+            " / channel " + std::to_string(channel + 1) + " / " +
+            std::to_string(number) + " / " + mode;
+        state_.setup.conflict_proposed_target = control_id;
+        state_.setup.conflict_reason = "The physical MIDI source and scope overlap";
+        pending_mapping_conflict_ = PendingMappingConflict{
+            port, channel, number, mode, control_id, feedback};
+        ++local_revision_;
+        (void)refresh();
         return false;
     }
     const auto index = conflict ? *conflict
@@ -4644,9 +4859,32 @@ bool SlintFrontendAdapter::author_setup_midi_mapping(
         MidiControlBinding{port, channel, number, parsed,
                            std::move(control_id), feedback}, error);
     last_error_ = accepted ? std::string{} : std::move(error);
+    if (accepted) cancel_setup_mapping_conflict();
     ++local_revision_;
     (void)refresh();
     return accepted;
+}
+
+bool SlintFrontendAdapter::confirm_setup_mapping_conflict() {
+    if (!pending_mapping_conflict_) {
+        last_error_ = "No mapping conflict is awaiting replacement";
+        return false;
+    }
+    const auto proposal = *pending_mapping_conflict_;
+    return author_setup_midi_mapping(proposal.port, proposal.channel,
+        proposal.number, proposal.mode, proposal.control_id,
+        proposal.feedback, true);
+}
+
+void SlintFrontendAdapter::cancel_setup_mapping_conflict() noexcept {
+    pending_mapping_conflict_.reset();
+    state_.setup.conflict_visible = false;
+    state_.setup.conflict_existing_source.clear();
+    state_.setup.conflict_existing_target.clear();
+    state_.setup.conflict_proposed_source.clear();
+    state_.setup.conflict_proposed_target.clear();
+    state_.setup.conflict_reason.clear();
+    ++local_revision_;
 }
 
 bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
@@ -4672,8 +4910,36 @@ bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
         binding.action_id = std::move(target_id);
     else if (target_kind == "parameter")
         binding.parameter_id = std::move(target_id);
+    else if (target_kind == "contextual-role" ||
+             target_kind == "performance-role") {
+        const auto separator = target_id.rfind('.');
+        if (separator == std::string::npos) {
+            if (target_id == "focus.data") binding.semantic = "focus-data";
+            else { last_error_ = "Contextual role has no logical position"; return false; }
+        } else {
+            const auto prefix = target_id.substr(0, separator);
+            const auto index_text = target_id.substr(separator + 1);
+            std::uint32_t index{};
+            const auto parsed = std::from_chars(index_text.data(),
+                index_text.data() + index_text.size(), index);
+            if (parsed.ec != std::errc{} ||
+                parsed.ptr != index_text.data() + index_text.size()) {
+                last_error_ = "Contextual role position is invalid";
+                return false;
+            }
+            binding.index = static_cast<std::int32_t>(index);
+            if (prefix == "context.encoder" || prefix == "performance.parameter")
+                binding.semantic = "context-encoder";
+            else if (prefix == "context.function" || prefix == "performance.action")
+                binding.semantic = "context-button";
+            else if (prefix == "context.pad" || prefix == "performance.pad")
+                binding.semantic = "performance-pad";
+            else { last_error_ = "Contextual role is unsupported"; return false; }
+            if (target_kind == "performance-role") binding.context = "performance";
+        }
+    }
     else {
-        last_error_ = "Mapping target must be a discovered action or parameter";
+        last_error_ = "Mapping target kind is unsupported";
         return false;
     }
     std::string error;
@@ -4689,11 +4955,25 @@ bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
 bool SlintFrontendAdapter::select_setup_mapping_target(std::size_t index) {
     if (index >= state_.setup.mapping_targets.size()) return false;
     state_.setup.selected_mapping_target = index;
+    state_.setup.mapping_argument_names.fill({});
+    state_.setup.mapping_argument_values.fill({});
+    state_.setup.mapping_argument_hints.fill({});
+    const auto &arguments = state_.setup.mapping_targets[index].arguments;
+    for (std::size_t field = 0;
+         field < std::min(arguments.size(),
+                          state_.setup.mapping_argument_names.size()); ++field) {
+        state_.setup.mapping_argument_names[field] = arguments[field].name;
+        state_.setup.mapping_argument_hints[field] = arguments[field].label +
+            (arguments[field].required ? " · required" : " · optional");
+        for (const auto &choice : arguments[field].choices)
+            state_.setup.mapping_argument_hints[field] += " · " + choice.label;
+    }
     ++local_revision_;
     return refresh();
 }
 
-bool SlintFrontendAdapter::apply_setup_mapping_target() {
+bool SlintFrontendAdapter::apply_setup_mapping_target(
+    std::array<std::string, 4> argument_values) {
     if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
         state_.setup.selected_mapping_target >=
             state_.setup.mapping_targets.size()) {
@@ -4703,9 +4983,45 @@ bool SlintFrontendAdapter::apply_setup_mapping_target() {
     const auto &mapping = state_.setup.mappings[state_.setup.selected_mapping];
     const auto &target =
         state_.setup.mapping_targets[state_.setup.selected_mapping_target];
+    if (target.kind == "action") {
+        AssignmentProposal proposal{AssignmentTargetKind::action, target.id, {}};
+        for (std::size_t field = 0; field < target.arguments.size(); ++field) {
+            if (field >= argument_values.size()) {
+                if (target.arguments[field].required) {
+                    last_error_ = "The action has more arguments than this profile format supports";
+                    return false;
+                }
+                break;
+            }
+            ApplicationValue parsed;
+            if (!AssignmentTargetPicker::parse_argument(
+                    target.arguments[field], argument_values[field], parsed,
+                    last_error_)) return false;
+            if (!std::holds_alternative<std::monostate>(parsed))
+                proposal.arguments.emplace(target.arguments[field].name,
+                                           std::move(parsed));
+        }
+        AssignmentTargetPicker picker(application_);
+        if (!picker.validate(proposal, last_error_)) return false;
+        ControlBinding binding;
+        binding.control_id = mapping.control_id;
+        binding.action_id = target.id;
+        binding.arguments = std::move(proposal.arguments);
+        binding.pickup = mapping.pickup;
+        binding.invert = mapping.invert;
+        binding.fine_scale = mapping.fine_scale;
+        binding.acceleration = mapping.acceleration;
+        std::string error;
+        const auto result = setup_services_.set_controller_binding &&
+            setup_services_.set_controller_binding(mapping.endpoint_id,
+                mapping.controller_binding_index, std::move(binding), error);
+        last_error_ = result ? std::string{} : std::move(error);
+        ++local_revision_;
+        (void)refresh();
+        return result;
+    }
     return edit_setup_mapping(target.kind, target.id, mapping.pickup,
-                              mapping.invert, mapping.fine_scale,
-                              mapping.acceleration);
+        mapping.invert, mapping.fine_scale, mapping.acceleration);
 }
 
 bool SlintFrontendAdapter::save_setup_controller_profile(std::string path) {

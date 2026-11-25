@@ -248,3 +248,11 @@ DATA and protocol recovery have production evidence. RC2-001/003 remain partial
 because not every dialog/view exposes a complete focus graph. RC2-007 physical
 validation remains open. AUD2-011 gains generated focus/modal evidence but
 remains partial pending complete form reachability and physical validation.
+
+Task 097B closes RC2-005 graphical selection for all 48 reference positions and
+supported parameter, safe-action and launch-target forms. RC2-006/AUD2-006 gain
+generated manual-source, typed-target, behavior and structured-conflict
+evidence, but remain partial: no coordinator-owned profile library exists for
+create/rename/duplicate/select/remove/recovery, and detailed context/modifier
+and RGB rendering fields are not part of the current profile schema. RC2-007
+physical validation and AUD2-007 remain open.

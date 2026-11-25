@@ -1,5 +1,15 @@
 # Slint UI foundation
 
+## Task 097B assignment coverage
+
+The generated production shell exposes all 48 Reference Performance positions,
+shared four-field typed arguments, non-triggering pad assignment selection,
+manual MIDI sources, binding behavior controls and structured conflict
+replacement. Generated tests iterate every position, author representative
+P1/P8, F1/F8 and PAD1/PAD16 assignments, and exercise conflict cancellation and
+replacement at 1920x1200 and 1024x600. This is generated-callback and software
+rendering evidence, not coordinate-driven touch or physical controller proof.
+
 Task 096F adds production callbacks for Performance target selection,
 confirmation and cancellation, and Setup manual MIDI-source creation with
 explicit conflict replacement. Both use shared copied discovery data. Current

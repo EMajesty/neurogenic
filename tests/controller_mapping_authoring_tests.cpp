@@ -57,6 +57,19 @@ int main() try {
     });
     require(fill != targets.end() && fill->performance_safe,
             "shared picker publishes safe typed actions");
+    require(std::count_if(targets.begin(), targets.end(), [](const auto &target) {
+                return target.kind == AssignmentTargetKind::performance_role &&
+                       target.id.starts_with("performance.parameter.");
+            }) == 8 &&
+                std::count_if(targets.begin(), targets.end(), [](const auto &target) {
+                    return target.kind == AssignmentTargetKind::performance_role &&
+                           target.id.starts_with("performance.action.");
+                }) == 8 &&
+                std::count_if(targets.begin(), targets.end(), [](const auto &target) {
+                    return target.kind == AssignmentTargetKind::performance_role &&
+                           target.id.starts_with("performance.pad.");
+                }) == 16,
+            "shared picker publishes indexed Performance roles without V2 geometry in the project model");
     AssignmentProposal proposal{AssignmentTargetKind::action,
                                 "performance.fill-set.v1", {}};
     std::string error;

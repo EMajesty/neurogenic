@@ -49,6 +49,55 @@ int main(int argc, char **argv) {
         options.height = std::stoi(argv[2]);
         options.interaction_test = true;
         options.screenshot_path = argv[3];
+        SlintSetupRuntimeSnapshot setup;
+        setup.revision = 1;
+        setup.controllers.push_back({"rendered.surface", "midi",
+            "Rendered disconnected surface", "rendered.profile", "MIDI",
+            "Disconnected", {}, "Editable offline", false, true, false});
+        SlintSetupMappingItem mapping{"rendered.surface", "encoder.1",
+            "Port 1 / Ch 1 / 74", "Absolute CC", 0, false, false};
+        mapping.port = 1;
+        mapping.channel = 0;
+        mapping.number = 74;
+        mapping.midi_mode = MidiControlMode::cc_absolute;
+        mapping.target_label = "Synth cutoff";
+        setup.mappings.push_back(mapping);
+        options.setup.snapshot = [&] { return setup; };
+        options.setup.set_midi_binding = [&](std::string_view endpoint,
+                                              std::size_t index,
+                                              MidiControlBinding binding,
+                                              std::string &error) {
+            if (endpoint != "rendered.surface" || index != 0) {
+                error = "unexpected generated mapping target";
+                return false;
+            }
+            setup.mappings[0].port = binding.port;
+            setup.mappings[0].channel = binding.channel;
+            setup.mappings[0].number = binding.number;
+            setup.mappings[0].midi_mode = binding.mode;
+            setup.mappings[0].control_id = binding.control_id;
+            ++setup.revision;
+            return true;
+        };
+        options.setup.set_controller_binding =
+            [&](std::string_view endpoint, std::size_t index,
+                ControlBinding binding, std::string &error) {
+                if (endpoint != "rendered.surface" || index != 0 ||
+                    (binding.parameter_id.empty() && binding.action_id.empty() &&
+                     binding.semantic.empty())) {
+                    error = "invalid generated semantic target";
+                    return false;
+                }
+                ++setup.revision;
+                return true;
+            };
+        options.setup.begin_midi_learn =
+            [](std::string_view, std::string_view, std::string_view,
+               std::string &) { return true; };
+        options.setup.cancel_midi_learn =
+            [](std::string_view, std::string &) { return true; };
+        options.setup.confirm_midi_learn =
+            [](std::string_view, std::string &) { return true; };
         std::string error;
         if (run_slint_frontend(application, options, error) != 0)
             throw std::runtime_error(error);
