@@ -335,6 +335,12 @@ class AudioEngine {
     [[nodiscard]] std::uint64_t dropped_timeline_events() const noexcept {
         return dropped_timeline_events_.load();
     }
+    [[nodiscard]] std::uint64_t applied_timeline_parameters() const noexcept {
+        return applied_timeline_parameters_.load(std::memory_order_relaxed);
+    }
+    [[nodiscard]] float last_timeline_parameter_value() const noexcept {
+        return last_timeline_parameter_value_.load(std::memory_order_relaxed);
+    }
     [[nodiscard]] std::uint64_t timeline_event_overruns() const noexcept {
         return dropped_timeline_events_.load();
     }
@@ -639,6 +645,8 @@ class AudioEngine {
         last_timeline_lateness_frames_{}, song_end_count_{};
     std::atomic<std::uint64_t> timeline_activation_count_{};
     std::atomic<std::uint64_t> dropped_timeline_activations_{};
+    std::atomic<std::uint64_t> applied_timeline_parameters_{};
+    std::atomic<float> last_timeline_parameter_value_{};
     std::atomic<std::uint64_t> applied_sample_update_sequence_{};
     std::atomic<std::uint64_t> dropped_dsp_commands_{};
     std::uint64_t next_sample_update_sequence_{};

@@ -1,5 +1,21 @@
 # Test and validation audit
 
+## Task 097D additions
+
+- `neurogenic_reference_controller_tests`: controller-authored later-page lock,
+  prepared-plan inclusion, exact AudioEngine-applied value, base/pattern
+  isolation, save/reopen playback, edit-group rollback, stale release rejection,
+  stable Sound note audio and destination cancellation.
+- `neurogenic_input_gesture_tests`: an intervening gesture deterministically
+  interrupts SHIFT double-tap latch using the injected monotonic clock.
+- `neurogenic_contextual_coverage_tests`: stable synth instance press/release
+  arguments and explicit sample/slice audition targets.
+- `neurogenic_controller_v2_protocol_tests`: bounded feedback saturation and
+  exact final LED convergence before and after reconnect.
+
+These are service, controller-session, engine and byte-stream simulator tests.
+Physical hardware remains **NOT RUN**.
+
 ## Task 097C additions
 
 - `neurogenic_contextual_coverage_tests` enumerates all sixteen destinations,

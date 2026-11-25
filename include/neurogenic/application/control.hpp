@@ -321,6 +321,8 @@ struct ApplicationState {
     ModulationSnapshot modulation_runtime;
     ModulationGraphDiagnostics modulation_graph;
     ModulationRouteId selected_modulation_route{};
+    PerformanceMacroId selected_performance_macro{};
+    PerformanceSceneId selected_performance_scene{};
     MidiProjectConfiguration midi;
     std::uint64_t midi_dropped{}, midi_sent{};
     ExternalClockState external_midi_clock;

@@ -1,5 +1,13 @@
 # Architecture
 
+## Task 097D acceptance instrumentation
+
+Scheduled parameter-lock acceptance is observable through two relaxed atomic
+AudioEngine diagnostics: the count of applied timeline parameter events and
+the most recent value. They are written in the existing callback event loop,
+allocate nothing, acquire no lock and own no musical state. All authoring,
+validation, persistence and history remain in the application/timeline layers.
+
 ## Contextual interaction boundary
 
 `resolve_controller_context()` and `resolve_controller_pads()` are copied,

@@ -1,5 +1,22 @@
 # Next development roadmap
 
+## Post-097D bounded workstreams
+
+1. **Task 097F — controller profile library:** coordinator-owned stable profile
+   identities; create/name/rename/duplicate/select/remove; atomic persistence;
+   known-valid recovery; supported context/modifier and feedback fields;
+   learned-source preview; descriptor-driven typed arguments without the
+   current four-field graphical limit. This must not enter project history or
+   store project Performance definitions.
+2. **Task 098 — missing musical capabilities:** split metronome/count-in/tap
+   tempo, note/triplet repeat, typed clipboard, per-track solo/arm, unified
+   internal+MIDI panic, live erase, contextual loop, recording/overdub and
+   quantization/swing into bounded semantic+engine tasks with deterministic
+   musical-output acceptance.
+3. **Physical workstream:** G10/display/touch bring-up, V2 PCB and board-specific
+   firmware, audio hardware, latency and sustained-load measurement. Every
+   physical row remains **NOT RUN** until owner-supplied hardware evidence.
+
 After Task 096A, Task 096B should consume effective SHIFT state, logical V2
 control identities, context/modal generations, and interaction feedback to
 implement primary/secondary page routing, root-page return, and contextual

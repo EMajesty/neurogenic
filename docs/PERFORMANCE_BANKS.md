@@ -1,5 +1,14 @@
 # Project-owned Performance banks
 
+## Task 097D ownership status
+
+The existing captured momentary assignment contract remains authoritative:
+bank, layer and assignment changes cannot retarget a release. Context, modal,
+profile and connection cancellation release the captured action. Fill's
+momentary release restores the independently latched Fill state. Broader
+momentary exposure still requires an action with explicit release semantics and
+authoritative state; arbitrary actions are not inferred to be momentary.
+
 ## Contextual pad integration
 
 Performance and XY pad descriptors compose project-owned assignments with the

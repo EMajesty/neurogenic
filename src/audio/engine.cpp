@@ -1830,6 +1830,10 @@ void AudioEngine::process(std::span<float> left,
                timeline_events_[timeline_index].frame == frame) {
             const auto &event = timeline_events_[timeline_index++];
             if (event.type == MusicalEventType::parameter) {
+                last_timeline_parameter_value_.store(
+                    event.value, std::memory_order_relaxed);
+                applied_timeline_parameters_.fetch_add(
+                    1, std::memory_order_relaxed);
                 if (event.parameter_target == static_cast<std::uint32_t>(
                                                   ParameterTarget::performance_macro)) {
                     macro_morphs_.override_value(event.instrument_instance,

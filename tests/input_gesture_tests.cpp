@@ -79,6 +79,20 @@ int main() try {
     (void)arbiter.process({"shift", 0, false, false, 15, 2}, error);
     require(arbiter.state().latched_modifiers.contains("shift"),
             "double-tap did not latch logical modifier");
+    InputGestureArbiter interrupted([&] { return now; });
+    require(interrupted.configure(configuration, controls, error), error);
+    (void)interrupted.process({"shift", 1, true, false, 1, 1}, error);
+    now += 20;
+    (void)interrupted.process({"shift", 0, false, false, 2, 1}, error);
+    now += 40;
+    (void)interrupted.process({"play", 1, true, false, 1, 1}, error);
+    (void)interrupted.process({"play", 0, false, false, 2, 1}, error);
+    now += 40;
+    (void)interrupted.process({"shift", 1, true, false, 3, 1}, error);
+    now += 20;
+    (void)interrupted.process({"shift", 0, false, false, 4, 1}, error);
+    require(!interrupted.state().latched_modifiers.contains("shift"),
+            "intervening gesture did not interrupt double-tap latch");
     events = arbiter.process({"repeat", 1, true, false, 16, 2}, error);
     require(events.size() == 1 && events.front().kind == GestureEventKind::press,
             "repeatable control did not dispatch its immediate initial press");

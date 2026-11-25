@@ -688,8 +688,10 @@ ActionRegistry::ActionRegistry() {
                {{"pad", ValueType::integer}}));
     add(action("slice.pad-clear.v1", "Clear pad slice", "Samples",
                {{"pad", ValueType::integer}}));
-    add(action("slice.preview.v1", "Preview slice", "Samples"));
-    add(action("sample.preview.v1", "Preview sample", "Samples"));
+    add(action("slice.preview.v1", "Preview slice", "Samples",
+               {{"slice_id", ValueType::integer, false}}));
+    add(action("sample.preview.v1", "Preview sample", "Samples",
+               {{"slot_id", ValueType::integer, false}}));
     add(action("slice.preview-stop.v1", "Stop preview", "Samples"));
     add(action("region.select.v1", "Select sample region", "Samples",
                {{"region_id", ValueType::integer}}));
@@ -727,6 +729,17 @@ ActionRegistry::ActionRegistry() {
                 {"pitch_offset", ValueType::real, false}}));
     add(action("pad.release.v1", "Release performance pad", "Performance",
                {{"pad", ValueType::integer}}));
+    add(action("instrument.note-on.v1", "Play instrument note", "Instruments",
+               {{"note", ValueType::integer},
+                {"velocity", ValueType::real},
+                {"instance_id", ValueType::integer}}));
+    add(action("instrument.note-off.v1", "Release instrument note", "Instruments",
+               {{"note", ValueType::integer},
+                {"instance_id", ValueType::integer}}));
+    add(action("macro.select.v1", "Select performance macro", "Macros",
+               {{"id", ValueType::integer}}));
+    add(action("macro.scene-select.v1", "Select performance scene", "Macros",
+               {{"id", ValueType::integer}}));
     add(action("pad.select.v1", "Select performance pad", "Performance",
                {{"pad", ValueType::integer}}));
     add(action("pad.property-select.v1", "Select pad property", "Samples",
@@ -2126,7 +2139,25 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         };
         const auto previous = performance_macros_.project();
         bool structural{};
-        if (command.action_id == "macro.create.v1") {
+        if (command.action_id == "macro.select.v1") {
+            const auto id = static_cast<PerformanceMacroId>(integer("id"));
+            const auto &macros = performance_macros_.project().macros;
+            if (std::none_of(macros.begin(), macros.end(), [=](const auto &item) {
+                    return item.id == id;
+                }))
+                error = "performance macro does not exist";
+            else
+                state_.selected_performance_macro = id;
+        } else if (command.action_id == "macro.scene-select.v1") {
+            const auto id = static_cast<PerformanceSceneId>(integer("id"));
+            const auto &scenes = performance_macros_.project().scenes;
+            if (std::none_of(scenes.begin(), scenes.end(), [=](const auto &item) {
+                    return item.id == id;
+                }))
+                error = "performance scene was not found";
+            else
+                state_.selected_performance_scene = id;
+        } else if (command.action_id == "macro.create.v1") {
             const auto owner_text = text("owner", "project");
             auto owner = MacroOwnerKind::project;
             if (owner_text == "track")
@@ -2385,9 +2416,15 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 error = publication_error;
             }
         }
-        if (error.empty() && command.action_id != "macro.query.v1") {
+        if (error.empty() && command.action_id != "macro.query.v1" &&
+            command.action_id != "macro.select.v1" &&
+            command.action_id != "macro.scene-select.v1") {
             project_.performance_macros = performance_macros_.project();
             state_.project_dirty = true;
+            changed_locked();
+        } else if (error.empty() &&
+                   (command.action_id == "macro.select.v1" ||
+                    command.action_id == "macro.scene-select.v1")) {
             changed_locked();
         }
     } else if (command.action_id.rfind("live-loop.", 0) == 0) {
@@ -8062,6 +8099,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         } else if (command.action_id.rfind("slice.", 0) == 0 ||
                    command.action_id.rfind("region.", 0) == 0 ||
                    command.action_id == "sample.preview.v1" ||
+                   command.action_id.rfind("instrument.note-", 0) == 0 ||
                    (command.action_id.rfind("pad.", 0) == 0 &&
                     command.action_id != "pad.mode-select.v1")) {
             auto refresh_slices = [&] {
@@ -8226,13 +8264,34 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         error = "pad index is invalid";
                 }
             } else if (command.action_id == "slice.preview.v1") {
-                if (state_.selected_slice == 0)
+                auto target = state_.selected_slice;
+                if (const auto requested = argument<std::int64_t>(command,
+                                                                   "slice_id"))
+                    target = *requested > 0
+                        ? static_cast<SliceId>(*requested) : SliceId{};
+                if (target == 0)
                     error = "no slice is selected";
                 else
-                    (void)slices_.preview(state_.selected_slice, 1.0F, error);
+                    (void)slices_.preview(target, 1.0F, error);
             } else if (command.action_id == "sample.preview.v1") {
-                (void)slices_.preview_full(state_.selected_sample_slot, 1.0F,
-                                           error);
+                auto target = state_.selected_sample_slot;
+                if (const auto requested = argument<std::int64_t>(command,
+                                                                   "slot_id")) {
+                    if (*requested < 0 ||
+                        std::none_of(state_.sample_slots.begin(),
+                                     state_.sample_slots.end(),
+                                     [&](const auto &slot) {
+                                         return slot.id.value ==
+                                             static_cast<std::uint32_t>(
+                                                 *requested);
+                                     }))
+                        error = "sample slot is outside its range";
+                    else
+                        target = SampleSlotId{
+                            static_cast<std::uint32_t>(*requested)};
+                }
+                if (error.empty())
+                    (void)slices_.preview_full(target, 1.0F, error);
             } else if (command.action_id == "slice.preview-stop.v1") {
                 slices_.stop_preview();
             } else if (command.action_id == "region.select.v1") {
@@ -8423,6 +8482,25 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 else if (!engine_.trigger_pad(
                              static_cast<std::uint8_t>(36 + pad), 0, false))
                     error = "pad release queue is full";
+            } else if (command.action_id == "instrument.note-on.v1" ||
+                       command.action_id == "instrument.note-off.v1") {
+                const auto note = *argument<std::int64_t>(command, "note");
+                const auto instance =
+                    *argument<std::int64_t>(command, "instance_id");
+                double velocity = 0.0;
+                if (command.action_id == "instrument.note-on.v1")
+                    velocity = *argument<double>(command, "velocity");
+                if (note < 0 || note > 127 || instance <= 0 ||
+                    instance > static_cast<std::int64_t>(
+                                   maximum_instrument_instances) ||
+                    velocity < 0.0 || velocity > 1.0)
+                    error = "instrument note target is outside its range";
+                else
+                    engine_.trigger_synth(
+                        static_cast<std::uint8_t>(note),
+                        static_cast<float>(velocity),
+                        command.action_id == "instrument.note-on.v1",
+                        static_cast<InstrumentInstanceId>(instance));
             } else {
                 auto settings = state_.pad_settings[state_.selected_pad];
                 if (command.action_id == "pad.playback-mode-set.v1") {

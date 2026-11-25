@@ -1,5 +1,21 @@
 # Implementation status
 
+## Task 097D production acceptance closure
+
+The production V2 path now proves controller-authored later-page locks through
+prepared scheduling, exact AudioEngine application, project save/reopen and a
+fresh engine. Held-step modal cancellation rolls back without history; Sound
+pads use stable synth-instance note ownership; Sample/Slice audition captures
+explicit targets; Macro/Scene SHIFT pads select without mutation; and bounded
+protocol feedback converges exactly after overflow and reconnect. See
+[Task 097D validation](audit/task-088/TASK_097D_VALIDATION.md) and the
+[acceptance ledger](audit/task-088/V2_ACCEPTANCE_LEDGER.md).
+
+RC2-001/003/004/005/007 gain production evidence but remain partial where the
+ledger records incomplete graphical traversal or missing musical capability.
+RC2-006/AUD2-006 remain partial for the coordinator-owned profile library and
+extended mapping fields. Physical validation remains **NOT RUN**.
+
 ## Task 097C contextual-bank and pad-mode closure
 
 The shared resolver now preserves all sixteen V2 destination identities and

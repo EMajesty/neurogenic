@@ -1,5 +1,13 @@
 # Slint UI foundation
 
+## Task 097D evidence boundary
+
+Existing generated assignment, Setup, modal and sixteen-destination fixtures
+remain the graphical evidence for this closure. Task 097D adds controller- and
+byte-stream-level musical reliability evidence but does not claim new
+coordinate-driven touchscreen coverage. Physical display/touch validation is
+still **NOT RUN**.
+
 ## Task 097C contextual publication
 
 Slint context state includes destination-owned pad descriptors beside encoder

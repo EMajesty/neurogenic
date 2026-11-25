@@ -1,5 +1,19 @@
 # Input gesture ownership
 
+## Task 097D reliability closure
+
+Any non-modifier input between two SHIFT taps interrupts the double-tap latch
+sequence. When another input occurs while SHIFT is physically held, SHIFT
+remains effective for that operation but its pending latch tap is consumed.
+Modal/context cancellation of a held-step edit discards the uncommitted
+timeline transaction, clears the edit group and rejects the later stale
+release; it cannot leave an applied edit without history.
+
+Sound note and explicit audition releases retain the descriptor captured at
+press. Destination/modal/reconnect cancellation submits that captured release
+before ownership is cleared. A later unmatched physical release is rejected
+rather than re-resolved in the new context.
+
 ## Task 097C contextual pad ownership
 
 Reference V2 pad presses resolve once from a destination-specific shared pad

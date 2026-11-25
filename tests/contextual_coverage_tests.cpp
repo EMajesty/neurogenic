@@ -19,7 +19,8 @@ int main() try {
     state.selected_pattern = 11;
     state.step_ticks = ticks_per_quarter / 4;
     state.patterns.push_back({11, "Verse", ticks_per_quarter * 8, 1, {}});
-    state.tracks.push_back({7, "Synth"});
+    state.tracks.push_back({7, "Synth", false, 0, 36,
+                            std::string(subtractive_instrument_id), {}, 3});
     state.selected_sample_slot = SampleSlotId{3};
     SampleSlotStatus slot;
     slot.id = SampleSlotId{3};
@@ -35,11 +36,13 @@ int main() try {
         "effect.reorder.v1", "macro.scene-capture.v1",
         "macro.scene-delete.v1", "macro.scene-duplicate.v1",
         "macro.scene-recall.v1", "macro.scene-rename.v1",
-        "macro.scene-update.v1", "macro.value-set.v1",
+        "macro.scene-update.v1", "macro.scene-select.v1", "macro.select.v1",
+        "macro.value-set.v1",
         "mixer.channel-select.v1", "mixer.group-select.v1",
         "modulation.route-select.v1", "navigation.cancel.v1",
         "navigation.confirm.v1", "navigation.focus-next.v1",
-        "navigation.focus-previous.v1", "pad.release.v1", "pad.trigger.v1",
+        "navigation.focus-previous.v1", "instrument.note-off.v1",
+        "instrument.note-on.v1", "pad.release.v1", "pad.trigger.v1",
         "pattern.launch.v1", "pattern.next.v1", "pattern.previous.v1",
         "pattern.select.v1", "preset.apply.v1", "preset.query.v1",
         "sample.preview.v1", "sample.slot-select.v1", "slice.delete.v1",
@@ -99,8 +102,11 @@ int main() try {
             "primary and secondary destination identities collapsed");
 
     const auto sound = resolve_controller_pads(state, "sound:v2", {});
-    require(sound[0].action_id == "pad.trigger.v1" &&
-                sound[0].release_action_id == "pad.release.v1" &&
+    require(sound[0].action_id == "instrument.note-on.v1" &&
+                sound[0].release_action_id == "instrument.note-off.v1" &&
+                std::get<std::int64_t>(sound[0].arguments.at("instance_id")) == 3 &&
+                std::get<std::int64_t>(sound[0].release_arguments.at(
+                    "instance_id")) == 3 &&
                 sound[0].available,
             "Sound pads do not retain matching note release ownership");
     ModifierState shift;
@@ -115,6 +121,14 @@ int main() try {
             "Sequencer pad primary/selection policy regressed");
     require(sequencer[0].target_identity == sequencer_shift[0].target_identity,
             "Sequencer pad layers do not address the same stable step");
+    const auto sample = resolve_controller_pads(state, "sample:v2", {});
+    require(sample[0].available && sample[0].action_id == "sample.preview.v1" &&
+                std::get<std::int64_t>(sample[0].arguments.at("slot_id")) == 3,
+            "sample audition does not capture an explicit slot target");
+    const auto slice = resolve_controller_pads(state, "slice:v2", {});
+    require(slice[0].available && slice[0].action_id == "slice.preview.v1" &&
+                std::get<std::int64_t>(slice[0].arguments.at("slice_id")) == 9,
+            "slice audition does not capture an explicit slice target");
 
     std::cout << "neurogenic.contextual-coverage-tests.v1 passed\n";
     return 0;

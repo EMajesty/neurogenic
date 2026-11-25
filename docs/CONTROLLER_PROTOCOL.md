@@ -1,5 +1,13 @@
 # Dedicated controller protocol
 
+## Task 097D convergence evidence
+
+The protocol-1.3 firmware fixture now constrains host output, forces a partial
+refresh, drains backpressure, and compares the final logical LED array with an
+unconstrained authoritative projection. The same comparison is repeated after
+disconnect and renegotiation. This is byte-stream simulator evidence; physical
+USB, MCU queues and LEDs remain **NOT RUN**.
+
 Physical Reference Controller V2 uses protocol **1.3**. V2 is a panel revision,
 not a protocol-major number: 1.3 preserves the 1.x frame and legacy behavior
 while adding explicit inventory, a host-issued input generation, full input

@@ -1,5 +1,14 @@
 # Slint frontend performance and rendered validation
 
+## Task 097D comparable measurement (2026-11-26)
+
+The deterministic 200-iteration benchmark measured a full reconstruction
+median of 230,981 ns and an incremental median of 70,742 ns, with one
+assignment-discovery rebuild. Task 097C recorded 232,815 ns, 69,250 ns and one
+rebuild under the comparable local configuration. The acceptance fixes
+therefore did not reintroduce unchanged assignment discovery; the small timing
+variation is treated as environmental rather than a confirmed regression.
+
 ## Task 097B measurement (2026-11-25)
 
 The unchanged `./build/slint/neurogenic_slint_benchmark` workload, Debug Slint

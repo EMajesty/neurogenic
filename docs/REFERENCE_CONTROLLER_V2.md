@@ -1,5 +1,15 @@
 # Reference Controller V2 interaction design
 
+### Task 097D acceptance closure
+
+Sound pads now dispatch captured `instrument.note-on.v1` /
+`instrument.note-off.v1` targets for the selected subtractive-synth instance;
+they no longer route through the sample-pad trigger. Sample and Slice audition
+descriptors carry explicit slot/slice identities. SHIFT Macro and Scene pads
+use non-mutating stable-ID selection actions. Controller-authored locks are
+verified through prepared playback, project reload and a fresh AudioEngine.
+Physical controller and touchscreen validation remain **NOT RUN**.
+
 ### Assignment authoring status (Task 097B)
 
 The reference shell exposes P1–P8/F1–F8 primary and secondary positions and

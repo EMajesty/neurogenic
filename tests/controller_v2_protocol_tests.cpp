@@ -121,6 +121,51 @@ int main() try {
     host.tick(1000);
     require(firmware.heartbeat(1000), "V2 heartbeat round trip");
     require(host.snapshot().heartbeats > 0, "V2 heartbeat diagnostics");
+
+    ControllerHost expected_host(application, 256, NG_CONTROLLER_V2_DEVICE_ID);
+    ReferenceV2FirmwareSimulator expected_firmware(expected_host);
+    require(expected_firmware.negotiate(), "reference feedback projection negotiation");
+    expected_host.publish(application.snapshot());
+    (void)expected_firmware.drain_host_output();
+    for (std::size_t pass = 0; pass < 8 &&
+         expected_host.snapshot().feedback_revision != application.snapshot().revision;
+         ++pass) {
+        expected_host.publish(application.snapshot());
+        (void)expected_firmware.drain_host_output();
+    }
+
+    ControllerHost bounded_host(application, 16, NG_CONTROLLER_V2_DEVICE_ID);
+    ReferenceV2FirmwareSimulator bounded_firmware(bounded_host);
+    require(bounded_firmware.negotiate(), "bounded feedback negotiation");
+    bounded_host.publish(application.snapshot());
+    require(bounded_host.snapshot().feedback_revision !=
+                application.snapshot().revision,
+            "bounded V2 feedback did not expose backpressure");
+    for (std::size_t pass = 0; pass < 256 &&
+         bounded_host.snapshot().feedback_revision != application.snapshot().revision;
+         ++pass) {
+        (void)bounded_firmware.drain_host_output();
+        bounded_host.publish(application.snapshot());
+    }
+    (void)bounded_firmware.drain_host_output();
+    bounded_host.publish(application.snapshot());
+    require(bounded_host.snapshot().feedback_revision ==
+                application.snapshot().revision &&
+                bounded_host.snapshot().leds == expected_host.snapshot().leds,
+            "bounded V2 feedback did not converge to authoritative final LEDs");
+    bounded_host.disconnected("pending feedback reconnect");
+    require(bounded_firmware.negotiate(),
+            "feedback reconnect did not renegotiate");
+    for (std::size_t pass = 0; pass < 256 &&
+         bounded_host.snapshot().feedback_revision != application.snapshot().revision;
+         ++pass) {
+        (void)bounded_firmware.drain_host_output();
+        bounded_host.publish(application.snapshot());
+    }
+    require(bounded_host.snapshot().feedback_revision ==
+                application.snapshot().revision &&
+                bounded_host.snapshot().leds == expected_host.snapshot().leds,
+            "reconnected V2 feedback did not fully resynchronize");
     samples.shutdown();
     std::cout << "neurogenic.controller-v2-protocol-tests.v1 passed\n";
     return 0;

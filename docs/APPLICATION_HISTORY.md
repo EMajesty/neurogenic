@@ -1,5 +1,13 @@
 # Application history and content transactions
 
+## Task 097D cancellation evidence
+
+Held-step updates remain private to the existing `TimelineTransaction` edit
+group until `edit.group-commit.v1`. `edit.group-cancel.v1` drops that transaction
+and produces no history entry. Production controller tests now assert original
+event restoration, unchanged Undo depth, no stale tap on release, one entry for
+multiple committed increments, and ordinary Undo/Redo of the final gesture.
+
 ## Performance authoring versus appliance mapping
 
 Task 097B keeps the established boundary: creating, replacing or clearing a

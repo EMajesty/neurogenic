@@ -2,9 +2,15 @@
 #include "neurogenic/application/reference_controller.hpp"
 #include "neurogenic/audio/engine.hpp"
 #include "neurogenic/audio/sample_manager.hpp"
+#include "neurogenic/project/project.hpp"
 #include "neurogenic/timeline/edit.hpp"
+#include "neurogenic/timeline/arrangement.hpp"
+#include "neurogenic/timeline/playback.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <set>
 #include <stdexcept>
@@ -48,6 +54,8 @@ int main() try {
 
     AudioEngine engine(48'000, 256);
     Timeline initial;
+    initial.arrangement.playback_mode = TimelinePlaybackMode::song;
+    initial.arrangement.song_end = ticks_per_quarter * 8;
     for (TrackId id : {41U, 42U}) {
         Track track;
         track.id = id;
@@ -70,6 +78,8 @@ int main() try {
          MusicalEventType::note, 37, 0.8F, ticks_per_quarter / 4});
     pattern.tracks = {std::move(drums), std::move(bass)};
     initial.arrangement.patterns.push_back(std::move(pattern));
+    initial.arrangement.clips.push_back(
+        {700, 91, 0, ticks_per_quarter * 8, true, 0, 1.0F, true});
     PatternDefinition other;
     other.id = 92;
     other.name = "Isolated pattern";
@@ -265,6 +275,16 @@ int main() try {
     require(std::find_if(state->tracks.begin(), state->tracks.end(),
                          [](const auto &track) { return track.id == 42; })->muted,
             "MUTE + pad did not mutate the intended stable track");
+    send(input("edit.mute", true, sequence++, current_generation));
+    send(input("pad.2", true, sequence++, current_generation));
+    dispatch();
+    send(input("pad.2", false, sequence++, current_generation));
+    send(input("edit.mute", false, sequence++, current_generation));
+    require(!std::find_if(application.snapshot_shared()->tracks.begin(),
+                          application.snapshot_shared()->tracks.end(),
+                          [](const auto &track) { return track.id == 42; })
+                 ->muted,
+            "second MUTE chord did not restore the authoritative track state");
 
     send(input("transport.fill", true, sequence++, current_generation));
     dispatch();
@@ -359,14 +379,15 @@ int main() try {
         locked_definition->tracks.begin(), locked_definition->tracks.end(),
         [](const auto &value) { return value.track == 42; });
     const auto &locked_events = locked_track->pattern.events;
-    const auto locked = std::any_of(
+    const auto locked_event = std::find_if(
         locked_events.begin(), locked_events.end(),
         [](const auto &event) {
             return event.type == MusicalEventType::parameter &&
                    event.tick == 17 * (ticks_per_quarter / 4) &&
                    event.parameter_destination == "synth.cutoff";
         });
-    require(locked, "held-step encoder did not create the parameter lock");
+    require(locked_event != locked_events.end(),
+            "held-step encoder did not create the parameter lock");
     require(std::get<double>(application.parameters().get("synth.cutoff")
                                  ->current_value) == cutoff_before,
             "held-step lock editing mutated the stored base parameter");
@@ -380,6 +401,98 @@ int main() try {
         [](const auto &value) { return value.track == 42; });
     require(isolation_track->pattern.events.empty(),
             "held-step editing leaked into another reusable pattern");
+    PlaybackPlan lock_plan;
+    require(compile_timeline(locked_timeline, lock_plan, error), error);
+    require(std::any_of(lock_plan.events.begin(), lock_plan.events.end(),
+                        [&](const auto &event) {
+                            return event.type == MusicalEventType::parameter &&
+                                std::abs(event.value - locked_event->value) <
+                                    0.001F;
+                        }),
+            "prepared playback plan omitted controller-authored lock");
+
+    AudioEngine playback_engine(48'000, 256);
+    const auto parameter_events_before =
+        playback_engine.applied_timeline_parameters();
+    Timeline playback_timeline;
+    require(materialize_arrangement(locked_timeline, playback_timeline, error),
+            error);
+    require(playback_engine.queue_timeline(playback_timeline, error), error);
+    playback_engine.restart();
+    for (int block = 0; block < 2000 &&
+         playback_engine.applied_timeline_parameters() ==
+             parameter_events_before;
+         ++block) {
+        std::array<float, 256> left{}, right{};
+        playback_engine.process(left, right);
+    }
+    require(playback_engine.applied_timeline_parameters() >
+                    parameter_events_before &&
+                std::abs(playback_engine.last_timeline_parameter_value() -
+                         locked_event->value) < 0.001F,
+            "controller-authored lock was not applied by AudioEngine playback: " +
+                std::to_string(parameter_events_before) + " -> " +
+                std::to_string(playback_engine.applied_timeline_parameters()) +
+                ", value=" +
+                std::to_string(playback_engine.last_timeline_parameter_value()) +
+                ", expected=" + std::to_string(locked_event->value) +
+                ", activations=" +
+                std::to_string(playback_engine.timeline_activation_count()));
+    require(std::get<double>(application.parameters().get("synth.cutoff")
+                                 ->current_value) == cutoff_before,
+            "scheduled lock overwrote the authoritative stored base parameter");
+
+    const auto persistence_path = std::filesystem::temp_directory_path() /
+        ("neurogenic-v2-lock-" + std::to_string(
+            std::chrono::steady_clock::now().time_since_epoch().count()));
+    Project persisted;
+    persisted.name = "V2 lock acceptance";
+    persisted.timeline = locked_timeline;
+    persisted.parameters["synth.cutoff"] = cutoff_before;
+    save_project(persisted, persistence_path);
+    const auto restored_project = load_project(persistence_path);
+    require(restored_project.parameters.at("synth.cutoff") == cutoff_before,
+            "restored project changed the stored base parameter");
+    const auto restored_pattern = std::find_if(
+        restored_project.timeline.arrangement.patterns.begin(),
+        restored_project.timeline.arrangement.patterns.end(),
+        [](const auto &value) { return value.id == 91; });
+    require(restored_pattern !=
+                restored_project.timeline.arrangement.patterns.end(),
+            "restored project lost the reusable pattern identity");
+    const auto restored_track = std::find_if(
+        restored_pattern->tracks.begin(), restored_pattern->tracks.end(),
+        [](const auto &value) { return value.track == 42; });
+    require(restored_track != restored_pattern->tracks.end(),
+            "restored project lost the stable pattern-track identity");
+    const auto restored_lock = std::find_if(
+        restored_track->pattern.events.begin(),
+        restored_track->pattern.events.end(), [](const auto &event) {
+            return event.type == MusicalEventType::parameter &&
+                event.tick == 17 * (ticks_per_quarter / 4) &&
+                event.parameter_destination == "synth.cutoff";
+        });
+    require(restored_lock != restored_track->pattern.events.end() &&
+                restored_lock->id == locked_event->id &&
+                std::abs(restored_lock->value - locked_event->value) < 0.001F,
+            "restored project lost the controller-authored stable lock");
+    AudioEngine restored_engine(48'000, 256);
+    Timeline restored_playback;
+    require(materialize_arrangement(restored_project.timeline,
+                                    restored_playback, error), error);
+    require(restored_engine.queue_timeline(restored_playback, error), error);
+    restored_engine.restart();
+    for (int block = 0; block < 2000 &&
+         restored_engine.applied_timeline_parameters() == 0; ++block) {
+        std::array<float, 256> left{}, right{};
+        restored_engine.process(left, right);
+    }
+    require(restored_engine.applied_timeline_parameters() > 0 &&
+                std::abs(restored_engine.last_timeline_parameter_value() -
+                         restored_lock->value) < 0.001F,
+            "restored controller-authored lock did not reach AudioEngine");
+    std::error_code remove_error;
+    std::filesystem::remove_all(persistence_path, remove_error);
 
     send(input("edit.undo", true, sequence++, current_generation));
     dispatch();
@@ -410,6 +523,27 @@ int main() try {
     require(event_at(16)->velocity > grouped_before,
             "held encoder did not apply one grouped edit to selected steps");
 
+    const auto cancelled_velocity = event_at(17)->velocity;
+    const auto cancelled_history = application.snapshot_shared()->undo_depth;
+    send(input("pad.2", true, sequence++, current_generation));
+    send(turn("parameter.2", -1.0, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->edit_group_active,
+            "held-step edit group did not become observable");
+    session.set_modal_context("confirm-delete");
+    dispatch();
+    require(!application.snapshot_shared()->edit_group_active &&
+                event_at(17)->velocity == cancelled_velocity &&
+                application.snapshot_shared()->undo_depth == cancelled_history,
+            "modal cancellation retained an edit or orphaned grouped history");
+    require(!session.input(input("pad.2", false, sequence++, current_generation),
+                           error) &&
+                error.find("matching press") != std::string::npos,
+            "cancelled held-step release was not rejected as stale");
+    require(application.dispatch_pending().empty(),
+            "cancelled held-step release dispatched a stale tap or edit");
+    session.set_modal_context({});
+
     const auto v2_context = resolve_controller_context(
         *application.snapshot_shared(), "sequencer:v2", {});
     require(v2_context[0].role == "step-property" &&
@@ -417,6 +551,48 @@ int main() try {
                 v2_context[7].parameter_id == "synth.cutoff" &&
                 v2_context[0].bank_id == "v2",
             "controller/frontend shared contextual descriptors are incomplete");
+
+    // Sound pads own an actual synth-instance note, not the sample-pad path.
+    // A destination change cancels the captured release before the physical
+    // button eventually releases, so the old note cannot remain stuck or be
+    // redirected to another selection.
+    session.set_context("sound:v2");
+    require(session.state().context == "sound:v2",
+            "stable-note scenario did not enter Sound context");
+    send(input("pad.1", true, sequence++, current_generation));
+    dispatch();
+    double note_energy{};
+    for (int block = 0; block < 32; ++block) {
+        std::array<float, 256> left{}, right{};
+        engine.process(left, right);
+        for (std::size_t frame = 0; frame < left.size(); ++frame)
+            note_energy += std::abs(left[frame]) + std::abs(right[frame]);
+    }
+    require(note_energy > 0.01,
+            "Sound pad did not produce engine-observable synth audio");
+    session.set_context("sequencer:v2");
+    dispatch();
+    for (int block = 0; block < 256; ++block) {
+        std::array<float, 256> left{}, right{};
+        engine.process(left, right);
+    }
+    std::array<float, 256> released_left{}, released_right{};
+    engine.process(released_left, released_right);
+    const auto released_energy = [&] {
+        double value{};
+        for (std::size_t frame = 0; frame < released_left.size(); ++frame)
+            value += std::abs(released_left[frame]) +
+                     std::abs(released_right[frame]);
+        return value;
+    }();
+    require(released_energy < 0.001,
+            "destination cancellation left a captured Sound note active");
+    require(!session.input(input("pad.1", false, sequence++, current_generation),
+                           error) &&
+                error.find("matching press") != std::string::npos,
+            "cancelled Sound release was not rejected as stale");
+    require(application.dispatch_pending().empty(),
+            "stale Sound release dispatched after ownership cancellation");
 
     send(input("edit.track", true, sequence++, current_generation));
     session.reconnect();

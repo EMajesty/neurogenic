@@ -1,5 +1,14 @@
 # Typed parameter bindings
 
+## Task 097D scheduled-lock evidence
+
+The V2 production test authors `synth.cutoff` from a held later-page step,
+verifies the other reusable pattern and stored base value remain unchanged,
+compiles the prepared plan, observes the exact lock value in AudioEngine, then
+saves, reloads and repeats playback in a fresh engine. The engine exposes only
+bounded atomic diagnostic count/value observations; parameter discovery and
+mutation remain outside the audio callback.
+
 ## Contextual pages
 
 Sound, FX and modulation banks consume discovered descriptors; the built-in

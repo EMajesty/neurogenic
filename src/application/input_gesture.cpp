@@ -164,6 +164,8 @@ std::vector<GestureEvent> InputGestureArbiter::process(
     }
     if (input.sequence != 0) last_sequence_[input.control_id] = input.sequence;
     const auto now = clock_();
+    if ((input.encoder || input.pressed) && candidate->modifier.empty())
+        last_tap_.clear();
 
     if (input.encoder) {
         for (auto &[owner, ownership] : active_) {
@@ -184,6 +186,17 @@ std::vector<GestureEvent> InputGestureArbiter::process(
             error.clear();
             return result;
         }
+        // Any non-chord input between modifier press/release makes the
+        // gesture a hold, not a tap in a future double-tap latch sequence.
+        // The modifier remains effective for this input; only its latent tap
+        // ownership is consumed.
+        for (auto &[owner, ownership] : active_)
+            if (owner != input.control_id && ownership.policy.latchable &&
+                !ownership.policy.modifier.empty()) {
+                ownership.consumed = true;
+                ownership.pending_tap = false;
+                last_tap_[ownership.policy.modifier] = 0;
+            }
         if (!observable_.modal_context.empty() &&
             !candidate->global_during_modal) {
             error = "control is owned by the active modal";
@@ -225,6 +238,13 @@ std::vector<GestureEvent> InputGestureArbiter::process(
             error.clear();
             return result;
         }
+        for (auto &[owner, ownership] : active_)
+            if (owner != input.control_id && ownership.policy.latchable &&
+                !ownership.policy.modifier.empty()) {
+                ownership.consumed = true;
+                ownership.pending_tap = false;
+                last_tap_[ownership.policy.modifier] = 0;
+            }
         if (!observable_.modal_context.empty() &&
             !candidate->global_during_modal) {
             error = "control is owned by the active modal";

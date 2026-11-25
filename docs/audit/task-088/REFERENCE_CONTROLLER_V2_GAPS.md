@@ -1,12 +1,22 @@
 # Reference Controller V2 implementation gaps
 
+Task 097D closes the highest-risk software acceptance gaps: scheduled and
+persisted controller-authored locks, transactional held-step cancellation,
+stable synth-note release, explicit-target audition, non-mutating Macro/Scene
+selection, interrupted SHIFT double-tap behavior and exact protocol feedback
+convergence. See `TASK_097D_VALIDATION.md` and `V2_ACCEPTANCE_LEDGER.md`.
+RC2-001/003/004/005/007 remain **Partial** only for ledgered presentation,
+missing-capability or physical rows; RC2-006/AUD2-006 remain Partial for the
+profile-library boundary. AUD2-007 remains Partial until physical execution and
+the remaining generated/physical-navigation rows are complete.
+
 Task 097C substantially resolves RC2-004 for currently registered operations:
 all sixteen destinations have explicit encoder/function/pad descriptors, both
 layers are accounted for, V2 dispatch and Slint use the same destination ID,
 and unavailable positions are inert. Stable Sound note release and legacy
-profile compatibility are deterministic. Missing shared selection actions,
-missing musical algorithms, complete controller-authored lock acceptance and
-physical validation remain open; see `TASK_097C_VALIDATION.md`.
+profile compatibility are deterministic. Task 097D supplies lock playback and
+persistence evidence plus narrow Macro/Scene selections and explicit audition;
+missing musical algorithms and physical validation remain open.
 
 Task 096D implements contextual step ownership in software and partially
 resolves RC2-004: the Sequencer property/compatible-lock bank, stable bounded
