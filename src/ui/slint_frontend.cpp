@@ -125,6 +125,11 @@ void publish(const SlintUiState &state,
     if (kind == SlintRefreshKind::telemetry) {
         window->set_transport_state(text(state.shell.transport));
         window->set_position(text(state.shell.position));
+        window->set_history_pending(state.shell.history_pending);
+        window->set_can_undo(state.shell.can_undo);
+        window->set_can_redo(state.shell.can_redo);
+        window->set_undo_label(text(state.shell.undo_label));
+        window->set_redo_label(text(state.shell.redo_label));
         window->set_recording_phase(text(state.recording.phase));
         window->set_recording_progress(state.recording.progress);
         window->set_recording_overflows(static_cast<int>(state.recording.overflow_count));
@@ -196,6 +201,11 @@ void publish(const SlintUiState &state,
     window->set_tempo(text(std::to_string(state.shell.tempo_bpm) + " BPM"));
     window->set_project_name(text(state.shell.project_name));
     window->set_project_dirty(state.shell.project_dirty);
+    window->set_history_pending(state.shell.history_pending);
+    window->set_can_undo(state.shell.can_undo);
+    window->set_can_redo(state.shell.can_redo);
+    window->set_undo_label(text(state.shell.undo_label));
+    window->set_redo_label(text(state.shell.redo_label));
     window->set_time_signature(text(state.shell.time_signature));
     window->set_position(text(state.shell.position));
     window->set_page_id(text(state.shell.page_id));
@@ -659,6 +669,12 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_context_bank_changed([&](int direction) {
             (void)adapter.change_context_bank(direction);
+            publish(adapter.state(), window);
+        });
+        window->on_history_action([&](slint::SharedString operation) {
+            (void)adapter.invoke_action(
+                std::string_view(operation.data()) == "undo" ? "edit.undo.v1"
+                                                               : "edit.redo.v1");
             publish(adapter.state(), window);
         });
         window->on_pad_invoked([&](int index, bool pressed) {
@@ -1194,7 +1210,7 @@ int run_slint_frontend(ApplicationService &application,
                     throw std::runtime_error("generated page callback did not publish selection");
                 switch (page) {
                 case 0: window->invoke_pad_invoked(0, true); break;
-                case 1:
+                case 1: {
                     window->invoke_step_page(1);
                     if (std::string_view(window->get_step_page_label().data()) !=
                         "Page 2/2")
@@ -1213,7 +1229,38 @@ int run_slint_frontend(ApplicationService &application,
                             "generated arrangement creation did not publish");
                     window->invoke_arrangement_item_invoked(0);
                     window->invoke_arrangement_manage("move-right");
+                    const auto moved = application.snapshot();
+                    if (moved.clips.empty())
+                        throw std::runtime_error(
+                            "generated arrangement move lost its clip");
+                    const auto moved_start = moved.clips.front().start;
+                    if (!window->get_can_undo() ||
+                        std::string_view(window->get_undo_label().data()).empty())
+                        throw std::runtime_error(
+                            "generated history availability did not publish");
+                    window->invoke_history_action("undo");
+                    const auto undone = application.snapshot();
+                    if (undone.undo_depth >= moved.undo_depth ||
+                        undone.redo_depth <= moved.redo_depth ||
+                        undone.clips.empty() ||
+                        undone.clips.front().start == moved_start)
+                        throw std::runtime_error(
+                            "generated Undo did not advance authoritative history: " +
+                            std::to_string(moved.undo_depth) + "/" +
+                            std::to_string(moved.redo_depth) + " -> " +
+                            std::to_string(undone.undo_depth) + "/" +
+                            std::to_string(undone.redo_depth) + " error=" +
+                            std::string(window->get_notification().data()));
+                    window->invoke_history_action("redo");
+                    const auto redone = application.snapshot();
+                    if (redone.undo_depth != moved.undo_depth ||
+                        redone.redo_depth != moved.redo_depth ||
+                        redone.clips.empty() ||
+                        redone.clips.front().start != moved_start)
+                        throw std::runtime_error(
+                            "generated Redo did not restore authoritative history");
                     break;
+                }
                 case 2: window->invoke_sample_slot_selected(0); break;
                 case 3:
                     window->invoke_sound_subview_selected("presets");
@@ -1326,6 +1373,9 @@ int run_slint_frontend(ApplicationService &application,
             if (rendered_width != static_cast<std::uint32_t>(options.width) ||
                 rendered_height != static_cast<std::uint32_t>(options.height))
                 throw std::runtime_error("renderer produced unexpected layout size");
+            if (!window->get_test_shell_layout_valid())
+                throw std::runtime_error(
+                    "essential shell controls have invalid geometry");
             if (!options.screenshot_path.empty()) {
                 std::ofstream output(options.screenshot_path,
                                      std::ios::binary | std::ios::trunc);

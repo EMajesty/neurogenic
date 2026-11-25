@@ -1,8 +1,10 @@
 # Slint frontend performance and rendered validation
 
-Task 082 measured and reduced presentation work without changing musical or
-audio-thread behavior. These measurements are from the development x86_64
-machine in a debug Slint build, not an N150 or Raspberry Pi 5.
+Task 082 established incremental publication. Task 095 remeasured the current
+frontend and added revision-cached immutable snapshot handles. See
+[Task 095 validation](audit/task-088/TASK_095_VALIDATION.md) for current
+measurements. They are development-host results, not N150 or Raspberry Pi 5
+measurements.
 
 ## Reproduction
 
@@ -27,8 +29,10 @@ and adapter refresh. CI uses structural assertions rather than timing gates.
 The measured full-to-playback median reduction is 13.9%. This run recorded 258
 full rebuilds, 257 telemetry updates and 256 unchanged skips. Maximums are
 observations, not latency guarantees.
-`ApplicationService::snapshot()` still copies complete application state on
-every refresh and is the principal remaining presentation-side cost.
+`ApplicationService::snapshot_shared()` now reuses one immutable copied state
+per application revision. The compatibility `snapshot()` API still returns a
+value copy. Changed revisions still copy complete state and remain the
+principal presentation-side cost.
 
 ## Publication architecture
 
@@ -49,7 +53,8 @@ renders with Slint's public software renderer at 1920x1200 and 1024x600. It
 writes deterministic PPMs for every page and a recording modal; CI retains them
 on failure.
 
-The pinned Slint C++ testing API does not provide stable coordinate-level input
+Task 095 additionally asserts production shell-strip geometry. The pinned
+Slint C++ testing API does not provide stable coordinate-level input
 simulation with snapshot pixels in this configuration. Tests exercise generated
 callbacks and bindings, not compositor pointer/touch delivery, focus traversal,
 GPU rendering or physical touchscreen input. Those remain manual validation.

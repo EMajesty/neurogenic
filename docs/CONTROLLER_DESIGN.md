@@ -127,6 +127,11 @@ Simulation is not physical validation. USB rollover, electrical behavior,
 latency, illumination, encoder feel, and disconnect behavior still require the
 procedures in [Hardware Testing](HARDWARE_TESTING.md).
 
+`neurogenic_client_independence_tests` validates a deliberately non-reference
+descriptor: three relative encoders, five buttons, one absolute fader, no pads
+or page controls. Typed bindings, feedback and reconnection prove that this
+geometry is not an application requirement.
+
 ## Current limits and planned work
 
 The supported extension surface is C++ services, descriptors, `.ngc` profiles,

@@ -156,7 +156,9 @@ as separate coherent tasks. Do not stub labels or create frontend state.
 ## Roadmap integration
 
 Task 094 established atomic dependency recovery, bounded unified history and
-content windows. Task 095 retains frontend verification/performance closure.
+content windows. Task 095 established immutable same-revision client snapshots,
+structured generated-shell checks and alternative frontend/controller/workflow
+conformance. These provide Task 096 test seams without implementing V2 behavior.
 The temporary-performance checkpoint design is now documented in
 `docs/APPLICATION_HISTORY.md`; implementation remains deferred. The recommended
 full integration milestone is **Task 096 —

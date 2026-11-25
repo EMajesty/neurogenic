@@ -330,6 +330,11 @@ class ApplicationService {
     [[nodiscard]] std::vector<CommandResult> dispatch_pending();
     [[nodiscard]] CommandResult execute(const ApplicationCommand &);
     [[nodiscard]] ApplicationState snapshot() const;
+    // Immutable revision-cached presentation snapshot. Clients that only read
+    // state should retain this handle for one refresh instead of requesting
+    // multiple complete value copies. The audio callback never accesses or
+    // constructs this object.
+    [[nodiscard]] std::shared_ptr<const ApplicationState> snapshot_shared() const;
     [[nodiscard]] std::uint64_t rejected_commands() const noexcept;
     [[nodiscard]] SliceService &slices() noexcept { return slices_; }
     [[nodiscard]] SampleAnalysisService &sample_analysis() noexcept {
@@ -468,6 +473,7 @@ class ApplicationService {
     mutable std::optional<PendingHistoryRestore> pending_history_restore_;
     mutable std::optional<PendingProjectRecovery> pending_project_recovery_;
     mutable std::deque<ApplicationHistoryEntry> history_undo_, history_redo_;
+    mutable std::shared_ptr<const ApplicationState> published_snapshot_;
     mutable Project project_;
     mutable SystemMonitor system_monitor_;
 };

@@ -64,3 +64,14 @@ and sanitizer results above are fresh Task 088 evidence. Physical tests: all
    closure is tested.
 6. Direct missing-device Slint execution can abort in libremidi rather than
    degrade, now tracked as `AUD2-004`.
+
+## Task 095 superseding frontend evidence
+
+See [`TASK_095_VALIDATION.md`](TASK_095_VALIDATION.md). Production generated
+callbacks now include arrangement Undo/Redo and a broader representative matrix;
+the software renderer asserts actual shell-strip geometry at 1920x1200 and
+1024x600. A non-Slint/non-SDL conformance fixture verifies audible musical and
+save/reopen behavior plus a non-reference controller inventory. Coordinate-level
+touch remains unavailable in the pinned offscreen integration and physical
+validation remains NOT RUN. Historical packaging and udev statements above are
+superseded by Task 090.

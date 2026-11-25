@@ -1,5 +1,15 @@
 # Implementation status
 
+## Task 095 frontend verification and client independence
+
+Frontend refresh now consumes a revision-cached immutable application snapshot;
+same-revision clients avoid another value copy. Generated Slint history
+callbacks and structured shell geometry run at both supported resolutions. A
+non-Slint/non-SDL fixture proves discovery, typed operations, history, audible
+rendering, save/reopen and a deliberately non-reference controller inventory.
+See [Task 095 validation](audit/task-088/TASK_095_VALIDATION.md). AUD2-011 and
+AUD2-012 remain partial; coordinate and physical input are **NOT RUN**.
+
 ## Task 094 unified history and atomic content recovery
 
 `ApplicationService` now presents one bounded chronological Undo/Redo sequence

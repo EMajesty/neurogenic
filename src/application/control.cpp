@@ -1636,6 +1636,10 @@ std::vector<CommandResult> ApplicationService::dispatch_pending() {
             queue_.pop_front();
         }
         result.push_back(execute_with_history(item.second, item.first));
+        {
+            std::lock_guard lock(mutex_);
+            published_snapshot_.reset();
+        }
     }
     return result;
 }
@@ -1645,7 +1649,15 @@ CommandResult ApplicationService::execute(const ApplicationCommand &command) {
         std::lock_guard lock(mutex_);
         sequence = next_sequence_++;
     }
-    return execute_with_history(command, sequence);
+    auto result = execute_with_history(command, sequence);
+    {
+        std::lock_guard lock(mutex_);
+        // Some compatibility actions update presentation-visible state without
+        // advancing the global revision. A command boundary is therefore also
+        // an explicit cache invalidation boundary.
+        published_snapshot_.reset();
+    }
+    return result;
 }
 
 std::unique_ptr<ApplicationService::AuthoringHistoryState>
@@ -9319,6 +9331,8 @@ void ApplicationService::synchronize_locked() const {
         }
     }
     auto slice_state = slices_.snapshot(state_.selected_sample_slot);
+    auto analysis_sessions = sample_analysis_.snapshots();
+    auto processing_jobs = sample_processing_.snapshots();
     auto parameters = parameters_.parameters();
     const auto modulation_runtime = engine_.modulation_snapshot();
     InstrumentInstanceId selected_instance = default_synth_instance_id;
@@ -9361,6 +9375,10 @@ void ApplicationService::synchronize_locked() const {
                     state_.redo_depth != history.redo_depth ||
                     state_.sample_slots.size() != slots.size() ||
                     state_.slice_revision != slice_state.revision ||
+                    state_.sample_analysis_sessions.size() !=
+                        analysis_sessions.size() ||
+                    state_.sample_processing_jobs.size() !=
+                        processing_jobs.size() ||
                     state_.parameters.size() != parameters.size();
     external = external || state_.modulation_runtime.generation !=
                                modulation_runtime.generation;
@@ -9448,6 +9466,36 @@ void ApplicationService::synchronize_locked() const {
                 external = true;
                 break;
             }
+    if (!external)
+        for (std::size_t i = 0; i < analysis_sessions.size(); ++i)
+            if (state_.sample_analysis_sessions[i].id != analysis_sessions[i].id ||
+                state_.sample_analysis_sessions[i].status !=
+                    analysis_sessions[i].status ||
+                state_.sample_analysis_sessions[i].progress !=
+                    analysis_sessions[i].progress ||
+                state_.sample_analysis_sessions[i].source_stale !=
+                    analysis_sessions[i].source_stale ||
+                state_.sample_analysis_sessions[i].error !=
+                    analysis_sessions[i].error) {
+                external = true;
+                break;
+            }
+    if (!external)
+        for (std::size_t i = 0; i < processing_jobs.size(); ++i)
+            if (state_.sample_processing_jobs[i].id != processing_jobs[i].id ||
+                state_.sample_processing_jobs[i].status !=
+                    processing_jobs[i].status ||
+                state_.sample_processing_jobs[i].progress !=
+                    processing_jobs[i].progress ||
+                state_.sample_processing_jobs[i].error !=
+                    processing_jobs[i].error ||
+                state_.sample_processing_jobs[i].result.saved_path !=
+                    processing_jobs[i].result.saved_path ||
+                state_.sample_processing_jobs[i].result.destination !=
+                    processing_jobs[i].result.destination) {
+                external = true;
+                break;
+            }
     state_.playing = playing;
     state_.transport_frame = frame;
     const auto transport_tick =
@@ -9514,8 +9562,8 @@ void ApplicationService::synchronize_locked() const {
          state_.selected_pad_settings.stretch_quality,
          state_.effective_stretch_ratio, 1.0F, engine_.sample_rate()});
     state_.waveform_peaks = std::move(slice_state.waveform);
-    state_.sample_analysis_sessions = sample_analysis_.snapshots();
-    state_.sample_processing_jobs = sample_processing_.snapshots();
+    state_.sample_analysis_sessions = std::move(analysis_sessions);
+    state_.sample_processing_jobs = std::move(processing_jobs);
     state_.slices.clear();
     state_.slices.reserve(slice_state.slices.size());
     for (const auto &slice : slice_state.slices)
@@ -9820,9 +9868,14 @@ void ApplicationService::synchronize_locked() const {
 }
 void ApplicationService::changed_locked() { ++state_.revision; }
 ApplicationState ApplicationService::snapshot() const {
+    return *snapshot_shared();
+}
+std::shared_ptr<const ApplicationState> ApplicationService::snapshot_shared() const {
     std::lock_guard lock(mutex_);
     synchronize_locked();
-    return state_;
+    if (!published_snapshot_ || published_snapshot_->revision != state_.revision)
+        published_snapshot_ = std::make_shared<const ApplicationState>(state_);
+    return published_snapshot_;
 }
 std::uint64_t ApplicationService::rejected_commands() const noexcept {
     std::lock_guard lock(mutex_);

@@ -153,6 +153,12 @@ Current limitations: historical action descriptors do not all expose numeric
 ranges or enum choices; text project metadata is action-driven rather than a
 registered parameter; export is local rather than a network service; and no
 declarative renderer or UI Studio editor exists yet.
+
+Task 095 measures discovery separately from snapshots and parameter resolution.
+Discovery has no independent revision token, so retain it only within a known
+object/configuration revision and rediscover after structural edits. The
+executable `neurogenic_client_independence_tests` verifies this contract.
+
 # Hybrid playback state
 
 Performance launch state API version 2 exposes each track owner, pending frame

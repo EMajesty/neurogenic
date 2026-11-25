@@ -617,13 +617,17 @@ expanded at preparation time; the callback performs no allocation or lookup.
 
 ## Slint presentation publication
 
-Slint remains a client of copied `ApplicationState`. Structural fingerprints
+Slint remains a client of copied `ApplicationState`. Task 095 adds
+`snapshot_shared()`, an immutable handle cached for one application revision;
+`snapshot()` remains the value-copy compatibility API. Structural fingerprints
 select full presentation reconstruction; transport/playhead, meter, workflow
 progress, parameter and contextual-control changes use bounded telemetry updates.
 Only the active page receives telemetry model rows, equal-size vector models
 retain identity, and page activation refreshes authoritative state. This adds no
-frontend dependency, allocation or lock to the audio callback. Complete snapshot
-construction remains control-side and is a measured future optimization boundary.
+frontend dependency, allocation or lock to the audio callback. Changed-revision
+complete snapshot construction remains control-side and is a measured future
+optimization boundary; the cache exposes no mutable state to the audio callback.
+
 ### Shared contextual interaction grammar
 
 The locked physical inventory and default interaction policy are specified in

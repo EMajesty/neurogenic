@@ -2,6 +2,7 @@
 #include "neurogenic/audio/sample_manager.hpp"
 #include "neurogenic/timeline/edit.hpp"
 #include "neurogenic/ui/slint_adapter.hpp"
+#include <array>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -32,7 +33,10 @@ int main(int argc, char **argv) {
              LaunchQuantization::bar});
         timeline_data.arrangement.launch_slots.back().logical_position = 0;
         TimelineService timeline([&](const Timeline &value, std::string &error) {
-            return engine.queue_timeline(value, error);
+            if (!engine.queue_timeline(value, error)) return false;
+            std::array<float, 64> left{}, right{};
+            engine.process(left, right);
+            return true;
         }, timeline_data);
         ApplicationService application(engine, timeline, samples);
         SlintOptions options;

@@ -23,7 +23,9 @@ hints, not widgets, coordinates, colors, pages, or a declarative UI tree.
 
 ### Read authoritative copied state
 
-`ApplicationService::snapshot()` returns detached `ApplicationState`. Musical
+`ApplicationService::snapshot()` returns detached `ApplicationState`.
+`snapshot_shared()` returns an immutable handle reused for the same application
+revision and avoids another value copy in refresh loops. Musical
 objects remain owned by application services and immutable prepared engine
 state. A frontend may copy IDs, descriptors, metadata, meters, and bounded
 waveform summaries; it must not retain engine pointers, mutable DSP objects, or
@@ -76,11 +78,11 @@ if (!result.accepted)
     show_error(result.error);
 
 neurogenic::ParameterBindingService bindings(application);
-neurogenic::BindingReference tempo{
+neurogenic::BindingReference master_gain{
     neurogenic::BindingTargetKind::explicit_object,
-    "transport:main", "transport.tempo", {}, state.revision
+    "master:main", "mixer.master.gain", {}, state.revision
 };
-auto error = bindings.apply(tempo, {
+auto error = bindings.apply(master_gain, {
     neurogenic::BindingOperation::relative_steps, 1.0, false, 0
 });
 if (error)
@@ -147,3 +149,9 @@ Current coupling still worth reducing includes the large copied
 descriptor metadata for historical actions, synchronous control-side operations
 in a few services, and build-time rather than runtime selection of available UI
 toolkits. These are architectural work items, not evidence of a plugin system.
+
+`neurogenic_client_independence_tests` is the maintained compilable conformance
+example. It has no Slint, SDL, reference-panel or page-hierarchy dependency and
+covers discovery, copied state, typed actions, parameter binding, history,
+audible rendering and project reopen. The shorter snippet above remains
+illustrative because host construction and error display are host-specific.

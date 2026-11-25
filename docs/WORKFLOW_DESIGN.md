@@ -144,3 +144,8 @@ shutdown cannot interrupt arbitrary uninterruptible filesystem I/O; generated
 interaction coverage is not exhaustive; hardware behavior remains separately
 validated; and no declarative workflow language, RPC API, media database, or
 interchangeable runtime UI/plugin framework exists.
+
+The tracker-like portion of `neurogenic_client_independence_tests` is the
+bounded executable example: it creates a reusable pattern, edits it through
+semantic actions, arranges it, renders audible output, saves and reopens without
+maintaining a competing client-owned musical grid.

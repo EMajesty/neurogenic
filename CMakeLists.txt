@@ -200,6 +200,15 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_parameter_binding_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.parameter-binding-tests.v1 passed"
     TIMEOUT 10)
+  add_executable(neurogenic_client_independence_tests
+    tests/client_independence_tests.cpp)
+  target_link_libraries(neurogenic_client_independence_tests PRIVATE
+    neurogenic_engine)
+  add_test(NAME neurogenic_client_independence_tests
+    COMMAND neurogenic_client_independence_tests)
+  set_tests_properties(neurogenic_client_independence_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.client-independence-tests.v1 passed"
+    TIMEOUT 15)
   add_executable(neurogenic_modulation_authoring_tests
     tests/modulation_authoring_tests.cpp)
   target_link_libraries(neurogenic_modulation_authoring_tests PRIVATE

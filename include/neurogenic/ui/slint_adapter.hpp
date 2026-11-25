@@ -45,12 +45,14 @@ struct SlintSceneItem {
 struct SlintShellState {
     std::uint64_t revision{};
     bool playing{}, record_armed{}, recording{}, project_dirty{};
+    bool history_pending{}, can_undo{}, can_redo{};
     double tempo_bpm{120.0};
     std::string project_name{"Untitled"}, transport{"Stopped"},
         time_signature{"4/4"}, position{"1.1.1"},
         selected_track{"Unavailable"}, active_content{"Unavailable"},
         track_owner{"Arrangement"}, launch_quantization{"Bar"},
-        page_id{"performance"}, page_title{"Performance"}, notification;
+        page_id{"performance"}, page_title{"Performance"}, notification,
+        undo_label, redo_label;
     std::vector<SlintPageItem> pages;
 };
 

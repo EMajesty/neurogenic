@@ -458,7 +458,8 @@ bool SlintFrontendAdapter::refresh() {
             ++local_revision_;
         }
     const auto snapshot_started = std::chrono::steady_clock::now();
-    const auto snapshot = application_.snapshot();
+    const auto snapshot_handle = application_.snapshot_shared();
+    const auto &snapshot = *snapshot_handle;
     refresh_diagnostics_.snapshot_nanoseconds += static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now() - snapshot_started).count());
@@ -488,6 +489,11 @@ bool SlintFrontendAdapter::refresh() {
         state_.shell.playing = snapshot.playing;
         state_.shell.record_armed = snapshot.recording.state == RecordingState::armed;
         state_.shell.recording = snapshot.recording.state == RecordingState::recording;
+        state_.shell.history_pending = snapshot.history_pending;
+        state_.shell.can_undo = snapshot.can_undo;
+        state_.shell.can_redo = snapshot.can_redo;
+        state_.shell.undo_label = snapshot.undo_label;
+        state_.shell.redo_label = snapshot.redo_label;
         state_.shell.position = format_slint_musical_position(
             snapshot.transport_tick, snapshot.time_signature_numerator,
             snapshot.time_signature_denominator);
@@ -668,6 +674,11 @@ bool SlintFrontendAdapter::refresh() {
     next.shell.record_armed = snapshot.recording.state == RecordingState::armed;
     next.shell.recording = snapshot.recording.state == RecordingState::recording;
     next.shell.project_dirty = snapshot.project_dirty;
+    next.shell.history_pending = snapshot.history_pending;
+    next.shell.can_undo = snapshot.can_undo;
+    next.shell.can_redo = snapshot.can_redo;
+    next.shell.undo_label = snapshot.undo_label;
+    next.shell.redo_label = snapshot.redo_label;
     next.shell.project_name = snapshot.project_name.empty() ? "Untitled"
                                                              : snapshot.project_name;
     next.shell.tempo_bpm = snapshot.tempo_bpm;

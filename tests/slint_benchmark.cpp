@@ -1,5 +1,7 @@
 #include "neurogenic/audio/engine.hpp"
 #include "neurogenic/audio/sample_manager.hpp"
+#include "neurogenic/application/discovery.hpp"
+#include "neurogenic/application/parameter_binding.hpp"
 #include "neurogenic/timeline/edit.hpp"
 #include "neurogenic/ui/slint_adapter.hpp"
 #include <algorithm>
@@ -48,10 +50,48 @@ int main() {
         ApplicationService application(engine, timeline, samples);
         SlintFrontendAdapter adapter(application);
         constexpr std::size_t iterations = 256;
-        std::vector<std::uint64_t> idle, full, incremental;
+        std::vector<std::uint64_t> idle, full, incremental, snapshot_copy,
+            snapshot_shared, discovery, parameter_resolution;
         idle.reserve(iterations);
         full.reserve(iterations);
         incremental.reserve(iterations);
+        snapshot_copy.reserve(iterations);
+        snapshot_shared.reserve(iterations);
+        discovery.reserve(iterations);
+        parameter_resolution.reserve(iterations);
+        ParameterBindingService bindings(application);
+        BindingReference tempo{BindingTargetKind::explicit_object, "master:main",
+                               "mixer.master.gain", {},
+                               application.snapshot_shared()->revision};
+        for (std::size_t i = 0; i < iterations; ++i) {
+            auto started = Clock::now();
+            const auto value = application.snapshot();
+            snapshot_copy.push_back(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    Clock::now() - started).count()));
+            if (value.tracks.empty()) throw std::runtime_error("empty snapshot");
+            started = Clock::now();
+            const auto handle = application.snapshot_shared();
+            snapshot_shared.push_back(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    Clock::now() - started).count()));
+            if (!handle || handle->tracks.empty())
+                throw std::runtime_error("empty shared snapshot");
+            started = Clock::now();
+            const auto descriptors = discover_application(application);
+            discovery.push_back(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    Clock::now() - started).count()));
+            if (descriptors.actions.empty())
+                throw std::runtime_error("empty discovery");
+            BindingError binding_error;
+            started = Clock::now();
+            const auto resolved = bindings.resolve(tempo, binding_error);
+            parameter_resolution.push_back(static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    Clock::now() - started).count()));
+            if (!resolved) throw std::runtime_error("tempo binding unresolved");
+        }
         for (std::size_t i = 0; i < iterations; ++i) {
             const auto started = Clock::now();
             (void)adapter.refresh();
@@ -90,6 +130,10 @@ int main() {
         const auto idle_result = distribution(std::move(idle));
         const auto baseline = distribution(std::move(full));
         const auto optimized = distribution(std::move(incremental));
+        const auto copy_result = distribution(std::move(snapshot_copy));
+        const auto shared_result = distribution(std::move(snapshot_shared));
+        const auto discovery_result = distribution(std::move(discovery));
+        const auto resolution_result = distribution(std::move(parameter_resolution));
         std::cout << "neurogenic.slint-benchmark.v1 passed\n"
                   << "idle_ns median=" << idle_result.median
                   << " p95=" << idle_result.p95 << " p99=" << idle_result.p99
@@ -99,6 +143,18 @@ int main() {
                   << "incremental_ns median=" << optimized.median
                   << " p95=" << optimized.p95 << " p99=" << optimized.p99
                   << " max=" << optimized.maximum << '\n'
+                  << "snapshot_copy_ns median=" << copy_result.median
+                  << " p95=" << copy_result.p95 << " p99=" << copy_result.p99
+                  << " max=" << copy_result.maximum << '\n'
+                  << "snapshot_shared_ns median=" << shared_result.median
+                  << " p95=" << shared_result.p95 << " p99=" << shared_result.p99
+                  << " max=" << shared_result.maximum << '\n'
+                  << "discovery_ns median=" << discovery_result.median
+                  << " p95=" << discovery_result.p95 << " p99=" << discovery_result.p99
+                  << " max=" << discovery_result.maximum << '\n'
+                  << "parameter_resolution_ns median=" << resolution_result.median
+                  << " p95=" << resolution_result.p95 << " p99=" << resolution_result.p99
+                  << " max=" << resolution_result.maximum << '\n'
                   << "full_rebuilds=" << diagnostics.full_rebuilds
                   << " telemetry_updates=" << diagnostics.telemetry_updates
                   << " skipped=" << diagnostics.skipped << '\n';

@@ -368,6 +368,13 @@ activation; scrolling to every essential action; focus/back behavior; recording
 confirmation/cancellation; contextual labels against the physical controller;
 clipping; and readable meters/playheads. Repeat mouse-only and touchscreen-only.
 Automated software rendering is not physical touchscreen validation.
+
+Task 095 adds generated Undo/Redo callbacks, authoritative arrangement-state
+round trips and structured geometry checks for actual shell strips at both
+resolutions. Slint 1.19's offscreen C++ integration here has no reliable public
+coordinate-level pointer injection; generated callbacks, structured layout,
+software rendering and physical input are separate evidence categories.
+
 ## Context banks and performance assignments
 
 The shell displays the authoritative context bank beside the eight provisional
