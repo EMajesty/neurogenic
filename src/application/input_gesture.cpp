@@ -237,7 +237,8 @@ std::vector<GestureEvent> InputGestureArbiter::process(
             selected_policy.policy == GestureDispatchPolicy::deferred_tap;
         ownership.dispatched_press =
             selected_policy.policy == GestureDispatchPolicy::immediate ||
-            selected_policy.policy == GestureDispatchPolicy::momentary;
+            selected_policy.policy == GestureDispatchPolicy::momentary ||
+            selected_policy.policy == GestureDispatchPolicy::repeatable;
         if (selected_policy.policy == GestureDispatchPolicy::repeatable)
             ownership.next_repeat = now + selected_policy.timing.repeat_delay_ms;
         active_.emplace(input.control_id, ownership);

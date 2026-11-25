@@ -56,8 +56,10 @@ struct SlintShellState {
         track_owner{"Arrangement"}, launch_quantization{"Bar"},
         page_id{"performance"}, destination_id{"performance"},
         page_title{"Performance"}, notification,
-        undo_label, redo_label;
+        undo_label, redo_label, focus_identity{"transport"},
+        navigation_scope{"application"}, data_role{"Tempo"}, modal_identity;
     bool effective_shift{};
+    bool modal_active{}, modal_confirm_focused{};
     std::uint64_t root_revision{1};
     std::vector<SlintPageItem> pages;
 };
@@ -498,7 +500,7 @@ enum class SlintRefreshKind : std::uint8_t { none, full, telemetry };
 struct SlintRefreshDiagnostics {
     std::uint64_t calls{}, full_rebuilds{}, telemetry_updates{}, skipped{};
     std::uint64_t snapshot_nanoseconds{}, construction_nanoseconds{},
-        maximum_refresh_nanoseconds{};
+        maximum_refresh_nanoseconds{}, assignment_discovery_rebuilds{};
     SlintRefreshKind last_kind{SlintRefreshKind::none};
 };
 
@@ -704,6 +706,8 @@ class SlintFrontendAdapter {
 
   private:
     bool execute(ApplicationCommand command);
+    bool process_interaction_request(const ApplicationState &);
+    bool open_modal(std::string identity, std::string target, bool destructive);
     ApplicationService &application_;
     ParameterBindingService bindings_;
     RecordingWorkflowCoordinator recording_workflow_;
@@ -717,6 +721,11 @@ class SlintFrontendAdapter {
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};
     std::size_t context_bank_{};
+    std::uint64_t consumed_interaction_request_{};
+    std::vector<SlintPerformancePageState::AssignmentTargetItem>
+        cached_performance_parameters_, cached_performance_actions_;
+    std::vector<SlintSetupMappingTargetItem> cached_setup_targets_;
+    std::uint64_t assignment_discovery_fingerprint_{};
     std::vector<std::string> browser_recent_locations_;
     class BrowserWorker;
     std::unique_ptr<BrowserWorker> browser_worker_;

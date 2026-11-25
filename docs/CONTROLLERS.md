@@ -487,3 +487,9 @@ arguments, configurable descriptors and logical pad positions are reusable,
 but its provisional default profile is not the V2 panel implementation. V2
 transport/navigation groups, shifted destinations, chord ownership and screen
 zones must be integrated explicitly, never inferred from numeric profile IDs.
+
+Navigation mappings may address stable presentation roles without owning visual
+focus. The active frontend reports copied focus and DATA roles and consumes
+revisioned requests. Modal and connection generations prevent stale events from
+confirming replacement dialogs. Generic MIDI and direct actions remain valid
+without this optional bridge.

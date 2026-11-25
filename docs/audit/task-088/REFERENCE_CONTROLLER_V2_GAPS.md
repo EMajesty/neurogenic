@@ -241,3 +241,10 @@ musical expansion.
 
 All controller ergonomics, electrical behavior, RGB appearance, rollover,
 debounce, touchscreen reach and physical performance timing remain **NOT RUN**.
+
+Task 097A partially resolves RC2-001/003/007 presentation ownership: shared
+modal generations, safe focus, ENTER/BACK, shifted navigation, Save, Browser
+DATA and protocol recovery have production evidence. RC2-001/003 remain partial
+because not every dialog/view exposes a complete focus graph. RC2-007 physical
+validation remains open. AUD2-011 gains generated focus/modal evidence but
+remains partial pending complete form reachability and physical validation.

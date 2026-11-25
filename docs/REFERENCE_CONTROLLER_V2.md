@@ -482,3 +482,9 @@ update this document, the gap matrix, profiles, Slint labels and validation
 checklists together. Automated simulation does not establish switch feel,
 rollover, debounce, illumination readability, touchscreen reach, latency or
 ergonomics; all remain NOT RUN until measured on the physical prototype.
+
+Task 097A implementation status: the locked navigation cluster reaches shared
+presentation focus and modal ownership. SHIFT+UP/DOWN page, SHIFT+LEFT/RIGHT
+first/last, SHIFT+BACK root and SHIFT+ENTER Save use stable requests. Browser
+DATA and representative Sequencer confirmation are production tested. See the
+[validation and reachability matrix](audit/task-088/TASK_097A_VALIDATION.md).

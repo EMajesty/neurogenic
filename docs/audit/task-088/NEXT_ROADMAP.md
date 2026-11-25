@@ -98,3 +98,8 @@ as shared modal/focus ownership, graphical assignment/profile lifecycle,
 remaining contextual/pad binding matrices, stronger controller-authored lock
 and feedback evidence, then physical bring-up when PCB firmware exists. The
 closure matrix and acceptance criteria are in `TASK_096G_VALIDATION.md`.
+
+Task 097A completed shared modal/focus ownership. The exact next milestone is
+**Task 097B — graphical assignment and profile-management closure**: finish
+Performance positions/layers/pads and Setup typed arguments, profile lifecycle,
+conflicts and feedback authoring using the same contract.

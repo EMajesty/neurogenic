@@ -429,3 +429,8 @@ requires eight shifted static-page labels at the top, a right-side 2×4 encoder
 field region and eight shifted function labels at the bottom. Existing shared
 models and callbacks are reusable, but current placement and primary/secondary
 fallback are not the locked interaction.
+
+The shell now publishes distinct focus, navigation scope, DATA role and active
+shared modal state. Browser scrolling and representative Sequencer destructive
+confirmation consume physical requests. Generated tests verify publication and
+focus restoration; complete assignment/profile traversal remains Task 097B.

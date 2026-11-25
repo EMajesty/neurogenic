@@ -132,3 +132,9 @@ save/reopen behavior plus a non-reference controller inventory. Coordinate-level
 touch remains unavailable in the pinned offscreen integration and physical
 validation remains NOT RUN. Historical packaging and udev statements above are
 superseded by Task 090.
+
+Task 097A adds `neurogenic_interaction_navigation_tests`, spanning protocol-1.3
+V2 input, session arbitration, shared modal/focus state and the Slint adapter.
+Generated testing publishes focus, DATA role, safe modal ownership and restored
+focus. See [`TASK_097A_VALIDATION.md`](TASK_097A_VALIDATION.md). Coordinate touch
+and physical validation remain NOT RUN.

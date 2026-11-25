@@ -175,3 +175,8 @@ The tracker-like portion of `neurogenic_client_independence_tests` is the
 bounded executable example: it creates a reusable pattern, edits it through
 semantic actions, arranges it, renders audible output, saves and reopens without
 maintaining a competing client-owned musical grid.
+
+Presentation modes should expose stable interaction roles separately from
+musical selection: moving focus is not an edit. Modal proposals retain the
+original musical identity even if selection changes, so tracker, launcher and
+hardware-first workflows can share confirmation without sharing geometry.

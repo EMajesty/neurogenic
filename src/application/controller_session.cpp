@@ -278,7 +278,22 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
             error = "reference destination is unavailable";
             return false;
         }
-        if (state_.destination == destination.id) ++state_.root_revision;
+        if (state_.destination == destination.id) {
+            if (application_->snapshot().interaction.destination != destination.id &&
+                !application_->set_interaction_destination(
+                    destination.id,
+                    destination.subview.empty() ? "root" : destination.subview,
+                    error))
+                return false;
+            ++state_.root_revision;
+            return submit({"navigation.root.v1", {}, state_.session_id,
+                           input.sequence}, error);
+        }
+        if (!application_->set_interaction_destination(
+                destination.id,
+                destination.subview.empty() ? "root" : destination.subview,
+                error))
+            return false;
         state_.destination = destination.id;
         set_context(profile_.profile_id ==
                             "neurogenic.reference-controller-v2.default.v1"
@@ -784,6 +799,9 @@ bool ControllerSession::feedback(ControllerFeedback value) {
 
 void ControllerSession::observe(const ApplicationState &snapshot,
                                 bool full_refresh) {
+    if (state_.interaction.modal_context !=
+        snapshot.interaction.modal.identity)
+        set_modal_context(snapshot.interaction.modal.identity);
     if (std::any_of(active_performance_actions_.begin(),
                     active_performance_actions_.end(), [&](const auto &entry) {
                         return entry.second.bank !=

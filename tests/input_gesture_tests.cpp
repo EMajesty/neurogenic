@@ -79,7 +79,9 @@ int main() try {
     (void)arbiter.process({"shift", 0, false, false, 15, 2}, error);
     require(arbiter.state().latched_modifiers.contains("shift"),
             "double-tap did not latch logical modifier");
-    require(arbiter.process({"repeat", 1, true, false, 16, 2}, error).empty(), error);
+    events = arbiter.process({"repeat", 1, true, false, 16, 2}, error);
+    require(events.size() == 1 && events.front().kind == GestureEventKind::press,
+            "repeatable control did not dispatch its immediate initial press");
     now += 2000;
     events = arbiter.update(error);
     require(events.size() == configuration.controls.back().timing.maximum_repeats_per_update,

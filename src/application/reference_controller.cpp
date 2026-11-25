@@ -128,9 +128,11 @@ ControllerProfile reference_controller_v2_profile() {
     result.bindings.push_back(
         action_binding("navigation.back", "navigation.cancel.v1"));
     result.bindings.push_back(
+        action_binding("navigation.back", "navigation.root.v1", true));
+    result.bindings.push_back(
         action_binding("navigation.enter", "navigation.confirm.v1"));
     result.bindings.push_back(
-        action_binding("navigation.enter", "project.save.v1", true));
+        action_binding("navigation.enter", "project.save-request.v1", true));
     result.bindings.push_back(
         action_binding("navigation.up", "navigation.focus-previous.v1"));
     result.bindings.push_back(
@@ -139,6 +141,14 @@ ControllerProfile reference_controller_v2_profile() {
         action_binding("navigation.left", "navigation.focus-previous.v1"));
     result.bindings.push_back(
         action_binding("navigation.right", "navigation.focus-next.v1"));
+    result.bindings.push_back(
+        action_binding("navigation.up", "navigation.page-previous.v1", true));
+    result.bindings.push_back(
+        action_binding("navigation.down", "navigation.page-next.v1", true));
+    result.bindings.push_back(
+        action_binding("navigation.left", "navigation.first.v1", true));
+    result.bindings.push_back(
+        action_binding("navigation.right", "navigation.last.v1", true));
     result.bindings.push_back(action_binding("edit.undo", "edit.undo.v1"));
     result.bindings.push_back(
         action_binding("edit.undo", "edit.redo.v1", true));
@@ -180,6 +190,7 @@ GestureConfiguration reference_controller_v2_gestures() {
             policy.policy = GestureDispatchPolicy::modifier_only;
             policy.latchable = true;
             policy.global_across_context = true;
+            policy.global_during_modal = true;
         } else if (control.id == "edit.select") {
             policy.modifier = "select";
             policy.policy = GestureDispatchPolicy::modifier_only;
@@ -203,6 +214,9 @@ GestureConfiguration reference_controller_v2_gestures() {
                    control.id == "navigation.right") {
             policy.policy = GestureDispatchPolicy::repeatable;
         }
+        if (control.id.starts_with("navigation.") ||
+            control.id == "transport.stop")
+            policy.global_during_modal = true;
         if (control.id.starts_with("pad."))
             policy.deferred_tap_contexts.push_back("sequencer");
         result.controls.push_back(std::move(policy));

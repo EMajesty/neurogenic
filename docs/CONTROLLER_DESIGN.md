@@ -183,3 +183,8 @@ metadata is incomplete for a few historical actions, and the full Reference
 Controller V2 gesture/layout integration remains planned work. The current CDC
 protocol has a reference-oriented numeric inventory, but that inventory is
 isolated in the descriptor/protocol adapter and is not an engine layout.
+
+Hardware-first frontends map controls to registered `navigation.*` actions.
+Participating frontends publish stable focus roles and consume each interaction
+request once; widget pointers and transient row indices are not persistent
+identities. Direct musical mappings do not require this contract.

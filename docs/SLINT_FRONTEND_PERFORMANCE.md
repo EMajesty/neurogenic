@@ -62,3 +62,11 @@ GPU rendering or physical touchscreen input. Those remain manual validation.
 Native AArch64 development uses `cmake --preset slint` on an AArch64 host.
 Cross-compiling additionally requires a host-executable pinned Slint compiler;
 the normal AArch64 engine check is frontend-disabled and is not a rendered test.
+
+## Task 097A regression investigation
+
+The 096G full-rebuild regression was repeated assignment-target discovery added
+after 096E, not incremental telemetry. Stable capability metadata is cached by
+action/parameter identity. The identical development workload measured a
+124,843 ns full median and 64,310 ns incremental median, with one discovery
+rebuild. CI rejects unchanged page refreshes that repeat discovery.

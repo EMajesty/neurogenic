@@ -279,6 +279,23 @@ struct ApplicationState {
     PadMode pad_mode{PadMode::step};
     std::string controller_context{"sequencer"};
     std::string parameter_page{"main"}, focused_element{"transport"};
+    enum class InteractionRequest : std::uint8_t {
+        none, confirm, cancel, save, focus_next, focus_previous,
+        page_next, page_previous, first, last, activate, parent
+    };
+    struct InteractionModal {
+        std::string identity, target_identity, previous_focus;
+        std::uint64_t generation{};
+        bool destructive{}, confirm_available{};
+    };
+    struct InteractionState {
+        std::string destination{"performance"}, subview{"root"},
+            focus_identity{"transport"}, navigation_scope{"application"},
+            data_role{"Tempo"};
+        InteractionModal modal;
+        InteractionRequest request{InteractionRequest::none};
+        std::uint64_t revision{1}, request_revision{};
+    } interaction;
     ModifierState modifiers;
     std::vector<std::string> available_actions;
     std::vector<ParameterDescriptor> parameters;
@@ -351,6 +368,18 @@ class ApplicationService {
     // constructs this object.
     [[nodiscard]] std::shared_ptr<const ApplicationState> snapshot_shared() const;
     [[nodiscard]] std::uint64_t rejected_commands() const noexcept;
+    // Presentation-neutral interaction ownership. Frontends retain geometry
+    // and toolkit focus, while controllers can address this stable contract.
+    bool open_interaction_modal(std::string identity,
+                                std::string target_identity,
+                                bool destructive, std::string &error);
+    bool close_interaction_modal(std::uint64_t generation,
+                                 std::string &error);
+    bool set_interaction_focus(std::string identity, std::string scope,
+                               std::string data_role, std::string &error);
+    bool set_interaction_destination(std::string destination,
+                                     std::string subview,
+                                     std::string &error);
     [[nodiscard]] SliceService &slices() noexcept { return slices_; }
     [[nodiscard]] SampleAnalysisService &sample_analysis() noexcept {
         return sample_analysis_;

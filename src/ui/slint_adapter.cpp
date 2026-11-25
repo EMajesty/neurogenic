@@ -76,6 +76,7 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
         add(state.modulation.routes[i].destination.parameter);
     }
     add(state.performance_macros.macros.size());
+    add(state.interaction.revision);
     add(state.midi.route_count);
     add(static_cast<std::uint64_t>(state.midi.clock_source));
     for (std::size_t i = 0; i < state.midi.route_count; ++i) {
@@ -478,7 +479,9 @@ bool SlintFrontendAdapter::refresh() {
             ++local_revision_;
         }
     const auto snapshot_started = std::chrono::steady_clock::now();
-    const auto snapshot_handle = application_.snapshot_shared();
+    auto snapshot_handle = application_.snapshot_shared();
+    if (process_interaction_request(*snapshot_handle))
+        snapshot_handle = application_.snapshot_shared();
     const auto &snapshot = *snapshot_handle;
     refresh_diagnostics_.snapshot_nanoseconds += static_cast<std::uint64_t>(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
@@ -758,22 +761,67 @@ bool SlintFrontendAdapter::refresh() {
     next.shell.position = format_slint_musical_position(
         snapshot.transport_tick, snapshot.time_signature_numerator,
         snapshot.time_signature_denominator);
-    next.shell.page_id = state_.shell.page_id.empty() ? "performance"
-                                                       : state_.shell.page_id;
-    next.shell.destination_id = state_.shell.destination_id.empty()
-                                    ? next.shell.page_id
-                                    : state_.shell.destination_id;
+    const auto *shared_destination =
+        reference_destination(snapshot.interaction.destination);
+    next.shell.page_id = shared_destination ? shared_destination->page_id
+        : state_.shell.page_id.empty() ? "performance" : state_.shell.page_id;
+    next.shell.destination_id = shared_destination
+        ? shared_destination->id
+        : state_.shell.destination_id.empty() ? next.shell.page_id
+                                              : state_.shell.destination_id;
     next.shell.effective_shift = state_.shell.effective_shift;
     next.shell.root_revision = state_.shell.root_revision;
-    next.shell.page_title = state_.shell.page_title.empty()
-                                ? "Performance"
-                                : state_.shell.page_title;
+    next.shell.focus_identity = snapshot.interaction.focus_identity;
+    next.shell.navigation_scope = snapshot.interaction.navigation_scope;
+    next.shell.data_role = snapshot.interaction.data_role;
+    next.shell.modal_identity = snapshot.interaction.modal.identity;
+    next.shell.modal_active = !snapshot.interaction.modal.identity.empty();
+    next.shell.modal_confirm_focused =
+        snapshot.interaction.focus_identity == "modal.confirm";
+    next.shell.page_title = shared_destination ? shared_destination->title
+        : state_.shell.page_title.empty() ? "Performance"
+                                          : state_.shell.page_title;
     const auto &destinations = next.shell.effective_shift
                                    ? reference_secondary_destinations()
                                    : reference_primary_destinations();
     for (const auto &destination : destinations)
         next.shell.pages.push_back({destination.id, destination.short_label,
                                     destination.available});
+    std::uint64_t discovery_fingerprint{0xcbf29ce484222325ULL};
+    for (const auto &action : snapshot.available_actions)
+        hash_combine(discovery_fingerprint, std::hash<std::string>{}(action));
+    for (const auto &parameter : snapshot.parameters)
+        hash_combine(discovery_fingerprint,
+                     std::hash<std::string>{}(parameter.id));
+    if (assignment_discovery_fingerprint_ != discovery_fingerprint) {
+        ++refresh_diagnostics_.assignment_discovery_rebuilds;
+        cached_performance_parameters_.clear();
+        cached_performance_actions_.clear();
+        cached_setup_targets_.clear();
+        AssignmentTargetPicker picker(application_);
+        for (const auto &target : picker.targets()) {
+            if (target.kind == AssignmentTargetKind::action ||
+                target.kind == AssignmentTargetKind::parameter)
+                cached_setup_targets_.push_back(
+                    {target.kind == AssignmentTargetKind::action ? "action"
+                                                                 : "parameter",
+                     target.id, target.label, false});
+        }
+        for (const auto &target : picker.targets([](const auto &action) {
+                 return performance_safe_assignment_action(action);
+             })) {
+            auto item = SlintPerformancePageState::AssignmentTargetItem{
+                target.kind == AssignmentTargetKind::action ? "action"
+                                                             : "parameter",
+                target.id, target.label, target.category, false,
+                target.available};
+            if (target.kind == AssignmentTargetKind::action)
+                cached_performance_actions_.push_back(std::move(item));
+            else if (target.kind == AssignmentTargetKind::parameter)
+                cached_performance_parameters_.push_back(std::move(item));
+        }
+        assignment_discovery_fingerprint_ = discovery_fingerprint;
+    }
     next.performance.launch_quantization =
         quantization_name(snapshot.launch_quantization);
     for (const auto &bank : snapshot.performance_banks.banks) {
@@ -795,18 +843,8 @@ bool SlintFrontendAdapter::refresh() {
         state_.performance.editor_argument_values;
     next.performance.selected_assignment_target =
         state_.performance.selected_assignment_target;
-    AssignmentTargetPicker performance_picker(application_);
-    for (const auto &target : performance_picker.targets(
-             [](const auto &action) {
-                 return performance_safe_assignment_action(action);
-             })) {
-        const auto desired = next.performance.editor_action
-            ? AssignmentTargetKind::action : AssignmentTargetKind::parameter;
-        if (target.kind != desired) continue;
-        next.performance.assignment_targets.push_back(
-            {target.kind == AssignmentTargetKind::action ? "action" : "parameter",
-             target.id, target.label, target.category, false, target.available});
-    }
+    next.performance.assignment_targets = next.performance.editor_action
+        ? cached_performance_actions_ : cached_performance_parameters_;
     if (next.performance.selected_assignment_target >=
         next.performance.assignment_targets.size())
         next.performance.selected_assignment_target = 0;
@@ -954,7 +992,10 @@ bool SlintFrontendAdapter::refresh() {
     next.sequencer.confirm_delete_pattern = state_.sequencer.confirm_delete_pattern;
     next.sequencer.confirm_delete_clip = state_.sequencer.confirm_delete_clip;
     next.sequencer.resolution = step_resolution_name(snapshot.step_resolution);
-    next.sequencer.arrangement_view = state_.sequencer.arrangement_view;
+    next.sequencer.arrangement_view = shared_destination
+        ? shared_destination->id == "song" ||
+              snapshot.interaction.subview == "arrangement"
+        : state_.sequencer.arrangement_view;
     next.sequencer.selected_clip_id = state_.sequencer.selected_clip_id;
     next.sequencer.selected_clip_kind = state_.sequencer.selected_clip_kind;
     const auto displayed_pattern = snapshot.selected_pattern;
@@ -1630,15 +1671,7 @@ bool SlintFrontendAdapter::refresh() {
         next.browser.destination = "Current application session";
     next.setup = state_.setup;
     next.setup.mapping_targets.clear();
-    AssignmentTargetPicker picker(application_);
-    for (const auto &target : picker.targets()) {
-        if (target.kind != AssignmentTargetKind::action &&
-            target.kind != AssignmentTargetKind::parameter)
-            continue;
-        next.setup.mapping_targets.push_back(
-            {target.kind == AssignmentTargetKind::action ? "action" : "parameter",
-             target.id, target.label, false});
-    }
+    next.setup.mapping_targets = cached_setup_targets_;
     if (setup_runtime) {
         const auto &runtime = *setup_runtime;
         next.setup.audio_backend = runtime.audio_backend;
@@ -1743,6 +1776,105 @@ bool SlintFrontendAdapter::execute(ApplicationCommand command) {
     (void)refresh();
     state_.shell.notification = last_error_;
     return result.accepted;
+}
+
+bool SlintFrontendAdapter::open_modal(std::string identity, std::string target,
+                                      bool destructive) {
+    std::string error;
+    if (!application_.open_interaction_modal(std::move(identity),
+                                             std::move(target), destructive,
+                                             error)) {
+        last_error_ = std::move(error);
+        return false;
+    }
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::process_interaction_request(
+    const ApplicationState &snapshot) {
+    const auto &interaction = snapshot.interaction;
+    if (interaction.request == ApplicationState::InteractionRequest::none ||
+        interaction.request_revision <= consumed_interaction_request_)
+        return false;
+    consumed_interaction_request_ = interaction.request_revision;
+    const auto modal = interaction.modal;
+    const auto request = interaction.request;
+    std::string close_error;
+    if (!modal.identity.empty())
+        (void)application_.close_interaction_modal(modal.generation, close_error);
+
+    if (request == ApplicationState::InteractionRequest::save) {
+        if (snapshot.project_path.empty())
+            (void)request_text_entry("project-save-as", {});
+        else
+            (void)execute({"project.save.v1", {}, {}, 0});
+        return true;
+    }
+    if (request == ApplicationState::InteractionRequest::focus_next ||
+        request == ApplicationState::InteractionRequest::focus_previous ||
+        request == ApplicationState::InteractionRequest::first ||
+        request == ApplicationState::InteractionRequest::last) {
+        if (!state_.browser.entries.empty()) {
+            std::size_t selected = state_.browser.selected;
+            if (request == ApplicationState::InteractionRequest::first)
+                selected = 0;
+            else if (request == ApplicationState::InteractionRequest::last)
+                selected = state_.browser.entries.size() - 1;
+            else if (request == ApplicationState::InteractionRequest::focus_next)
+                selected = std::min(selected + 1, state_.browser.entries.size() - 1);
+            else if (selected > 0)
+                --selected;
+            (void)select_browser_entry(selected);
+        }
+        return true;
+    }
+    if (request == ApplicationState::InteractionRequest::page_next ||
+        request == ApplicationState::InteractionRequest::page_previous) {
+        (void)change_browser_page(
+            request == ApplicationState::InteractionRequest::page_next ? 1 : -1);
+        return true;
+    }
+    if (request == ApplicationState::InteractionRequest::activate) {
+        (void)activate_browser_entry();
+        return true;
+    }
+    if (request == ApplicationState::InteractionRequest::parent) {
+        (void)browser_parent();
+        return true;
+    }
+    const bool confirm = request == ApplicationState::InteractionRequest::confirm;
+    if (modal.identity == "sequencer.pattern-delete") {
+        state_.sequencer.confirm_delete_pattern = false;
+        if (confirm)
+            (void)execute({"pattern.delete.v1",
+                           {{"id", static_cast<std::int64_t>(
+                                std::stoull(modal.target_identity))}}, {}, 0});
+    } else if (modal.identity == "sequencer.track-delete") {
+        state_.sequencer.confirm_delete_track = false;
+        if (confirm)
+            (void)execute({"track.delete.v1",
+                           {{"track_id", static_cast<std::int64_t>(
+                                std::stoull(modal.target_identity))}}, {}, 0});
+    } else if (modal.identity == "sequencer.clip-delete") {
+        state_.sequencer.confirm_delete_clip = false;
+        if (confirm) {
+            const auto split = modal.target_identity.find(':');
+            if (split != std::string::npos) {
+                const auto kind = modal.target_identity.substr(0, split);
+                const auto id = static_cast<std::int64_t>(
+                    std::stoull(modal.target_identity.substr(split + 1)));
+                (void)execute({kind == "Audio"
+                                  ? "arrangement.audio-clip-delete.v1"
+                                  : "arrangement.clip-delete.v1",
+                               {{"id", id}}, {}, 0});
+            }
+        }
+    } else if (modal.identity == "browser.confirmation") {
+        (void)confirm_browser_action(confirm);
+    }
+    ++local_revision_;
+    return true;
 }
 
 bool SlintFrontendAdapter::invoke_action(std::string action_id) {
@@ -2136,6 +2268,15 @@ bool SlintFrontendAdapter::select_reference_page(std::size_t index) {
     context_bank_ = 0;
     state_.shell.notification.clear();
     last_error_.clear();
+    std::string interaction_error;
+    if (!application_.set_interaction_destination(
+            destination.id, destination.subview.empty() ? "root"
+                                                        : destination.subview,
+            interaction_error)) {
+        last_error_ = std::move(interaction_error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
     ++local_revision_;
     return true;
 }
@@ -2197,6 +2338,10 @@ bool SlintFrontendAdapter::select_browser_entry(std::size_t index) {
         state_.browser.entries[i].selected = i == index;
     const auto &entry = state_.browser.entries[index];
     state_.browser.preview = entry.name + " — " + entry.type;
+    std::string ignored;
+    (void)application_.set_interaction_focus(
+        "browser.entry:" + entry.id, "browser.list", "Browser entry",
+        ignored);
     ++local_revision_;
     return refresh();
 }
@@ -2271,8 +2416,8 @@ bool SlintFrontendAdapter::browser_project_action(std::string action,
         state_.browser.confirmation_action = action + "\n" + path;
         state_.browser.confirmation_message =
             "The current project has unsaved changes. Discard them?";
-        ++local_revision_;
-        return refresh();
+        return open_modal("browser.confirmation",
+                          state_.browser.confirmation_action, true);
     }
     if (action == "open")
         return execute({"project.open.v1", {{"path", path}, {"discard", false}}, {}, 0});
@@ -2304,8 +2449,8 @@ bool SlintFrontendAdapter::browser_preset_action(std::string action) {
             "\n" + entry.id;
         state_.browser.confirmation_message =
             "Delete preset '" + entry.name + "'? This cannot be undone.";
-        ++local_revision_;
-        return refresh();
+        return open_modal("browser.confirmation",
+                          state_.browser.confirmation_action, true);
     }
     if (action == "save")
         return request_text_entry(entry.kind == SlintBrowserEntryKind::fx_preset
@@ -2352,6 +2497,12 @@ bool SlintFrontendAdapter::browser_preset_action(std::string action) {
 
 bool SlintFrontendAdapter::confirm_browser_action(bool accept) {
     if (!state_.browser.confirmation_pending) return false;
+    const auto interaction = application_.snapshot().interaction;
+    if (!interaction.modal.identity.empty()) {
+        std::string ignored;
+        (void)application_.close_interaction_modal(
+            interaction.modal.generation, ignored);
+    }
     const auto encoded = state_.browser.confirmation_action;
     state_.browser.confirmation_pending = false;
     state_.browser.confirmation_action.clear();
@@ -3043,17 +3194,15 @@ bool SlintFrontendAdapter::manage_pattern(std::string operation) {
     const auto id = static_cast<std::int64_t>(state_.sequencer.selected_pattern_id);
     if (operation == "delete") {
         state_.sequencer.confirm_delete_pattern = true;
-        ++local_revision_;
-        return refresh();
+        return id > 0 && open_modal("sequencer.pattern-delete",
+                                    std::to_string(id), true);
     }
     if (operation == "cancel-delete") {
-        state_.sequencer.confirm_delete_pattern = false;
-        ++local_revision_;
-        return refresh();
+        return execute({"navigation.cancel.v1", {}, {}, 0});
     }
     if (operation == "confirm-delete") {
-        state_.sequencer.confirm_delete_pattern = false;
-        return id > 0 && execute({"pattern.delete.v1", {{"id", id}}, {}, 0});
+        if (!execute({"navigation.focus-next.v1", {}, {}, 0})) return false;
+        return execute({"navigation.confirm.v1", {}, {}, 0});
     }
     if (operation == "launch")
         return id > 0 && execute({"pattern.launch.v1",
@@ -3084,17 +3233,16 @@ bool SlintFrontendAdapter::select_track_index(std::size_t index) {
 bool SlintFrontendAdapter::manage_track(std::string operation) {
     if (operation == "delete") {
         state_.sequencer.confirm_delete_track = true;
-        ++local_revision_;
-        return refresh();
+        return open_modal("sequencer.track-delete",
+                          std::to_string(application_.snapshot().selected_track),
+                          true);
     }
     if (operation == "cancel-delete") {
-        state_.sequencer.confirm_delete_track = false;
-        ++local_revision_;
-        return refresh();
+        return execute({"navigation.cancel.v1", {}, {}, 0});
     }
     if (operation == "confirm-delete") {
-        state_.sequencer.confirm_delete_track = false;
-        return execute({"track.delete.v1", {}, {}, 0});
+        if (!execute({"navigation.focus-next.v1", {}, {}, 0})) return false;
+        return execute({"navigation.confirm.v1", {}, {}, 0});
     }
     if (operation == "duplicate")
         return execute({"track.duplicate.v1", {}, {}, 0});
@@ -3129,6 +3277,15 @@ bool SlintFrontendAdapter::cycle_step_resolution() {
 
 bool SlintFrontendAdapter::toggle_arrangement_view() {
     state_.sequencer.arrangement_view = !state_.sequencer.arrangement_view;
+    std::string error;
+    if (!application_.set_interaction_destination(
+            state_.shell.destination_id.empty() ? "sequencer"
+                                                : state_.shell.destination_id,
+            state_.sequencer.arrangement_view ? "arrangement" : "root", error)) {
+        last_error_ = std::move(error);
+        state_.shell.notification = last_error_;
+        return false;
+    }
     ++local_revision_;
     return refresh();
 }
@@ -3210,18 +3367,16 @@ bool SlintFrontendAdapter::manage_arrangement(std::string operation) {
         : std::string("arrangement.clip-");
     if (operation == "delete") {
         state_.sequencer.confirm_delete_clip = true;
-        ++local_revision_;
-        return refresh();
+        return open_modal("sequencer.clip-delete",
+                          selected->kind + ":" + std::to_string(selected->id),
+                          true);
     }
     if (operation == "cancel-delete") {
-        state_.sequencer.confirm_delete_clip = false;
-        ++local_revision_;
-        return refresh();
+        return execute({"navigation.cancel.v1", {}, {}, 0});
     }
     if (operation == "confirm-delete") {
-        state_.sequencer.confirm_delete_clip = false;
-        return execute({prefix + "delete.v1",
-                        {{"id", static_cast<std::int64_t>(selected->id)}}, {}, 0});
+        if (!execute({"navigation.focus-next.v1", {}, {}, 0})) return false;
+        return execute({"navigation.confirm.v1", {}, {}, 0});
     }
     if (operation == "duplicate")
         return execute({prefix + "duplicate.v1",

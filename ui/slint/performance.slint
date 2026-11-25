@@ -43,6 +43,12 @@ export component PerformanceWindow inherits Window {
     in property <string> active-content: "Unavailable";
     in property <string> launch-quantization: "Bar";
     in property <string> notification: "";
+    in property <string> focus-identity: "transport";
+    in property <string> navigation-scope: "application";
+    in property <string> data-role: "Tempo";
+    in property <string> interaction-modal-identity: "";
+    in property <bool> interaction-modal-active: false;
+    in property <bool> interaction-modal-confirm-focused: false;
     in property <bool> arrangement-view: false;
     in property <string> selected-pattern: "Unavailable";
     in property <string> pattern-length: "Unavailable";
@@ -263,6 +269,13 @@ export component PerformanceWindow inherits Window {
     VerticalLayout {
         padding: 8px; spacing: 6px;
         status-strip := GlobalStatus { height: 48px; project: root.project-name; dirty: root.project-dirty; transport: root.transport-state; tempo: root.tempo; signature: root.time-signature; position: root.position; page-title: root.page-title; }
+        Rectangle { height: 24px; background: Theme.panel; border-radius: Theme.radius;
+            Text { x: 8px; width: parent.width - 16px; height: parent.height;
+                text: "Focus: " + root.focus-identity + "  ·  DATA: " + root.data-role + "  ·  Scope: " + root.navigation-scope;
+                color: root.interaction-modal-active ? Theme.warning : Theme.muted;
+                vertical-alignment: center; overflow: elide;
+            }
+        }
         page-strip := HorizontalLayout {
             height: 44px; spacing: 4px;
             for page[i] in root.pages: PageButton { text: page.title; selected: page.id == root.destination-id; implemented: page.implemented; clicked => { root.page-selected(i); } }

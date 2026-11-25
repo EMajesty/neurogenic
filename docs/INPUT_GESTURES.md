@@ -109,3 +109,9 @@ Task 096B. Complete navigation and transport bindings, held-step
 parameter locks, performance banks, and RGB firmware feedback remain later
 Task 096 work. Physical rollover, latency, lost packets, and ergonomics remain
 NOT RUN.
+
+Task 097A integrates shared modal generations and presentation focus. Modal
+opening cancels inappropriate context ownership; page controls are blocked while
+navigation and explicitly safe global controls remain available. Repeatable
+navigation dispatches immediately and then at a bounded rate. Disconnect and
+protocol reconciliation invalidate stale releases without synthesizing ENTER.

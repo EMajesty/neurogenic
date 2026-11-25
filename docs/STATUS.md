@@ -963,3 +963,9 @@ transactional. Unsupported solo/arm pad modes, typed clipboard, metronome,
 count-in, note repeat, groove, live erase and ambiguous loop shortcuts remain
 unassigned and visible in the Task 096C matrix. Software simulation passes;
 physical validation remains **NOT RUN**.
+
+Task 097A adds shared destination, stable focus, DATA-role and generation-owned
+modal state. V2 ENTER/BACK, shifted navigation, root navigation and physical
+Save now reach production Slint workflows. A protocol-level scenario covers
+captured destructive confirmation, Browser navigation, Save As and reconnect
+cleanup. Assignment/profile forms and physical validation remain open.

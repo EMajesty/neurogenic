@@ -36,3 +36,7 @@ permission behavior remains part of `AUD2-018` rather than an unresolved crash.
 2. **Musical expansion:** AUD2-015–017 plus deeper arrangement transforms.
 3. **Refinement/experimental:** AUD2-019 and visual polish.
 4. **Physical work:** AUD2-018 proceeds in parallel after crash/package fixes.
+
+Task 097A closes the shared modal/focus foundation. Next is 097B graphical
+assignment/profile lifecycle closure, then remaining contextual/pad coverage
+and physical bring-up.

@@ -252,6 +252,15 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_controller_v2_protocol_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.controller-v2-protocol-tests.v1 passed"
     TIMEOUT 20)
+  add_executable(neurogenic_interaction_navigation_tests
+    tests/interaction_navigation_tests.cpp)
+  target_link_libraries(neurogenic_interaction_navigation_tests PRIVATE
+    neurogenic_slint_adapter)
+  add_test(NAME neurogenic_interaction_navigation_tests
+    COMMAND neurogenic_interaction_navigation_tests)
+  set_tests_properties(neurogenic_interaction_navigation_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.interaction-navigation-tests.v1 passed"
+    TIMEOUT 30)
   add_executable(neurogenic_modulation_authoring_tests
     tests/modulation_authoring_tests.cpp)
   target_link_libraries(neurogenic_modulation_authoring_tests PRIVATE

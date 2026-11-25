@@ -92,6 +92,8 @@ int main() {
                     Clock::now() - started).count()));
             if (!resolved) throw std::runtime_error("tempo binding unresolved");
         }
+        const auto assignment_discovery_count =
+            adapter.refresh_diagnostics().assignment_discovery_rebuilds;
         for (std::size_t i = 0; i < iterations; ++i) {
             const auto started = Clock::now();
             (void)adapter.refresh();
@@ -123,6 +125,10 @@ int main() {
                     Clock::now() - started).count()));
         }
         const auto diagnostics = adapter.refresh_diagnostics();
+        if (diagnostics.assignment_discovery_rebuilds !=
+            assignment_discovery_count)
+            throw std::runtime_error(
+                "page refresh repeated unchanged assignment discovery");
         if (diagnostics.telemetry_updates == 0)
             throw std::runtime_error("playback did not use telemetry publication");
         if (diagnostics.full_rebuilds != full_count)
@@ -157,7 +163,9 @@ int main() {
                   << " max=" << resolution_result.maximum << '\n'
                   << "full_rebuilds=" << diagnostics.full_rebuilds
                   << " telemetry_updates=" << diagnostics.telemetry_updates
-                  << " skipped=" << diagnostics.skipped << '\n';
+                  << " skipped=" << diagnostics.skipped
+                  << " assignment_discovery_rebuilds="
+                  << diagnostics.assignment_discovery_rebuilds << '\n';
         samples.shutdown();
         return 0;
     } catch (const std::exception &exception) {

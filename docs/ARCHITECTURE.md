@@ -703,3 +703,12 @@ not controller profiles or protocols. A dedicated or generic controller maps a
 physical input to a logical position; `LaunchSlot` maps that position to a
 stable launch identity. The current Slint surface shows positions 0..15 only as
 a provisional profile.
+
+## Presentation interaction ownership
+
+`ApplicationState::interaction` is the copied rendezvous for controllers and
+frontends: destination/subview, stable focus, navigation scope, DATA role and
+one generation-owned modal. It contains no widgets, geometry or engine pointers.
+Frontends interpret requests locally; semantic operations remain in
+`ApplicationService`. Destructive modals capture a stable target and restore
+prior focus only after an exact-generation close.

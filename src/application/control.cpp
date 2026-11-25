@@ -1057,10 +1057,16 @@ ActionRegistry::ActionRegistry() {
                "Controllers", {{"context", ValueType::text}}));
     add(action("navigation.focus-next.v1", "Focus next", "Navigation"));
     add(action("navigation.focus-previous.v1", "Focus previous", "Navigation"));
+    add(action("navigation.page-next.v1", "Focus page down", "Navigation"));
+    add(action("navigation.page-previous.v1", "Focus page up", "Navigation"));
+    add(action("navigation.first.v1", "Focus first item", "Navigation"));
+    add(action("navigation.last.v1", "Focus last item", "Navigation"));
+    add(action("navigation.root.v1", "Return to destination root", "Navigation"));
     add(action("navigation.adjust.v1", "Adjust focused item", "Navigation",
                {{"steps", ValueType::real}}));
     add(action("navigation.confirm.v1", "Confirm", "Navigation"));
     add(action("navigation.cancel.v1", "Cancel", "Navigation"));
+    add(action("project.save-request.v1", "Request project save", "Project"));
     add(action("text.input.v1", "Text input", "Text",
                {{"text", ValueType::text}}));
     add(action("modulation.xy.v1", "X/Y control", "Modulation",
@@ -8539,7 +8545,40 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             if (error.empty())
                 changed_locked();
         } else if (command.action_id == "navigation.focus-next.v1" ||
-                   command.action_id == "navigation.focus-previous.v1") {
+                   command.action_id == "navigation.focus-previous.v1" ||
+                   command.action_id == "navigation.page-next.v1" ||
+                   command.action_id == "navigation.page-previous.v1" ||
+                   command.action_id == "navigation.first.v1" ||
+                   command.action_id == "navigation.last.v1") {
+            if (!state_.interaction.modal.identity.empty()) {
+                const bool confirm = command.action_id == "navigation.focus-next.v1" ||
+                    command.action_id == "navigation.page-next.v1" ||
+                    command.action_id == "navigation.last.v1";
+                state_.interaction.focus_identity = confirm ? "modal.confirm"
+                                                            : "modal.cancel";
+                state_.interaction.data_role = "Modal choice";
+                ++state_.interaction.revision;
+                changed_locked();
+            } else if (state_.interaction.destination == "browser") {
+                state_.interaction.request =
+                    command.action_id == "navigation.focus-next.v1"
+                        ? ApplicationState::InteractionRequest::focus_next
+                    : command.action_id == "navigation.focus-previous.v1"
+                        ? ApplicationState::InteractionRequest::focus_previous
+                    : command.action_id == "navigation.page-next.v1"
+                        ? ApplicationState::InteractionRequest::page_next
+                    : command.action_id == "navigation.page-previous.v1"
+                        ? ApplicationState::InteractionRequest::page_previous
+                    : command.action_id == "navigation.first.v1"
+                        ? ApplicationState::InteractionRequest::first
+                        : ApplicationState::InteractionRequest::last;
+                ++state_.interaction.request_revision;
+                state_.interaction.focus_identity = "browser.entry";
+                state_.interaction.navigation_scope = "browser.list";
+                state_.interaction.data_role = "Browser entry";
+                ++state_.interaction.revision;
+                changed_locked();
+            } else {
             static constexpr std::string_view focus[]{
                 "transport", "tracks", "samples", "pad-playback", "parameters"};
             auto found = std::find(focus, focus + 5, state_.focused_element);
@@ -8550,9 +8589,30 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         ? (index + 1) % 5
                         : (index + 4) % 5;
             state_.focused_element = focus[index];
+            state_.interaction.focus_identity = state_.focused_element;
+            state_.interaction.data_role = state_.focused_element == "transport"
+                ? "Tempo" : state_.focused_element == "tracks"
+                ? "Track selection" : state_.focused_element == "steps"
+                ? "Step selection" : "Focused value";
+            ++state_.interaction.revision;
             changed_locked();
+            }
         } else if (command.action_id == "navigation.confirm.v1") {
-            if (state_.focused_element == "transport")
+            if (!state_.interaction.modal.identity.empty()) {
+                state_.interaction.request =
+                    state_.interaction.focus_identity == "modal.confirm" &&
+                            state_.interaction.modal.confirm_available
+                        ? ApplicationState::InteractionRequest::confirm
+                        : ApplicationState::InteractionRequest::cancel;
+                ++state_.interaction.request_revision;
+                ++state_.interaction.revision;
+                changed_locked();
+            } else if (state_.interaction.destination == "browser") {
+                state_.interaction.request = ApplicationState::InteractionRequest::activate;
+                ++state_.interaction.request_revision;
+                ++state_.interaction.revision;
+                changed_locked();
+            } else if (state_.focused_element == "transport")
                 state_.focused_element = "tracks";
             else if (state_.focused_element == "tracks")
                 state_.focused_element = "steps";
@@ -8605,19 +8665,68 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 state_.focused_element += ".confirmed";
             changed_locked();
         } else if (command.action_id == "navigation.cancel.v1") {
+            if (!state_.interaction.modal.identity.empty()) {
+                state_.interaction.request = ApplicationState::InteractionRequest::cancel;
+                ++state_.interaction.request_revision;
+                ++state_.interaction.revision;
+                changed_locked();
+            } else if (state_.interaction.destination == "browser") {
+                state_.interaction.request = ApplicationState::InteractionRequest::parent;
+                ++state_.interaction.request_revision;
+                ++state_.interaction.revision;
+                changed_locked();
+            } else {
             state_.focused_element =
                 state_.focused_element == "pad-playback" ? "samples"
                 : state_.focused_element == "step-locks" ? "step-properties"
                 : state_.focused_element == "step-properties" ? "steps"
                 : state_.focused_element == "steps"           ? "tracks"
                                                               : "transport";
+            state_.interaction.focus_identity = state_.focused_element;
+            ++state_.interaction.revision;
             changed_locked();
+            }
+        } else if (command.action_id == "navigation.root.v1") {
+            if (!state_.interaction.modal.identity.empty())
+                error = "destination root is unavailable while a modal owns input";
+            else {
+                state_.interaction.subview = "root";
+                state_.interaction.focus_identity = "destination.root";
+                state_.interaction.navigation_scope = state_.interaction.destination;
+                ++state_.interaction.revision;
+                changed_locked();
+            }
+        } else if (command.action_id == "project.save-request.v1") {
+            if (!state_.interaction.modal.identity.empty())
+                error = "save cannot bypass the active modal";
+            else {
+                state_.interaction.request = ApplicationState::InteractionRequest::save;
+                ++state_.interaction.request_revision;
+                ++state_.interaction.revision;
+                changed_locked();
+            }
         } else if (command.action_id == "navigation.adjust.v1") {
             const auto delta = *argument<double>(command, "steps");
             const auto direction = delta < 0 ? -1 : delta > 0 ? 1 : 0;
             if (!std::isfinite(delta))
                 error = "navigation adjustment must be finite";
             else if (direction == 0) {
+            } else if (!state_.interaction.modal.identity.empty()) {
+                state_.interaction.focus_identity = direction > 0
+                    ? "modal.confirm" : "modal.cancel";
+                state_.interaction.data_role = "Modal choice";
+                ++state_.interaction.revision;
+                changed_locked();
+            } else if (state_.interaction.destination == "browser") {
+                state_.interaction.request = direction > 0
+                    ? ApplicationState::InteractionRequest::focus_next
+                    : ApplicationState::InteractionRequest::focus_previous;
+                ++state_.interaction.request_revision;
+                state_.interaction.focus_identity = "browser.entry";
+                state_.interaction.navigation_scope = "browser.list";
+                state_.interaction.data_role = "Browser entry";
+                ++state_.interaction.revision;
+                changed_locked();
             } else if (state_.focused_element == "tracks") {
                 const auto timeline = timeline_.snapshot();
                 if (timeline.timeline.tracks.empty())
@@ -10632,6 +10741,96 @@ std::shared_ptr<const ApplicationState> ApplicationService::snapshot_shared() co
 std::uint64_t ApplicationService::rejected_commands() const noexcept {
     std::lock_guard lock(mutex_);
     return rejected_;
+}
+
+bool ApplicationService::open_interaction_modal(
+    std::string identity, std::string target_identity, bool destructive,
+    std::string &error) {
+    if (identity.empty() || identity.size() > 96 ||
+        target_identity.empty() || target_identity.size() > 512) {
+        error = "interaction modal identity is invalid";
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    const auto generation = state_.interaction.modal.generation + 1;
+    const auto previous = state_.interaction.focus_identity;
+    state_.interaction.modal = {std::move(identity), std::move(target_identity),
+                                previous, generation, destructive, true};
+    state_.interaction.focus_identity = destructive ? "modal.cancel"
+                                                    : "modal.confirm";
+    state_.interaction.navigation_scope = "modal";
+    state_.interaction.data_role = "Modal choice";
+    state_.interaction.request = ApplicationState::InteractionRequest::none;
+    ++state_.interaction.revision;
+    changed_locked();
+    error.clear();
+    return true;
+}
+
+bool ApplicationService::close_interaction_modal(std::uint64_t generation,
+                                                  std::string &error) {
+    std::lock_guard lock(mutex_);
+    if (state_.interaction.modal.identity.empty() ||
+        state_.interaction.modal.generation != generation) {
+        error = "interaction modal generation is stale";
+        return false;
+    }
+    const auto previous = state_.interaction.modal.previous_focus;
+    state_.interaction.modal = {};
+    state_.interaction.focus_identity = previous.empty() ? "destination.root"
+                                                         : previous;
+    state_.interaction.navigation_scope = state_.interaction.destination;
+    state_.interaction.data_role = "Focused value";
+    state_.interaction.request = ApplicationState::InteractionRequest::none;
+    ++state_.interaction.revision;
+    changed_locked();
+    error.clear();
+    return true;
+}
+
+bool ApplicationService::set_interaction_focus(
+    std::string identity, std::string scope, std::string data_role,
+    std::string &error) {
+    if (identity.empty() || identity.size() > 128 || scope.size() > 96 ||
+        data_role.size() > 96) {
+        error = "interaction focus identity is invalid";
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    if (!state_.interaction.modal.identity.empty()) {
+        error = "underlying focus is owned by the active modal";
+        return false;
+    }
+    state_.interaction.focus_identity = std::move(identity);
+    state_.interaction.navigation_scope = std::move(scope);
+    state_.interaction.data_role = std::move(data_role);
+    ++state_.interaction.revision;
+    changed_locked();
+    error.clear();
+    return true;
+}
+
+bool ApplicationService::set_interaction_destination(
+    std::string destination, std::string subview, std::string &error) {
+    if (destination.empty() || destination.size() > 96 || subview.empty() ||
+        subview.size() > 96) {
+        error = "interaction destination identity is invalid";
+        return false;
+    }
+    std::lock_guard lock(mutex_);
+    if (!state_.interaction.modal.identity.empty()) {
+        error = "destination change is owned by the active modal";
+        return false;
+    }
+    state_.interaction.destination = std::move(destination);
+    state_.interaction.subview = std::move(subview);
+    state_.interaction.navigation_scope = state_.interaction.destination;
+    state_.interaction.focus_identity = "destination.root";
+    state_.interaction.data_role = "Unavailable";
+    ++state_.interaction.revision;
+    changed_locked();
+    error.clear();
+    return true;
 }
 
 const char *step_resolution_name(StepResolution value) noexcept {

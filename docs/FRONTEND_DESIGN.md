@@ -181,3 +181,9 @@ example. It has no Slint, SDL, reference-panel or page-hierarchy dependency and
 covers discovery, copied state, typed actions, parameter binding, history,
 audible rendering and project reopen. The shorter snippet above remains
 illustrative because host construction and error display are host-specific.
+
+An alternative frontend can opt into hardware navigation by publishing stable
+destination/focus roles and consuming `ApplicationState::interaction` request
+revisions once. Modal open captures a target; the frontend validates and
+dispatches it, then closes the exact generation. Toolkit focus, geometry,
+scrolling and text entry remain local. Direct semantic clients need not opt in.

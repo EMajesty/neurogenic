@@ -220,6 +220,13 @@ void publish(const SlintUiState &state,
     window->set_active_content(text(state.performance.active_content));
     window->set_launch_quantization(text(state.performance.launch_quantization));
     window->set_notification(text(state.shell.notification));
+    window->set_focus_identity(text(state.shell.focus_identity));
+    window->set_navigation_scope(text(state.shell.navigation_scope));
+    window->set_data_role(text(state.shell.data_role));
+    window->set_interaction_modal_identity(text(state.shell.modal_identity));
+    window->set_interaction_modal_active(state.shell.modal_active);
+    window->set_interaction_modal_confirm_focused(
+        state.shell.modal_confirm_focused);
     window->set_arrangement_view(state.sequencer.arrangement_view);
     window->set_selected_pattern(text(state.sequencer.selected_pattern));
     window->set_pattern_length(text(state.sequencer.pattern_length));
@@ -1252,6 +1259,44 @@ int run_slint_frontend(ApplicationService &application,
             // Exercise the generated component callbacks after the production
             // bindings above are installed. This intentionally tests the same
             // callback path used by mouse/touch controls, without a display.
+            std::string interaction_error;
+            if (!application.set_interaction_focus(
+                    "generated.focus", "generated-list", "Generated DATA",
+                    interaction_error))
+                throw std::runtime_error(interaction_error);
+            (void)adapter.refresh();
+            publish(adapter.state(), window);
+            if (std::string_view(window->get_focus_identity().data()) !=
+                    "generated.focus" ||
+                std::string_view(window->get_data_role().data()) !=
+                    "Generated DATA")
+                throw std::runtime_error(
+                    "generated shell did not publish shared focus and DATA role");
+            if (!application.open_interaction_modal(
+                    "generated.confirm", "stable-target", true,
+                    interaction_error))
+                throw std::runtime_error(interaction_error);
+            (void)adapter.refresh();
+            publish(adapter.state(), window);
+            if (!window->get_interaction_modal_active() ||
+                window->get_interaction_modal_confirm_focused() ||
+                std::string_view(
+                    window->get_interaction_modal_identity().data()) !=
+                    "generated.confirm")
+                throw std::runtime_error(
+                    "generated shell did not publish safe modal ownership");
+            const auto modal_generation =
+                application.snapshot().interaction.modal.generation;
+            if (!application.close_interaction_modal(
+                    modal_generation, interaction_error))
+                throw std::runtime_error(interaction_error);
+            (void)adapter.refresh();
+            publish(adapter.state(), window);
+            if (window->get_interaction_modal_active() ||
+                std::string_view(window->get_focus_identity().data()) !=
+                    "generated.focus")
+                throw std::runtime_error(
+                    "generated shell did not restore focus after modal close");
             window->invoke_transport_invoked("play");
             if (!application.snapshot().playing)
                 throw std::runtime_error("generated transport callback did not start playback");
