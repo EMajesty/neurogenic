@@ -1,5 +1,12 @@
 # Musical timeline
 
+Task 096D held-step edits carry `PatternId`, `TrackId`, absolute step and an
+unambiguous `EventId`. Empty and multi-note steps are rejected rather than
+guessed. Compatible locks reuse destination validation and the existing
+parameter-event scheduler; base parameter state is not rewritten. Selections
+are bounded to 64 stable references and grouped same-pattern/track edits commit
+as one timeline history transaction.
+
 Task 096C adds stable controller editing without a second timeline model.
 TRACK/PAGE/MUTE/ERASE chords carry stable track/pattern IDs and absolute steps;
 `step.erase.v1` removes existing events transactionally and participates in

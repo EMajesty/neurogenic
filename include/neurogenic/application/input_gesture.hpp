@@ -44,6 +44,10 @@ struct GestureControlPolicy {
     bool global_across_context{};
     GestureTiming timing;
     GestureTarget press_target, release_target;
+    // Some musical controls need deferred ownership only in selected contexts
+    // (for example sequencer pads which may become held-step editors).  Their
+    // ordinary policy remains immediate everywhere else.
+    std::vector<std::string> deferred_tap_contexts;
 };
 
 struct GestureChord {
@@ -105,6 +109,8 @@ class InputGestureArbiter {
         bool pending_tap{}, consumed{}, dispatched_press{};
     };
     [[nodiscard]] const GestureControlPolicy *policy(std::string_view) const;
+    [[nodiscard]] GestureControlPolicy effective_policy(
+        const GestureControlPolicy &) const;
     [[nodiscard]] const GestureChord *chord(std::string_view,
                                             std::string_view) const;
     std::vector<GestureEvent> cancel_all(std::string reason);

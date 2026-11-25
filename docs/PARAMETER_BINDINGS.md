@@ -1,5 +1,11 @@
 # Typed parameter bindings
 
+Context descriptors now distinguish ordinary `parameter` bindings from
+`step-property` and `step-lock` roles. A held step never adjusts the stored base
+parameter: the session captures a stable musical target and submits a validated
+lock adjustment. Only numeric automatable destinations accepted by
+`resolve_parameter_destination()` are exposed as compatible locks.
+
 NEUROGENIC's binding layer is a control-side adapter over application
 discovery and semantic actions. It does not provide another DSP control path.
 `ParameterBindingService` resolves a `BindingReference`, reads the discovered

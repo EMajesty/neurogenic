@@ -24,6 +24,8 @@ struct SlintContextItem {
         action_id;
     std::map<std::string, ApplicationValue> arguments;
     bool available{};
+    std::string bank_id, role;
+    bool locked{};
 };
 
 struct SlintPadItem {

@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+Task 096D copies shared bank/role/lock descriptors into the Slint model.
+Generated encoder callbacks route step properties and locks through the same
+semantic actions as controllers. This is callback/software-rendering evidence;
+coordinate touch and physical display validation are NOT RUN.
+
 The intended physical/display relationship is defined by
 [Reference Controller V2](REFERENCE_CONTROLLER_V2.md). Slint remains an
 independent presentation client: the locked panel does not make page indices,

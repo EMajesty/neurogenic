@@ -1233,6 +1233,18 @@ int run_slint_frontend(ApplicationService &application,
                         "Page 2/2")
                         throw std::runtime_error("generated step paging did not publish");
                     window->invoke_advanced_step_edit("probability", -1);
+                    const auto encoder0 = window->get_encoders()
+                        ? window->get_encoders()->row_data(0)
+                        : std::optional<ContextItem>{};
+                    const auto encoder7 = window->get_encoders()
+                        ? window->get_encoders()->row_data(7)
+                        : std::optional<ContextItem>{};
+                    if (!encoder0 || encoder0->label != "PITCH" ||
+                        !encoder7 ||
+                        !std::string_view(encoder7->label.data()).starts_with("LOCK"))
+                        throw std::runtime_error(
+                            "generated contextual sequencer descriptors are not V2-aligned");
+                    window->invoke_encoder_turned(1, -1);
                     window->invoke_pattern_create(false);
                     if (!window->get_patterns() ||
                         window->get_patterns()->row_count() == 0)

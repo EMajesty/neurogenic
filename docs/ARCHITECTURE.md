@@ -1,5 +1,13 @@
 # Architecture
 
+Task 096D keeps contextual editing presentation-neutral. `ContextControl`
+publishes copied bank, role, stable parameter/action, typed arguments, current
+value/unit and lock indication. `ControllerSession` captures IDs and input
+generations for held-step ownership, then submits semantic wrappers to the
+existing timeline transaction and lock scheduler. A grouped begin/update/end
+uses unified history and prepared timeline publication; cancellation discards
+the uncommitted transaction.
+
 `reference_controller_v2_descriptor()` and its default profile are optional
 clients of the general controller layer. `ReferenceDestination` is copied
 presentation policy: it maps a stable destination identity to an existing page

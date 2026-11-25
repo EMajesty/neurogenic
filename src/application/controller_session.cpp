@@ -23,8 +23,9 @@ std::string context_key(const ContextControl &value) {
     std::ostringstream output;
     output << value.label << '\x1f' << value.value << '\x1f' << value.unit
            << '\x1f' << value.parameter_id << '\x1f' << value.action_id
+           << '\x1f' << value.bank_id << '\x1f' << value.role
            << '\x1f' << value.minimum << '\x1f' << value.maximum << '\x1f'
-           << value.active << value.bipolar << value.pickup << ':'
+           << value.active << value.bipolar << value.pickup << value.locked << ':'
            << static_cast<int>(value.pickup_direction);
     for (const auto &[name, argument] : value.arguments)
         output << '\x1f' << name << '=' << argument.index() << ':'
@@ -119,6 +120,11 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
             control->type == ControlType::absolute_potentiometer ||
             control->type == ControlType::fader ||
             control->type == ControlType::crossfader;
+        if (input.pressed && input.control_id.starts_with("pad.") &&
+            state_.context.starts_with("sequencer") &&
+            state_.interaction.modal_context.empty())
+            if (auto target = capture_step_target(input.control_id))
+                held_steps_[input.control_id] = *target;
         const GestureInput gesture{input.control_id, input.value, input.pressed,
                                    encoder, input.sequence,
                                    input.connection_generation == 0
@@ -129,11 +135,68 @@ bool ControllerSession::input(const ControllerInput &input, std::string &error) 
         if (!error.empty()) { ++state_.rejected; return false; }
         for (const auto &event : events)
             if (!dispatch_gesture(event, input, error)) return false;
+        if (!input.pressed && input.control_id.starts_with("pad.")) {
+            if (held_step_edit_ &&
+                held_step_edit_->owner_control == input.control_id &&
+                !finish_held_step_edit(true, error))
+                return false;
+            held_steps_.erase(input.control_id);
+        }
         ++state_.local_revision;
         state_.resync_required = true;
         return true;
     }
     return dispatch_legacy(input, error);
+}
+
+std::optional<ControllerSession::HeldStepTarget>
+ControllerSession::capture_step_target(std::string_view control) const {
+    constexpr std::string_view prefix{"pad."};
+    if (!control.starts_with(prefix)) return {};
+    std::size_t pad{};
+    try {
+        const auto value = std::stoul(std::string(control.substr(prefix.size())));
+        if (value == 0 || value > 16) return {};
+        pad = value - 1;
+    } catch (...) {
+        return {};
+    }
+    const auto snapshot = application_->snapshot();
+    HeldStepTarget target;
+    target.pattern_id = snapshot.selected_pattern;
+    target.track_id = snapshot.selected_track;
+    target.step = static_cast<std::int64_t>(snapshot.step_page * 16 + pad);
+    target.connection_generation = state_.interaction.connection_generation;
+    target.context_generation = state_.interaction.context_generation;
+    const auto track = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
+                                    [&](const auto &item) {
+                                        return item.id == target.track_id;
+                                    });
+    if (track == snapshot.tracks.end()) return target;
+    const auto begin = target.step * snapshot.step_ticks;
+    const auto end = begin + snapshot.step_ticks;
+    for (const auto &event : track->events)
+        if (event.type == MusicalEventType::note && event.tick >= begin &&
+            event.tick < end) {
+            if (target.event_id) target.ambiguous = true;
+            else target.event_id = event.id;
+        }
+    return target;
+}
+
+bool ControllerSession::finish_held_step_edit(bool commit, std::string &error) {
+    if (!held_step_edit_) {
+        error.clear();
+        return true;
+    }
+    const auto grouped = held_step_edit_->grouped;
+    held_step_edit_.reset();
+    if (!grouped) {
+        error.clear();
+        return true;
+    }
+    return submit({commit ? "edit.group-commit.v1" : "edit.group-cancel.v1",
+                   {}, state_.session_id, 0}, error);
 }
 
 bool ControllerSession::dispatch_legacy(const ControllerInput &input,
@@ -191,7 +254,10 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         }
         if (state_.destination == destination.id) ++state_.root_revision;
         state_.destination = destination.id;
-        set_context(destination.id);
+        set_context(profile_.profile_id ==
+                            "neurogenic.reference-controller-v2.default.v1"
+                        ? destination.id + ":v2"
+                        : destination.id);
         error.clear();
         return true;
     }
@@ -268,7 +334,7 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
             return false;
         }
         const auto &target = context[mapping->index];
-        if (!target.active || target.parameter_id.empty()) {
+        if (!target.active) {
             error.clear();
             return true;
         }
@@ -278,6 +344,32 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
             steps *= mapping->fine_scale;
         else if (std::abs(input.value) >= 4)
             steps *= mapping->acceleration;
+        if (target.role == "step-property") {
+            const auto property = target.arguments.find("property");
+            if (property == target.arguments.end() ||
+                !std::holds_alternative<std::string>(property->second)) {
+                error = "step-property context binding is invalid";
+                return false;
+            }
+            if (!submit({"step.property-select.v1",
+                         {{"property", std::get<std::string>(property->second)}},
+                         state_.session_id, input.sequence}, error))
+                return false;
+            return submit({"navigation.adjust.v1", {{"steps", steps}},
+                           state_.session_id, input.sequence}, error);
+        }
+        if (target.role == "step-lock") {
+            if (!submit({"step.lock-select.v1",
+                         {{"parameter_id", target.parameter_id}},
+                         state_.session_id, input.sequence}, error))
+                return false;
+            return submit({"navigation.adjust.v1", {{"steps", steps}},
+                           state_.session_id, input.sequence}, error);
+        }
+        if (target.parameter_id.empty()) {
+            error.clear();
+            return true;
+        }
         return submit({"parameter.adjust.v1",
                        {{"parameter_id", target.parameter_id}, {"steps", steps}},
                        state_.session_id, input.sequence},
@@ -346,6 +438,9 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
 bool ControllerSession::dispatch_gesture(const GestureEvent &event,
                                          const ControllerInput &original,
                                          std::string &error) {
+    if (event.kind == GestureEventKind::cancelled && held_step_edit_ &&
+        held_step_edit_->owner_control == event.control_id)
+        return finish_held_step_edit(false, error);
     if (event.target.action_id.starts_with("reference."))
         return dispatch_reference_gesture(event, original, error);
     if (!event.target.action_id.empty())
@@ -359,6 +454,22 @@ bool ControllerSession::dispatch_gesture(const GestureEvent &event,
     if (event.kind == GestureEventKind::press ||
         event.kind == GestureEventKind::tap ||
         event.kind == GestureEventKind::repeat) {
+        if (event.kind == GestureEventKind::tap &&
+            event.control_id.starts_with("pad.") &&
+            state_.context.starts_with("sequencer")) {
+            const auto held = held_steps_.find(event.control_id);
+            if (held == held_steps_.end()) {
+                error = "sequencer pad has no stable gesture target";
+                return false;
+            }
+            return submit({"step.toggle.v1",
+                           {{"pattern_id", static_cast<std::int64_t>(
+                                               held->second.pattern_id)},
+                            {"track_id", static_cast<std::int64_t>(
+                                             held->second.track_id)},
+                            {"step", held->second.step}},
+                           state_.session_id, original.sequence}, error);
+        }
         auto dispatched = original;
         dispatched.pressed = true;
         return dispatch_legacy(dispatched, error);
@@ -393,9 +504,74 @@ bool ControllerSession::dispatch_reference_gesture(
                         {"steps", steps}},
                        state_.session_id, original.sequence}, error);
     }
-    if (!pad_index) {
+    if (!pad_index &&
+        event.target.action_id != "reference.step-encoder.v1") {
         error = "reference gesture has an invalid logical pad identity";
         return false;
+    }
+    if (event.target.action_id == "reference.step-encoder.v1") {
+        const auto held = held_steps_.find(event.owner_control);
+        if (held == held_steps_.end() || held->second.ambiguous) {
+            error = held == held_steps_.end()
+                ? "held step target is unavailable"
+                : "held step contains multiple note events";
+            return false;
+        }
+        constexpr std::string_view prefix{"parameter."};
+        if (!event.control_id.starts_with(prefix)) {
+            error = "held step encoder identity is invalid";
+            return false;
+        }
+        std::size_t index{};
+        try {
+            const auto value = std::stoul(event.control_id.substr(prefix.size()));
+            if (value == 0 || value > 8) throw std::out_of_range("encoder");
+            index = value - 1;
+        } catch (...) {
+            error = "held step encoder identity is invalid";
+            return false;
+        }
+        const auto context = resolve_controller_context(
+            snapshot, state_.context, state_.modifiers);
+        const auto &control = context[index];
+        if (!control.active ||
+            (control.role != "step-property" &&
+             control.role != "step-lock")) {
+            error = "contextual encoder is unavailable for held-step editing";
+            return false;
+        }
+        if (!held_step_edit_) {
+            held_step_edit_ = HeldStepEdit{event.owner_control,
+                                           event.control_id, held->second, true};
+            if (!submit({"edit.group-begin.v1", {}, state_.session_id,
+                         original.sequence}, error)) {
+                held_step_edit_.reset();
+                return false;
+            }
+        }
+        std::map<std::string, ApplicationValue> arguments{
+            {"pattern_id", static_cast<std::int64_t>(held->second.pattern_id)},
+            {"track_id", static_cast<std::int64_t>(held->second.track_id)},
+            {"step", held->second.step},
+            {"steps", event.value},
+            {"apply_selection", true}};
+        if (control.role == "step-lock") {
+            arguments.emplace("parameter_id", control.parameter_id);
+            return submit({"step.lock-adjust-stable.v1", std::move(arguments),
+                           state_.session_id, original.sequence}, error);
+        }
+        if (held->second.event_id)
+            arguments.emplace("event_id", static_cast<std::int64_t>(
+                                              *held->second.event_id));
+        const auto property = control.arguments.find("property");
+        if (property == control.arguments.end() ||
+            !std::holds_alternative<std::string>(property->second)) {
+            error = "held-step property binding is invalid";
+            return false;
+        }
+        arguments.emplace("property", std::get<std::string>(property->second));
+        return submit({"step.adjust-stable.v1", std::move(arguments),
+                       state_.session_id, original.sequence}, error);
     }
     if (event.target.action_id == "reference.page-pad.v1")
         return submit({"step.page-select.v1",
@@ -428,6 +604,25 @@ bool ControllerSession::dispatch_reference_gesture(
                         {"track_id", static_cast<std::int64_t>(
                                           snapshot.selected_track)},
                         {"step", step}},
+                       state_.session_id, original.sequence}, error);
+    }
+    if (event.target.action_id == "reference.select-step.v1" ||
+        event.target.action_id == "reference.extend-step-selection.v1") {
+        const auto held = held_steps_.find(event.control_id);
+        if (held == held_steps_.end()) {
+            error = "step selection target is unavailable";
+            return false;
+        }
+        if (event.target.action_id == "reference.select-step.v1" &&
+            !submit({"step.selection-clear.v1", {}, state_.session_id,
+                     original.sequence}, error))
+            return false;
+        return submit({"step.selection-toggle.v1",
+                       {{"pattern_id", static_cast<std::int64_t>(
+                                           held->second.pattern_id)},
+                        {"track_id", static_cast<std::int64_t>(
+                                         held->second.track_id)},
+                        {"step", held->second.step}},
                        state_.session_id, original.sequence}, error);
     }
     error = "unsupported reference gesture target";
@@ -473,6 +668,7 @@ void ControllerSession::set_modal_context(std::string modal_context) {
     std::string ignored;
     for (const auto &event : events)
         (void)dispatch_gesture(event, synthetic, ignored);
+    held_steps_.clear();
     synchronize_interaction();
     ++state_.local_revision;
     invalidate_feedback();
@@ -602,6 +798,7 @@ void ControllerSession::reconnect() {
         std::string ignored;
         for (const auto &event : events)
             (void)dispatch_gesture(event, synthetic, ignored);
+        held_steps_.clear();
         synchronize_interaction();
     }
     ++state_.local_revision;
@@ -618,6 +815,7 @@ void ControllerSession::set_context(std::string context) {
         std::string ignored;
         for (const auto &event : events)
             (void)dispatch_gesture(event, synthetic, ignored);
+        held_steps_.clear();
         synchronize_interaction();
     }
     ++state_.local_revision;

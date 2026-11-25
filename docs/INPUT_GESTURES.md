@@ -1,5 +1,12 @@
 # Input gesture ownership
 
+Task 096D adds context-scoped deferred taps and wildcard logical chord inputs.
+V2 pads remain immediate generally but become deferred in Sequencer: release
+toggles once, while P1-P8 movement consumes the pending tap and begins a stable
+held-step edit. The wildcard names a validated logical encoder family, not
+arbitrary scripting. Modal/context/disconnect cancellation clears ownership
+and cancels its grouped transaction.
+
 NEUROGENIC resolves optional multi-control gestures in a bounded control-side
 `InputGestureArbiter`. It sits between normalized device events and
 `ControllerSession` semantic dispatch. It is not part of the audio engine and

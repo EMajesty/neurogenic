@@ -1,5 +1,11 @@
 # Reference Controller V2 implementation gaps
 
+Task 096D implements contextual step ownership in software and partially
+resolves RC2-004: the Sequencer property/compatible-lock bank, stable bounded
+multi-selection and grouped history path have production evidence. The full
+page/pad-mode matrix, Performance customization, firmware and physical
+validation remain open. See `TASK_096D_VALIDATION.md`.
+
 Task 096B evidence: RC2-001 remains **partially implemented** at the shared
 infrastructure layer by `InputGestureArbiter`, `ControllerSession` integration,
 and `neurogenic_input_gesture_tests`. V2-specific policies, full profile and
@@ -151,6 +157,13 @@ Populate primary/secondary encoder/function banks for the V2 destinations;
 capture stable held-step targets and route encoder edits to step properties or
 locks. Acceptance: page matrix tests verify every label/action/value/argument,
 unsupported entries are unavailable, and audio/MIDI behavior confirms locks.
+
+**Task 096D status: partially resolved.** Sequencer P1-P8 now authors all
+existing step properties and compatible numeric locks through captured
+reusable-pattern targets, bounded multi-selection and one coalesced history
+entry. Controller and Slint consume shared descriptor roles. Complete
+page-specific primary/secondary functions and pad modes remain open; physical
+validation is NOT RUN.
 
 ### RC2-005 — Project-owned Performance banks (P2, musical)
 

@@ -47,8 +47,16 @@ bool InputGestureArbiter::configure(
         }
     }
     for (const auto &candidate : configuration.chords) {
-        if (!configured.contains(candidate.owner_control) ||
-            !controls.contains(candidate.input_control)) {
+        const auto wildcard = candidate.input_control.ends_with(".*");
+        const auto prefix = wildcard
+            ? candidate.input_control.substr(0, candidate.input_control.size() - 1)
+            : candidate.input_control;
+        const auto input_available = wildcard
+            ? std::any_of(controls.begin(), controls.end(), [&](const auto &id) {
+                  return id.starts_with(prefix);
+              })
+            : controls.contains(candidate.input_control);
+        if (!configured.contains(candidate.owner_control) || !input_available) {
             error = "gesture chord references an unavailable control";
             return false;
         }
@@ -65,6 +73,18 @@ bool InputGestureArbiter::configure(
     return true;
 }
 
+GestureControlPolicy InputGestureArbiter::effective_policy(
+    const GestureControlPolicy &source) const {
+    auto result = source;
+    const auto separator = observable_.context.find(':');
+    const auto base = observable_.context.substr(0, separator);
+    if (std::find(source.deferred_tap_contexts.begin(),
+                  source.deferred_tap_contexts.end(), base) !=
+        source.deferred_tap_contexts.end())
+        result.policy = GestureDispatchPolicy::deferred_tap;
+    return result;
+}
+
 const GestureControlPolicy *InputGestureArbiter::policy(
     std::string_view control) const {
     const auto found = std::find_if(configuration_.controls.begin(),
@@ -78,8 +98,11 @@ const GestureChord *InputGestureArbiter::chord(std::string_view owner,
                                                 std::string_view input) const {
     const auto found = std::find_if(configuration_.chords.begin(),
         configuration_.chords.end(), [&](const auto &candidate) {
+            const auto wildcard = candidate.input_control.ends_with(".*");
             return candidate.owner_control == owner &&
-                   candidate.input_control == input;
+                   (candidate.input_control == input ||
+                    (wildcard && input.starts_with(candidate.input_control.substr(
+                                     0, candidate.input_control.size() - 1))));
         });
     return found == configuration_.chords.end() ? nullptr : &*found;
 }
@@ -187,7 +210,7 @@ std::vector<GestureEvent> InputGestureArbiter::process(
                                  combination->consume_owner_tap;
             if (ownership.consumed) ownership.pending_tap = false;
             active_.emplace(input.control_id,
-                Ownership{*candidate, now, 0, input.sequence,
+                Ownership{effective_policy(*candidate), now, 0, input.sequence,
                           observable_.context_generation, false, true, false});
             result.push_back(event(GestureEventKind::chord, input.control_id,
                                    owner, input.value, combination->target));
@@ -201,20 +224,21 @@ std::vector<GestureEvent> InputGestureArbiter::process(
             error = "control is owned by the active modal";
             return result;
         }
-        Ownership ownership{*candidate, now, 0, input.sequence,
+        const auto selected_policy = effective_policy(*candidate);
+        Ownership ownership{selected_policy, now, 0, input.sequence,
                             observable_.context_generation};
         ownership.pending_tap =
-            candidate->policy == GestureDispatchPolicy::deferred_tap;
+            selected_policy.policy == GestureDispatchPolicy::deferred_tap;
         ownership.dispatched_press =
-            candidate->policy == GestureDispatchPolicy::immediate ||
-            candidate->policy == GestureDispatchPolicy::momentary;
-        if (candidate->policy == GestureDispatchPolicy::repeatable)
-            ownership.next_repeat = now + candidate->timing.repeat_delay_ms;
+            selected_policy.policy == GestureDispatchPolicy::immediate ||
+            selected_policy.policy == GestureDispatchPolicy::momentary;
+        if (selected_policy.policy == GestureDispatchPolicy::repeatable)
+            ownership.next_repeat = now + selected_policy.timing.repeat_delay_ms;
         active_.emplace(input.control_id, ownership);
         if (ownership.dispatched_press)
             result.push_back(event(GestureEventKind::press, input.control_id,
-                                   {}, {}, candidate->press_target));
-        if (candidate->policy == GestureDispatchPolicy::modifier_only)
+                                   {}, {}, selected_policy.press_target));
+        if (selected_policy.policy == GestureDispatchPolicy::modifier_only)
             result.push_back(event(GestureEventKind::modifier_changed,
                                    input.control_id));
         rebuild_modifiers();

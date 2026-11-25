@@ -16,6 +16,8 @@ struct ContextControl {
     std::int8_t pickup_direction{};
     std::uint64_t feedback_revision{};
     std::map<std::string, ApplicationValue> arguments;
+    std::string bank_id, role;
+    bool locked{};
 };
 enum class ControllerFeedbackKind : std::uint8_t { rgb, indicator, context, text };
 struct ControllerFeedback {
@@ -79,11 +81,27 @@ class ControllerSession {
     }
 
   private:
+    struct HeldStepTarget {
+        PatternId pattern_id{};
+        TrackId track_id{};
+        std::int64_t step{-1};
+        std::optional<EventId> event_id;
+        bool ambiguous{};
+        std::uint64_t connection_generation{}, context_generation{};
+    };
+    struct HeldStepEdit {
+        std::string owner_control, control_id;
+        HeldStepTarget target;
+        bool grouped{};
+    };
     bool dispatch_legacy(const ControllerInput &, std::string &error);
     bool dispatch_gesture(const GestureEvent &, const ControllerInput &,
                           std::string &error);
     bool dispatch_reference_gesture(const GestureEvent &,
                                     const ControllerInput &, std::string &error);
+    [[nodiscard]] std::optional<HeldStepTarget>
+    capture_step_target(std::string_view control) const;
+    bool finish_held_step_edit(bool commit, std::string &error);
     void synchronize_interaction() noexcept;
     const ControlBinding *binding(std::string_view control) const;
     bool submit(ApplicationCommand, std::string &error);
@@ -102,6 +120,8 @@ class ControllerSession {
     std::unordered_map<std::string, std::string> context_cache_;
     std::unordered_map<std::string, FaderPickup> pickup_;
     std::unordered_map<std::string, std::string> pickup_targets_;
+    std::unordered_map<std::string, HeldStepTarget> held_steps_;
+    std::optional<HeldStepEdit> held_step_edit_;
 };
 
 } // namespace neurogenic

@@ -63,10 +63,19 @@ int main() try {
     PatternTrack drums{41, {pattern.length, {}}};
     PatternTrack bass{42, {pattern.length, {}}};
     bass.pattern.events.push_back(
+        {500, static_cast<MusicalTick>(16 * (ticks_per_quarter / 4)),
+         MusicalEventType::note, 36, 0.7F, ticks_per_quarter / 4});
+    bass.pattern.events.push_back(
         {501, static_cast<MusicalTick>(17 * (ticks_per_quarter / 4)),
          MusicalEventType::note, 37, 0.8F, ticks_per_quarter / 4});
     pattern.tracks = {std::move(drums), std::move(bass)};
     initial.arrangement.patterns.push_back(std::move(pattern));
+    PatternDefinition other;
+    other.id = 92;
+    other.name = "Isolated pattern";
+    other.length = ticks_per_quarter * 8;
+    other.tracks = {{41, {other.length, {}}}, {42, {other.length, {}}}};
+    initial.arrangement.patterns.push_back(std::move(other));
     TimelineService timeline([&](const Timeline &value, std::string &error) {
         return engine.queue_timeline(value, error);
     }, initial);
@@ -284,6 +293,130 @@ int main() try {
     send(input("transport.stop", false, sequence++, current_generation));
     require(!application.snapshot_shared()->playing,
             "dedicated STOP did not stop transport");
+
+    // Contextual sequencer pads defer only in this context. A plain tap
+    // toggles once; an encoder chord consumes that tap and captures the
+    // reusable-pattern target for one grouped history entry.
+    send(input("pad.2", true, sequence++, current_generation));
+    send(input("pad.2", false, sequence++, current_generation));
+    dispatch();
+    send(input("pad.4", true, sequence++, current_generation));
+    require(application.dispatch_pending().empty(),
+            "sequencer pad tap dispatched before release");
+    send(input("pad.4", false, sequence++, current_generation));
+    dispatch();
+    auto event_at = [&](std::int64_t step, PatternId pattern_id = 91)
+        -> std::optional<MusicalEvent> {
+        const auto timeline_state = timeline.snapshot().timeline;
+        const auto definition = std::find_if(
+            timeline_state.arrangement.patterns.begin(),
+            timeline_state.arrangement.patterns.end(),
+            [&](const auto &value) { return value.id == pattern_id; });
+        if (definition == timeline_state.arrangement.patterns.end()) return {};
+        const auto pattern_track = std::find_if(
+            definition->tracks.begin(), definition->tracks.end(),
+            [](const auto &value) { return value.track == 42; });
+        if (pattern_track == definition->tracks.end()) return {};
+        const auto tick = step * (ticks_per_quarter / 4);
+        const auto found = std::find_if(
+            pattern_track->pattern.events.begin(), pattern_track->pattern.events.end(),
+            [&](const auto &event) {
+                return event.type == MusicalEventType::note && event.tick == tick;
+            });
+        return found == pattern_track->pattern.events.end()
+            ? std::optional<MusicalEvent>{} : *found;
+    };
+    require(event_at(19).has_value(),
+            "ordinary sequencer tap did not toggle exactly the intended step");
+
+    const auto history_before = application.snapshot_shared()->undo_depth;
+    const auto velocity_before = event_at(17)->velocity;
+    send(input("pad.2", true, sequence++, current_generation));
+    send(turn("parameter.2", -1.0, sequence++, current_generation));
+    send(turn("parameter.2", -1.0, sequence++, current_generation));
+    send(input("pad.2", false, sequence++, current_generation));
+    dispatch();
+    require(event_at(17)->velocity < velocity_before,
+            "held-step velocity encoder did not edit the stable absolute step: " +
+                std::to_string(velocity_before) + " -> " +
+                std::to_string(event_at(17)->velocity));
+    require(application.snapshot_shared()->undo_depth == history_before + 1,
+            "held-step encoder increments were not coalesced into one history entry");
+
+    const auto cutoff_before = std::get<double>(
+        application.parameters().get("synth.cutoff")->current_value);
+    send(input("pad.2", true, sequence++, current_generation));
+    send(turn("parameter.8", 1.0, sequence++, current_generation));
+    send(turn("parameter.8", 1.0, sequence++, current_generation));
+    send(input("pad.2", false, sequence++, current_generation));
+    dispatch();
+    const auto locked_timeline = timeline.snapshot().timeline;
+    const auto locked_definition = std::find_if(
+        locked_timeline.arrangement.patterns.begin(),
+        locked_timeline.arrangement.patterns.end(),
+        [](const auto &value) { return value.id == 91; });
+    const auto locked_track = std::find_if(
+        locked_definition->tracks.begin(), locked_definition->tracks.end(),
+        [](const auto &value) { return value.track == 42; });
+    const auto &locked_events = locked_track->pattern.events;
+    const auto locked = std::any_of(
+        locked_events.begin(), locked_events.end(),
+        [](const auto &event) {
+            return event.type == MusicalEventType::parameter &&
+                   event.tick == 17 * (ticks_per_quarter / 4) &&
+                   event.parameter_destination == "synth.cutoff";
+        });
+    require(locked, "held-step encoder did not create the parameter lock");
+    require(std::get<double>(application.parameters().get("synth.cutoff")
+                                 ->current_value) == cutoff_before,
+            "held-step lock editing mutated the stored base parameter");
+    const auto isolation_timeline = timeline.snapshot().timeline;
+    const auto isolation_definition = std::find_if(
+        isolation_timeline.arrangement.patterns.begin(),
+        isolation_timeline.arrangement.patterns.end(),
+        [](const auto &value) { return value.id == 92; });
+    const auto isolation_track = std::find_if(
+        isolation_definition->tracks.begin(), isolation_definition->tracks.end(),
+        [](const auto &value) { return value.track == 42; });
+    require(isolation_track->pattern.events.empty(),
+            "held-step editing leaked into another reusable pattern");
+
+    send(input("edit.undo", true, sequence++, current_generation));
+    dispatch();
+    send(input("edit.undo", false, sequence++, current_generation));
+    require(application.snapshot_shared()->can_redo,
+            "parameter-lock gesture did not participate in unified history");
+    send(input("edit.shift", true, sequence++, current_generation));
+    send(input("edit.undo", true, sequence++, current_generation));
+    dispatch();
+    send(input("edit.undo", false, sequence++, current_generation));
+    send(input("edit.shift", false, sequence++, current_generation));
+
+    send(input("edit.select", true, sequence++, current_generation));
+    send(input("pad.1", true, sequence++, current_generation));
+    dispatch();
+    send(input("pad.1", false, sequence++, current_generation));
+    send(input("pad.2", true, sequence++, current_generation));
+    dispatch();
+    send(input("pad.2", false, sequence++, current_generation));
+    send(input("edit.select", false, sequence++, current_generation));
+    require(application.snapshot_shared()->selected_steps.size() == 2,
+            "SELECT + pad did not create a bounded stable multi-step selection");
+    const auto grouped_before = event_at(16)->velocity;
+    send(input("pad.2", true, sequence++, current_generation));
+    send(turn("parameter.2", 1.0, sequence++, current_generation));
+    send(input("pad.2", false, sequence++, current_generation));
+    dispatch();
+    require(event_at(16)->velocity > grouped_before,
+            "held encoder did not apply one grouped edit to selected steps");
+
+    const auto v2_context = resolve_controller_context(
+        *application.snapshot_shared(), "sequencer:v2", {});
+    require(v2_context[0].role == "step-property" &&
+                v2_context[7].role == "step-lock" &&
+                v2_context[7].parameter_id == "synth.cutoff" &&
+                v2_context[0].bank_id == "v2",
+            "controller/frontend shared contextual descriptors are incomplete");
 
     send(input("edit.track", true, sequence++, current_generation));
     session.reconnect();

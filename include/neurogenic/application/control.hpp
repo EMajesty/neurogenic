@@ -132,6 +132,13 @@ struct StepParameterLockState {
     std::string parameter_id;
     float value{};
 };
+struct StepSelectionState {
+    PatternId pattern_id{};
+    TrackId track_id{};
+    std::int64_t step{};
+    friend bool operator==(const StepSelectionState &,
+                           const StepSelectionState &) = default;
+};
 struct SliceState {
     SliceId id{};
     std::string name;
@@ -255,6 +262,7 @@ struct ApplicationState {
     std::string selected_step_property{"velocity"};
     std::string selected_lock_parameter{"synth.cutoff"};
     std::vector<StepParameterLockState> selected_step_locks;
+    std::vector<StepSelectionState> selected_steps;
     bool edit_group_active{}, can_undo{}, can_redo{};
     bool history_pending{};
     std::string undo_label, redo_label;

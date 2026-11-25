@@ -89,9 +89,9 @@ issues; unperformed rows remain NOT RUN.
 - **Creative expansion:** descriptor/preset refinements, richer sample editing,
   then a bounded shared granular core investigation (AUD2-019).
 
-Tasks 095 and 096A–096C now provide independent-client publication, gesture
-ownership, reference navigation and the supported dedicated clusters. The exact
-next bounded implementation task is **Task 096D — descriptor-driven contextual
-banks and held-step parameter locks**. It should consume stable gesture targets
-and unified history without expanding optional transport algorithms or making
-the V2 profile mandatory.
+Tasks 095 and 096A–096D now provide independent-client publication, gesture
+ownership, reference navigation, supported dedicated clusters, and stable
+Sequencer contextual property/lock authoring. The exact next bounded task is
+**Task 096E — project-owned Performance banks**: named primary/SHIFT P1-P8 and
+F1-F8 assignments, stable pads, labels, persistence/migration and target-loss
+availability, kept separate from appliance controller profiles.

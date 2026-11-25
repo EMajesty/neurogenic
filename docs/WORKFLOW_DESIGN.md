@@ -1,5 +1,10 @@
 # Designing musical workflows with NEUROGENIC
 
+The Task 096D held-step workflow composes general services: captured stable
+selection, validated step/lock operations, and one grouped history transaction.
+A tracker or non-pad client can use the same operations without reproducing the
+V2 tap/hold gesture or eight-control bank.
+
 Reference page routing is one composition of existing semantic workflows.
 Clients may group the same patterns, recording services, modulation objects and
 Browser operations differently without translating them into V2 page indices.

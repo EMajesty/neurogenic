@@ -200,6 +200,8 @@ GestureConfiguration reference_controller_v2_gestures() {
                    control.id == "navigation.right") {
             policy.policy = GestureDispatchPolicy::repeatable;
         }
+        if (control.id.starts_with("pad."))
+            policy.deferred_tap_contexts.push_back("sequencer");
         result.controls.push_back(std::move(policy));
     }
     for (int i = 1; i <= 16; ++i) {
@@ -212,11 +214,19 @@ GestureConfiguration reference_controller_v2_gestures() {
             chord("edit.mute", pad, "reference.mute-pad.v1"));
         result.chords.push_back(
             chord("edit.erase", pad, "reference.erase-pad.v1"));
+        result.chords.push_back(
+            chord("edit.shift", pad, "reference.select-step.v1"));
+        result.chords.push_back(
+            chord("edit.select", pad, "reference.extend-step-selection.v1"));
+        result.chords.push_back(
+            chord(pad, "parameter.*", "reference.step-encoder.v1"));
     }
     result.chords.push_back(
         chord("transport.tap", "data", "reference.tempo-data.v1"));
     result.chords.push_back(
         chord("edit.shift", "transport.fill", "performance.fill-latch.v1"));
+    result.chords.push_back(
+        chord("edit.shift", "edit.select", "step.selection-clear.v1"));
     return result;
 }
 } // namespace neurogenic

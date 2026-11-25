@@ -1,5 +1,11 @@
 # Application history and content transactions
 
+Task 096D is the first production consumer of the physical gesture
+begin/update/end/cancel contract. Held-step property and lock deltas update one
+existing `TimelineTransaction`; release commits one history entry and
+modal/context/disconnect cancellation discards it. Multi-step edits share that
+transaction. Individual input events are not history entries.
+
 The V2 UNDO and SHIFT+UNDO controls submit `edit.undo.v1` and `edit.redo.v1` to
 this single authority. Controller input retains no private history stack;
 stable event erasure is an ordinary timeline transaction.

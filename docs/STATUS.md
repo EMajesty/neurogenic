@@ -1,5 +1,20 @@
 # Implementation status
 
+## Task 096D contextual musical editing
+
+Reference Controller V2 Sequencer pads now have context-specific ownership:
+ordinary taps toggle once, while held-pad P1-P8 movement consumes the toggle
+and edits a captured reusable-pattern/track/absolute-step target. P1-P7 cover
+pitch, velocity, duration, probability, condition, ratchets and microtiming;
+P8 creates or updates a compatible parameter lock without changing its base
+parameter. Up to 64 stable same-pattern/track steps can receive one grouped
+edit, and multiple deltas commit as one unified history entry. Legacy contexts
+and immediate Performance pads remain unchanged. See
+[`TASK_096D_VALIDATION.md`](audit/task-088/TASK_096D_VALIDATION.md).
+
+RC2-004 remains partial for exhaustive non-Sequencer banks/pad modes. Physical
+validation remains **NOT RUN**.
+
 Task 096B adds an explicit Reference Controller V2 descriptor/profile, the
 shared sixteen-destination primary/SHIFT resolver, production controller page
 routing, and the Slint reference shell's top/right/bottom zones. The locked

@@ -1,5 +1,12 @@
 # Test and validation audit
 
+Task 096D adds production V2 coverage for ordinary Sequencer taps, consumed
+held taps, later-page stable property editing, compatible lock creation with
+base preservation, one-entry gesture history, Undo/Redo, pattern isolation and
+grouped multi-step editing. The generated Slint fixture checks P1/P8 descriptor
+rows and invokes its encoder callback. See `TASK_096D_VALIDATION.md`. Physical
+controller/touch validation remains NOT RUN.
+
 Task 096B adds `neurogenic_reference_controller_tests` for the explicit V2
 inventory and production ControllerSession routing. The generated Slint harness
 invokes primary/secondary destination callbacks and SHIFT label changes, and

@@ -1,5 +1,10 @@
 # Designing a frontend for NEUROGENIC
 
+Task 096D adds copied contextual `bank_id`, `role`, and lock indication.
+Alternative frontends may use these descriptors for held-step workflows or
+ignore the reference grouping and invoke stable semantic operations directly.
+They must not retain mutable event pointers or infer lockability from a label.
+
 Reference frontends may reuse `reference_primary_destinations()` and
 `reference_secondary_destinations()`, but alternative frontends need not. The
 tables identify presentation destinations and existing subviews; they do not

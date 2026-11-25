@@ -1,5 +1,11 @@
 # Reference Controller V2 interaction design
 
+Task 096D implements the Sequencer P1-P8 step-property/lock interaction,
+sequencer-only deferred pad taps, stable multi-step selection and grouped
+history. Other page bank rows remain working defaults unless their registered
+binding is listed in `TASK_096D_VALIDATION.md`; a label alone is not an
+implementation claim. Physical validation remains NOT RUN.
+
 Task 096A supplies the presentation-neutral ownership, consume-on-chord,
 modifier, modal-context, repeat-timing, and reconnect-generation foundation.
 V2 page tables and bindings remain subsequent work; see

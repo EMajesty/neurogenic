@@ -644,10 +644,14 @@ bool SlintFrontendAdapter::refresh() {
             snapshot, context_name, snapshot.modifiers);
         for (std::size_t i = 0; i < 8; ++i) {
             const auto copy = [](const ContextControl &from) {
-                return SlintContextItem{from.label.empty() ? "Unavailable" : from.label,
+                auto result = SlintContextItem{from.label.empty() ? "Unavailable" : from.label,
                     from.value.empty() ? "--" : from.value, from.unit,
                     from.parameter_id, from.action_id, from.arguments,
-                    from.active};
+                    from.active, {}, {}, false};
+                result.bank_id = from.bank_id;
+                result.role = from.role;
+                result.locked = from.locked;
+                return result;
             };
             state_.context.encoders[i] = copy(context[i]);
             state_.context.functions[i] = copy(context[8 + i]);
@@ -806,14 +810,18 @@ bool SlintFrontendAdapter::refresh() {
         resolve_controller_context(snapshot, context_name, snapshot.modifiers);
     for (std::size_t i = 0; i < 8; ++i) {
         const auto copy = [](const ContextControl &from) {
-            return SlintContextItem{from.label.empty() ? "Unavailable"
+            auto result = SlintContextItem{from.label.empty() ? "Unavailable"
                                                        : from.label,
                                     from.value.empty() ? "--" : from.value,
                                     from.unit,
                                     from.parameter_id,
                                     from.action_id,
                                     from.arguments,
-                                    from.active};
+                                    from.active, {}, {}, false};
+            result.bank_id = from.bank_id;
+            result.role = from.role;
+            result.locked = from.locked;
+            return result;
         };
         next.context.encoders[i] = copy(context[i]);
         next.context.functions[i] = copy(context[8 + i]);
@@ -1658,8 +1666,34 @@ bool SlintFrontendAdapter::invoke_action(std::string action_id) {
 bool SlintFrontendAdapter::turn_encoder(std::size_t index, double steps,
                                         bool fine) {
     if (index >= state_.context.encoders.size() ||
-        !state_.context.encoders[index].available ||
-        state_.context.encoders[index].parameter_id.empty()) {
+        !state_.context.encoders[index].available) {
+        last_error_ = "Encoder assignment is unavailable";
+        state_.shell.notification = last_error_;
+        return false;
+    }
+    const auto &context = state_.context.encoders[index];
+    if (context.role == "step-property") {
+        const auto property = context.arguments.find("property");
+        if (property == context.arguments.end() ||
+            !std::holds_alternative<std::string>(property->second)) {
+            last_error_ = "Step-property binding is invalid";
+            return false;
+        }
+        if (!execute({"step.property-select.v1",
+                      {{"property", std::get<std::string>(property->second)}},
+                      {}, 0}))
+            return false;
+        return execute({"navigation.adjust.v1",
+                        {{"steps", steps * (fine ? 0.1 : 1.0)}}, {}, 0});
+    }
+    if (context.role == "step-lock") {
+        if (!execute({"step.lock-select.v1",
+                      {{"parameter_id", context.parameter_id}}, {}, 0}))
+            return false;
+        return execute({"navigation.adjust.v1",
+                        {{"steps", steps * (fine ? 0.1 : 1.0)}}, {}, 0});
+    }
+    if (context.parameter_id.empty()) {
         last_error_ = "Encoder assignment is unavailable";
         state_.shell.notification = last_error_;
         return false;
@@ -1668,7 +1702,7 @@ bool SlintFrontendAdapter::turn_encoder(std::size_t index, double steps,
     const auto descriptor = std::find_if(
         discovery.parameters.begin(), discovery.parameters.end(),
         [&](const auto &parameter) {
-            return parameter.id == state_.context.encoders[index].parameter_id;
+            return parameter.id == context.parameter_id;
         });
     if (descriptor == discovery.parameters.end()) {
         last_error_ = "Encoder parameter is no longer discoverable";
@@ -1677,7 +1711,7 @@ bool SlintFrontendAdapter::turn_encoder(std::size_t index, double steps,
     }
     BindingReference reference{BindingTargetKind::explicit_object,
                                descriptor->parent,
-                               state_.context.encoders[index].parameter_id, {},
+                               context.parameter_id, {},
                                0};
     const auto error = bindings_.apply(
         reference,

@@ -1,5 +1,10 @@
 # Designing a controller for NEUROGENIC
 
+Contextual clients should consume descriptor roles rather than assuming a V2
+position. `parameter` adjusts a base binding; `step-property` and `step-lock`
+require captured musical ownership. Alternative controllers may expose any
+subset, order or count and may keep ordinary immediate dispatch.
+
 The Reference Controller V2 descriptor is a worked profile, not a required
 inventory. Custom devices declare only their own stable logical controls and
 need not expose pages, pads, SHIFT, eight encoders, or reference destinations.

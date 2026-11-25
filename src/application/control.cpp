@@ -482,11 +482,40 @@ ActionRegistry::ActionRegistry() {
     add(action("step.toggle.v1", "Toggle step", "Sequencer",
                {{"step", ValueType::integer, false},
                 {"velocity", ValueType::real, false},
-                {"duration_ticks", ValueType::integer, false}}));
+                {"duration_ticks", ValueType::integer, false},
+                {"pattern_id", ValueType::integer, false},
+                {"track_id", ValueType::integer, false}}));
     add(action("step.erase.v1", "Erase step events", "Sequencer",
                {{"pattern_id", ValueType::integer},
                 {"track_id", ValueType::integer},
                 {"step", ValueType::integer}}));
+    add(action("step.selection-toggle.v1", "Toggle step selection", "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"step", ValueType::integer}}));
+    add(action("step.selection-clear.v1", "Clear step selection", "Sequencer"));
+    add(action("step.adjust-stable.v1", "Adjust stable step event", "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"step", ValueType::integer},
+                {"event_id", ValueType::integer, false},
+                {"property", ValueType::text},
+                {"steps", ValueType::real},
+                {"apply_selection", ValueType::boolean, false}}));
+    add(action("step.lock-adjust-stable.v1", "Adjust stable parameter lock",
+               "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"step", ValueType::integer},
+                {"parameter_id", ValueType::text},
+                {"steps", ValueType::real},
+                {"apply_selection", ValueType::boolean, false}}));
+    add(action("step.lock-remove-stable.v1", "Remove stable parameter lock",
+               "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"step", ValueType::integer},
+                {"parameter_id", ValueType::text}}));
     add(action("step.event-select.v1", "Select event at step", "Sequencer",
                {{"step", ValueType::integer, false},
                 {"event_id", ValueType::integer, false}}));
@@ -7089,6 +7118,215 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     static_cast<std::uint8_t>(note);
                 changed_locked();
             }
+        } else if (command.action_id == "step.selection-clear.v1") {
+            state_.selected_steps.clear();
+            changed_locked();
+        } else if (command.action_id == "step.selection-toggle.v1") {
+            const StepSelectionState target{
+                static_cast<PatternId>(*argument<std::int64_t>(command,
+                                                                "pattern_id")),
+                static_cast<TrackId>(*argument<std::int64_t>(command,
+                                                              "track_id")),
+                *argument<std::int64_t>(command, "step")};
+            if (target.step < 0 ||
+                target.step > std::numeric_limits<MusicalTick>::max() /
+                                  state_.step_ticks)
+                error = "step selection is outside its range";
+            else {
+                const auto timeline = timeline_.snapshot();
+                const auto *pattern = edit_pattern(
+                    timeline.timeline, target.pattern_id, target.track_id);
+                if (!pattern || target.step * state_.step_ticks >= pattern->length) {
+                    error = "stable step selection target is unavailable";
+                }
+                if (error.empty()) {
+                    const auto found = std::find(state_.selected_steps.begin(),
+                                                 state_.selected_steps.end(),
+                                                 target);
+                    if (found != state_.selected_steps.end())
+                        state_.selected_steps.erase(found);
+                    else if (state_.selected_steps.size() >= 64)
+                        error = "step selection capacity exceeded";
+                    else
+                        state_.selected_steps.push_back(target);
+                }
+                if (error.empty()) changed_locked();
+            }
+        } else if (command.action_id == "step.adjust-stable.v1" ||
+                   command.action_id == "step.lock-adjust-stable.v1" ||
+                   command.action_id == "step.lock-remove-stable.v1") {
+            const StepSelectionState primary{
+                static_cast<PatternId>(*argument<std::int64_t>(command,
+                                                                "pattern_id")),
+                static_cast<TrackId>(*argument<std::int64_t>(command,
+                                                              "track_id")),
+                *argument<std::int64_t>(command, "step")};
+            const auto apply_selection_arg =
+                argument<bool>(command, "apply_selection");
+            const auto apply_selection =
+                apply_selection_arg ? *apply_selection_arg : false;
+            std::vector<StepSelectionState> targets{primary};
+            if (apply_selection &&
+                std::find(state_.selected_steps.begin(),
+                          state_.selected_steps.end(), primary) !=
+                    state_.selected_steps.end()) {
+                targets.clear();
+                for (const auto &selected : state_.selected_steps)
+                    if (selected.pattern_id == primary.pattern_id &&
+                        selected.track_id == primary.track_id)
+                        targets.push_back(selected);
+            }
+            if (targets.empty() || targets.size() > 64) {
+                error = "stable step selection is empty or too large";
+            } else {
+                auto transaction = edit_group_ ? *edit_group_ : timeline_.edit();
+                const auto delta_arg = argument<double>(command, "steps");
+                const auto delta = delta_arg ? *delta_arg : 0.0;
+                const auto property = argument<std::string>(command, "property");
+                const auto parameter_id =
+                    argument<std::string>(command, "parameter_id");
+                const auto requested_event =
+                    argument<std::int64_t>(command, "event_id");
+                std::optional<ParameterDescriptor> lock_descriptor;
+                if (parameter_id) lock_descriptor = parameters_.get(*parameter_id);
+                if (!std::isfinite(delta) || delta == 0)
+                    error = "held-step adjustment must be finite and nonzero";
+                else if (command.action_id != "step.adjust-stable.v1" &&
+                    (!parameter_id || !lock_descriptor ||
+                     !lock_descriptor->automatable ||
+                     !resolve_parameter_destination(*parameter_id)))
+                    error = "parameter is not a compatible lock destination";
+                for (const auto &target : targets) {
+                    if (!error.empty()) break;
+                    auto *track = transaction.find_track(target.track_id);
+                    auto *pattern = transaction.find_edit_pattern(
+                        target.pattern_id, target.track_id);
+                    if (!track || !pattern || target.step < 0 ||
+                        target.step > std::numeric_limits<MusicalTick>::max() /
+                                          state_.step_ticks) {
+                        error = "stable step target is unavailable";
+                        break;
+                    }
+                    const auto tick = target.step * state_.step_ticks;
+                    if (tick >= pattern->length) {
+                        error = "stable step target is outside the pattern";
+                        break;
+                    }
+                    if (command.action_id == "step.adjust-stable.v1") {
+                        std::vector<MusicalEvent *> notes;
+                        for (auto &candidate : pattern->events)
+                            if (candidate.type == MusicalEventType::note &&
+                                candidate.tick >= tick &&
+                                candidate.tick < tick + state_.step_ticks &&
+                                (!requested_event || target != primary ||
+                                 candidate.id == static_cast<EventId>(
+                                                     *requested_event)))
+                                notes.push_back(&candidate);
+                        if (notes.size() != 1) {
+                            error = notes.empty()
+                                ? "held step contains no note event"
+                                : "held step contains multiple note events";
+                            break;
+                        }
+                        auto &event = *notes.front();
+                        const auto direction = delta < 0 ? -1 : 1;
+                        if (!property)
+                            error = "held step property is missing";
+                        else if (*property == "pitch")
+                            event.pitch = static_cast<std::uint8_t>(
+                                std::clamp<int>(event.pitch + direction, 0, 127));
+                        else if (*property == "velocity")
+                            event.velocity = std::clamp(
+                                event.velocity + static_cast<float>(delta * .05),
+                                0.0F, 1.0F);
+                        else if (*property == "duration")
+                            event.duration = std::max<MusicalTick>(
+                                1, event.duration + static_cast<MusicalTick>(delta) *
+                                       std::max<MusicalTick>(1, state_.step_ticks / 4));
+                        else if (*property == "probability")
+                            event.trigger_probability = std::clamp(
+                                event.trigger_probability +
+                                    static_cast<float>(delta * .05),
+                                0.0F, 1.0F);
+                        else if (*property == "condition") {
+                            auto value = static_cast<int>(event.trigger_condition);
+                            value = (value + (direction < 0 ? 8 : 1)) % 9;
+                            event.trigger_condition =
+                                static_cast<TriggerCondition>(value);
+                        } else if (*property == "ratchets")
+                            event.ratchet_count = static_cast<std::uint8_t>(
+                                std::clamp<int>(event.ratchet_count + direction,
+                                                1, 8));
+                        else if (*property == "microtiming") {
+                            const auto offset = event.tick - tick;
+                            event.tick = tick + std::clamp<MusicalTick>(
+                                offset + static_cast<MusicalTick>(delta),
+                                -state_.step_ticks + 1, state_.step_ticks - 1);
+                        }
+                        else
+                            error = "unsupported held step property";
+                    } else {
+                        std::vector<EventId> locks;
+                        for (const auto &event : pattern->events)
+                            if (event.type == MusicalEventType::parameter &&
+                                event.tick == tick &&
+                                event.parameter_destination == *parameter_id)
+                                locks.push_back(event.id);
+                        if (command.action_id ==
+                            "step.lock-remove-stable.v1") {
+                            if (locks.empty())
+                                error = "parameter lock does not exist";
+                            else if (!transaction.remove_event(
+                                         target.pattern_id, target.track_id,
+                                         locks.front(), error)) {
+                            }
+                        } else if (lock_descriptor->type ==
+                                   ParameterType::enumeration) {
+                            error = "enumeration parameter locks are unsupported";
+                        } else {
+                            auto value = number(lock_descriptor->current_value);
+                            if (!locks.empty())
+                                for (const auto &event : pattern->events)
+                                    if (event.id == locks.front()) {
+                                        value = event.value;
+                                        break;
+                                    }
+                            value = std::clamp(
+                                value + delta * lock_descriptor->step,
+                                number(lock_descriptor->minimum),
+                                number(lock_descriptor->maximum));
+                            if (!locks.empty())
+                                (void)transaction.modify_parameter_destination(
+                                    target.pattern_id, target.track_id,
+                                    locks.front(), tick, *parameter_id,
+                                    static_cast<float>(value), error);
+                            else if (lock_descriptor->id.starts_with("synth.") &&
+                                     track->instrument_id !=
+                                         subtractive_instrument_id)
+                                error = "synth parameter lock requires a synth track";
+                            else
+                                (void)transaction.add_parameter_destination(
+                                    target.pattern_id, target.track_id,
+                                    transaction.next_event_id(), tick,
+                                    *parameter_id, static_cast<float>(value),
+                                    error);
+                        }
+                    }
+                }
+                if (error.empty() &&
+                    (edit_group_ || timeline_.commit(
+                                        transaction,
+                                        TimelineCommitPolicy::next_audio_callback,
+                                        error))) {
+                    if (edit_group_) edit_group_ = std::move(transaction);
+                    state_.selected_step = primary.step;
+                    state_.step_page =
+                        static_cast<std::uint64_t>(primary.step) / 16;
+                    if (parameter_id)
+                        state_.selected_lock_parameter = *parameter_id;
+                    changed_locked();
+                }
+            }
         } else if (command.action_id == "step.erase.v1") {
             const auto pattern_id = static_cast<PatternId>(
                 *argument<std::int64_t>(command, "pattern_id"));
@@ -7131,7 +7369,15 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             }
         } else if (command.action_id == "step.toggle.v1") {
             auto transaction = edit_group_ ? *edit_group_ : timeline_.edit();
-            auto *track = transaction.find_track(state_.selected_track);
+            const auto pattern_id = argument<std::int64_t>(command, "pattern_id")
+                ? static_cast<PatternId>(*argument<std::int64_t>(command,
+                                                                  "pattern_id"))
+                : state_.selected_pattern;
+            const auto track_id = argument<std::int64_t>(command, "track_id")
+                ? static_cast<TrackId>(*argument<std::int64_t>(command,
+                                                                "track_id"))
+                : state_.selected_track;
+            auto *track = transaction.find_track(track_id);
             const auto requested = argument<std::int64_t>(command, "step");
             const auto step = requested ? *requested : state_.selected_step;
             const auto velocity = argument<double>(command, "velocity");
@@ -7145,13 +7391,12 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 error = "step is outside its range";
             else {
                 if (!transaction.ensure_pattern_track(
-                        state_.selected_pattern, state_.selected_track,
+                        pattern_id, track_id,
                         error)) {
                     // The stable target disappeared after selection.
                 }
                 auto *pattern = error.empty()
-                    ? transaction.find_edit_pattern(state_.selected_pattern,
-                                                    state_.selected_track)
+                    ? transaction.find_edit_pattern(pattern_id, track_id)
                     : nullptr;
                 const auto tick = step * state_.step_ticks;
                 const auto count =
@@ -7184,14 +7429,14 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         edited = true;
                         for (const auto id : matching)
                             if (!transaction.remove_event(
-                                    state_.selected_pattern, track->id, id,
+                                    pattern_id, track->id, id,
                                     error)) {
                                 edited = false;
                                 break;
                             }
                     } else
                         edited = transaction.add_note(
-                            state_.selected_pattern, track->id,
+                            pattern_id, track->id,
                             transaction.next_event_id(), tick,
                             target,
                             static_cast<float>(velocity ? *velocity
@@ -7205,10 +7450,13 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                              error))) {
                         if (edit_group_)
                             edit_group_ = std::move(transaction);
-                        state_.selected_step = step;
-                        state_.step_page =
-                            static_cast<std::uint64_t>(step) / 16;
-                        selected_event_id_.reset();
+                        if (state_.selected_pattern == pattern_id &&
+                            state_.selected_track == track_id) {
+                            state_.selected_step = step;
+                            state_.step_page =
+                                static_cast<std::uint64_t>(step) / 16;
+                            selected_event_id_.reset();
+                        }
                         changed_locked();
                     }
                 }
@@ -9779,6 +10027,13 @@ void ApplicationService::synchronize_locked() const {
              edited ? edited->events : std::vector<MusicalEvent>{},
              track.instrument_instance_id});
     }
+    std::erase_if(state_.selected_steps, [&](const auto &selection) {
+        const auto *pattern = edit_pattern(timeline.timeline,
+                                           selection.pattern_id,
+                                           selection.track_id);
+        return !pattern || selection.step < 0 ||
+               selection.step * state_.step_ticks >= pattern->length;
+    });
     state_.selected_event.reset();
     state_.selected_step_locks.clear();
     const auto selected_track = std::find_if(

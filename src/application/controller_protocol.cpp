@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -148,6 +149,7 @@ ContextControl parameter_control(const ApplicationState &state,
         return result;
     }
     result.active = true;
+    result.role = "parameter";
     result.label = found->name;
     result.value = formatted(found->current_value);
     result.unit = found->unit;
@@ -164,6 +166,7 @@ ContextControl action_control(std::uint16_t id, std::string label,
     c.label = std::move(label);
     c.action_id = std::move(action);
     c.active = active;
+    c.role = "action";
     return c;
 }
 std::string_view truncate_view(std::string_view value, std::size_t maximum) {
@@ -192,30 +195,87 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
     // "sequencer:advanced"). Base-page fallback keeps profiles compatible
     // while allowing future panel layouts to select richer banks.
     const auto separator = context.find(':');
+    const auto explicit_bank = separator != std::string_view::npos;
     const auto page = context.substr(0, separator);
     const auto bank = separator == std::string_view::npos
         ? std::string_view("primary") : context.substr(separator + 1);
+    for (auto &control : result) control.bank_id = std::string(bank);
     if (page == "mixer")
         set_parameters({"mixer.selected.gain", "mixer.selected.pan",
                         "mixer.track.aux-1", "mixer.track.aux-2",
                         "mixer.aux.return", "mixer.master.gain",
                         "external-fx.send-gain", "external-fx.return-gain"});
-    else if (page == "samples")
+    else if (page == "samples" || page == "sample" || page == "slice")
         set_parameters({"sample.pitch", "sample.gain", "sample.pan",
                         "effect.delay.mix", "effect.delay.time",
                         "effect.delay.feedback"});
-    else if (page == "modulation" || page == "fx")
+    else if (page == "modulation" || page == "modulation-routing" ||
+             page == "fx" || page == "macros" || page == "scenes")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.pitch",
                         "synth.gain", "sample.pitch", "sample.gain",
                         "mixer.track.pan", "external-fx.wet"});
-    else if (page == "routing" || page == "setup")
+    else if (page == "routing" || page == "song" || page == "setup")
         set_parameters({"external-fx.wet", "external-fx.send-gain",
                         "external-fx.return-gain", "mixer.master.gain"});
     else if (page == "parameters" || page == "sound")
         set_parameters({"synth.cutoff", "synth.resonance", "synth.attack",
                         "synth.decay", "synth.sustain", "synth.release",
                         "synth.gain", "effect.delay.mix"});
-    else
+    else if (page == "sequencer" && explicit_bank) {
+        static constexpr std::array<std::string_view, 7> properties{
+            "pitch", "velocity", "duration", "probability", "condition",
+            "ratchets", "microtiming"};
+        for (std::size_t index = 0; index < properties.size(); ++index) {
+            auto &control = result[index];
+            control.label = std::string(properties[index]);
+            std::transform(control.label.begin(), control.label.end(),
+                           control.label.begin(), [](unsigned char value) {
+                               return static_cast<char>(std::toupper(value));
+                           });
+            control.role = "step-property";
+            control.active = state.selected_track != 0;
+            control.arguments = {{"property", std::string(properties[index])}};
+            if (state.selected_event) {
+                const auto &event = *state.selected_event;
+                if (properties[index] == "pitch")
+                    control.value = std::to_string(event.pitch);
+                else if (properties[index] == "velocity")
+                    control.value = formatted(static_cast<double>(event.velocity));
+                else if (properties[index] == "duration") {
+                    control.value = std::to_string(event.duration);
+                    control.unit = "ticks";
+                } else if (properties[index] == "probability") {
+                    control.value = formatted(
+                        static_cast<double>(event.trigger_probability));
+                    control.unit = "%";
+                } else if (properties[index] == "condition")
+                    control.value = std::to_string(
+                        static_cast<int>(event.trigger_condition));
+                else if (properties[index] == "ratchets")
+                    control.value = std::to_string(event.ratchet_count);
+                else {
+                    control.value = std::to_string(event.timing_offset);
+                    control.unit = "ticks";
+                }
+            }
+        }
+        result[7] = parameter_control(state, 7,
+                                      state.selected_lock_parameter);
+        result[7].label = result[7].active ? "LOCK " + result[7].label
+                                          : "LOCK --";
+        result[7].role = "step-lock";
+        result[7].arguments = {
+            {"parameter_id", state.selected_lock_parameter}};
+        const auto selected = std::find_if(
+            state.selected_step_locks.begin(), state.selected_step_locks.end(),
+            [&](const auto &lock) {
+                return lock.parameter_id == state.selected_lock_parameter;
+            });
+        if (selected != state.selected_step_locks.end()) {
+            result[7].locked = true;
+            result[7].value = formatted(static_cast<double>(selected->value));
+        }
+    } else
         set_parameters({"transport.tempo", "synth.cutoff", "synth.resonance",
                         "synth.attack", "synth.release", "sample.gain",
                         "mixer.selected.pan", "effect.delay.mix"});
@@ -228,7 +288,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
          {"ENTER", "navigation.confirm.v1"},
          {"PAGE+", "step.page-next.v1"},
          {"PLAY", "transport.play.v1"}}};
-    if (page == "samples") {
+    if (page == "samples" || page == "sample" || page == "slice") {
         lower[0] = {"PREVIEW", "slice.preview.v1"};
         lower[1] = {"STOP PREV", "slice.preview-stop.v1"};
     } else if (page == "mixer") {
@@ -243,7 +303,8 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[5] = {"REDO", "edit.redo.v1"};
         lower[6] = {"PATTERN-", "pattern.previous.v1"};
         lower[7] = {"PATTERN+", "pattern.next.v1"};
-    } else if ((page == "modulation" || page == "fx") && state.selected_modulation_route) {
+    } else if ((page == "modulation" || page == "modulation-routing" ||
+                page == "fx") && state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -287,9 +348,19 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[4] = {"CANCEL", "live-loop.cancel.v1"};
     }
     if (modifiers.shift || modifiers.shift_latched) {
-        lower[0] = {"UNDO", "edit.undo.v1"};
-        lower[1] = {"REDO", "edit.redo.v1"};
-        lower[6] = {"PAGE-", "step.page-previous.v1"};
+        if (page == "sequencer" && explicit_bank) {
+            lower[0] = {"SELECT", "step.selection-toggle.v1"};
+            lower[1] = {"CLEAR SEL", "step.selection-clear.v1"};
+            lower[2] = {"REMOVE LOCK", "step.lock-remove.v1"};
+            lower[3] = {"CLEAR LOCKS", "step.locks-clear.v1"};
+            lower[4] = {"UNDO", "edit.undo.v1"};
+            lower[5] = {"REDO", "edit.redo.v1"};
+            lower[6] = {"PAGE-", "step.page-previous.v1"};
+            lower[7] = {"PAGE+", "step.page-next.v1"};
+        } else {
+            lower[0] = {"UNDO", "edit.undo.v1"};
+            lower[1] = {"REDO", "edit.redo.v1"};
+        }
     }
     for (std::size_t i = 0; i < 8; ++i) {
         const bool available =
@@ -298,9 +369,20 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                       lower[i].second) != state.available_actions.end();
         result[8 + i] = action_control(8 + i, std::string(lower[i].first),
                                        std::string(lower[i].second), available);
+        result[8 + i].bank_id = std::string(bank);
         result[8 + i].feedback_revision = state.revision;
     }
-    if ((page == "modulation" || page == "fx") && state.selected_modulation_route) {
+    if (page == "sequencer" && explicit_bank &&
+        (modifiers.shift || modifiers.shift_latched)) {
+        result[8].arguments = {
+            {"pattern_id", static_cast<std::int64_t>(state.selected_pattern)},
+            {"track_id", static_cast<std::int64_t>(state.selected_track)},
+            {"step", state.selected_step}};
+        result[10].arguments = {
+            {"parameter_id", state.selected_lock_parameter}};
+    }
+    if ((page == "modulation" || page == "modulation-routing" ||
+         page == "fx") && state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -347,7 +429,7 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                             loop.state == LiveLoopState::waiting ||
                             result[9].active;
     }
-    (void)bank;
+    for (auto &control : result) control.bank_id = std::string(bank);
     return result;
 }
 std::array<ContextControl, 16>

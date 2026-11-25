@@ -1,5 +1,10 @@
 # Application control and controller API
 
+Task 096D adds sequencer-scoped pad deferral to the optional V2 profile.
+Generic MIDI, existing dedicated profiles and direct semantic clients do not
+inherit it. Explicit context suffixes select richer shared descriptors; legacy
+unsuffixed contexts retain their prior assignments.
+
 Task 096B provides an explicit optional Reference Controller V2
 descriptor/profile with stable human-readable logical IDs. The default binds
 page routing, contextual encoders/functions, SHIFT and performance pads;
