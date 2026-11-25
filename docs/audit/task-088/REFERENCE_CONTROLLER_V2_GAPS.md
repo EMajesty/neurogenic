@@ -1,5 +1,13 @@
 # Reference Controller V2 implementation gaps
 
+Task 097C substantially resolves RC2-004 for currently registered operations:
+all sixteen destinations have explicit encoder/function/pad descriptors, both
+layers are accounted for, V2 dispatch and Slint use the same destination ID,
+and unavailable positions are inert. Stable Sound note release and legacy
+profile compatibility are deterministic. Missing shared selection actions,
+missing musical algorithms, complete controller-authored lock acceptance and
+physical validation remain open; see `TASK_097C_VALIDATION.md`.
+
 Task 096D implements contextual step ownership in software and partially
 resolves RC2-004: the Sequencer property/compatible-lock bank, stable bounded
 multi-selection and grouped history path have production evidence. The full
@@ -158,12 +166,13 @@ capture stable held-step targets and route encoder edits to step properties or
 locks. Acceptance: page matrix tests verify every label/action/value/argument,
 unsupported entries are unavailable, and audio/MIDI behavior confirms locks.
 
-**Task 096D status: partially resolved.** Sequencer P1-P8 now authors all
+**Task 097C status: substantially implemented in software.** Sequencer P1-P8 now authors all
 existing step properties and compatible numeric locks through captured
 reusable-pattern targets, bounded multi-selection and one coalesced history
-entry. Controller and Slint consume shared descriptor roles. Complete
-page-specific primary/secondary functions and pad modes remain open; physical
-validation is NOT RUN.
+entry. All destinations now have explicit shared primary/secondary functions
+and pad modes. Existing operations are bound; unavailable actions are inert.
+Some destinations still lack stable selection services or musical capability,
+and the stronger Task 097D acceptance evidence and physical validation are open.
 
 ### RC2-005 — Project-owned Performance banks (P2, musical)
 

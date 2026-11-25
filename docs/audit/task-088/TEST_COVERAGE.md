@@ -1,5 +1,19 @@
 # Test and validation audit
 
+## Task 097C additions
+
+- `neurogenic_contextual_coverage_tests` enumerates all sixteen destinations,
+  normal/SHIFT layers, 16 context controls and 16 pads per layer. It asserts
+  stable identities, inert unavailable positions and stable pad targets.
+- Controller regression proves V2 destination-specific dispatch without
+  changing legacy/global pad-mode profiles.
+- Slint adapter regression proves the `song` secondary destination does not
+  collapse to the reused Sequencer page bank and restores Sequencer correctly.
+- Sound pad descriptors preserve press/release pairing; Sequencer primary and
+  selection layers share an absolute stable step target.
+- Physical controller, coordinate touchscreen and subjective musical validation
+  remain NOT RUN.
+
 ## Task 097B additions
 
 - Generated Slint: every one of the 48 Performance chooser rows is opened with

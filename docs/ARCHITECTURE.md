@@ -1,5 +1,12 @@
 # Architecture
 
+## Contextual interaction boundary
+
+`resolve_controller_context()` and `resolve_controller_pads()` are copied,
+presentation-neutral projections. They retain no engine pointers and perform no
+musical mutation. ControllerSession owns matching momentary releases; frontend
+code only presents the copied state.
+
 ## Assignment authoring boundary
 
 Task 097B reuses one discovery/typed-target model for two authorities. Project

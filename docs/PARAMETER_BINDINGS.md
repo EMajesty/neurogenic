@@ -1,5 +1,12 @@
 # Typed parameter bindings
 
+## Contextual pages
+
+Sound, FX and modulation banks consume discovered descriptors; the built-in
+synth retains its established ordering for profile compatibility. Intended
+Sample, Slice, Song and Routing fields without a registered parameter remain
+unavailable. Mutable values still come from the authoritative registry.
+
 ## Graphical assignment forms
 
 Performance encoder assignments and Setup direct-parameter mappings resolve

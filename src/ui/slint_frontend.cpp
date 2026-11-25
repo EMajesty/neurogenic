@@ -168,7 +168,7 @@ void publish(const SlintUiState &state,
         window->set_context_bank(text(state.context.bank));
         if (state.shell.page_id == "performance") {
             std::vector<PadItem> pads;
-            for (const auto &pad : state.performance.pads)
+            for (const auto &pad : state.context.pads)
                 pads.push_back({text(pad.label), text(pad.status), pad.active,
                                 pad.queued, pad.selected, pad.available});
             publish_model(models.pads, std::move(pads), [&](auto value) { window->set_pads(value); });
@@ -317,8 +317,8 @@ void publish(const SlintUiState &state,
     for (const auto &bank : state.performance.banks)
         performance_banks.push_back(
             {static_cast<int>(bank.id), text(bank.name), bank.selected});
-    pads.reserve(state.performance.pads.size());
-    for (const auto &pad : state.performance.pads)
+    pads.reserve(state.context.pads.size());
+    for (const auto &pad : state.context.pads)
         pads.push_back({text(pad.label), text(pad.status), pad.active,
                         pad.queued, pad.selected, pad.available});
     publish_model(models.pages, std::move(pages), [&](auto value) { window->set_pages(value); });

@@ -245,6 +245,30 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             ++i;
         }
     };
+    auto set_named_parameters = [&](std::initializer_list<
+                                    std::pair<std::string_view,
+                                              std::string_view>> values) {
+        std::size_t i{};
+        for (const auto &[label, id] : values) {
+            result[i] = parameter_control(state, static_cast<std::uint16_t>(i), id);
+            result[i].label = std::string(label);
+            result[i].role = result[i].active ? "parameter" : "unavailable";
+            ++i;
+        }
+    };
+    auto set_descriptor_page = [&](std::initializer_list<std::string_view> prefixes) {
+        std::size_t index{};
+        for (const auto &descriptor : state.parameters) {
+            if (index == 8) break;
+            const auto matches = std::any_of(prefixes.begin(), prefixes.end(),
+                [&](const auto prefix) { return descriptor.id.starts_with(prefix); });
+            if (!matches) continue;
+            result[index] = parameter_control(
+                state, static_cast<std::uint16_t>(index), descriptor.id);
+            result[index].role = "descriptor-parameter";
+            ++index;
+        }
+    };
     // A context identity may include a configurable bank suffix (for example
     // "sequencer:advanced"). Base-page fallback keeps profiles compatible
     // while allowing future panel layouts to select richer banks.
@@ -355,22 +379,81 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                         "mixer.track.aux-1", "mixer.track.aux-2",
                         "mixer.aux.return", "mixer.master.gain",
                         "external-fx.send-gain", "external-fx.return-gain"});
-    else if (page == "samples" || page == "sample" || page == "slice")
+    else if (page == "samples")
         set_parameters({"sample.pitch", "sample.gain", "sample.pan",
                         "effect.delay.mix", "effect.delay.time",
                         "effect.delay.feedback"});
-    else if (page == "modulation" || page == "modulation-routing" ||
-             page == "fx" || page == "macros" || page == "scenes")
-        set_parameters({"synth.cutoff", "synth.resonance", "synth.pitch",
-                        "synth.gain", "sample.pitch", "sample.gain",
-                        "mixer.track.pan", "external-fx.wet"});
-    else if (page == "routing" || page == "song" || page == "setup")
-        set_parameters({"external-fx.wet", "external-fx.send-gain",
-                        "external-fx.return-gain", "mixer.master.gain"});
-    else if (page == "parameters" || page == "sound")
+    else if (page == "sample")
+        set_named_parameters({{"START", "sample.start"}, {"END", "sample.end"},
+            {"LOOP START", "sample.loop-start"}, {"LOOP END", "sample.loop-end"},
+            {"TUNE", "sample.pitch"}, {"GAIN", "sample.gain"},
+            {"PAN", "sample.pan"}, {"ZOOM", "sample.zoom"}});
+    else if (page == "slice")
+        set_named_parameters({{"SLICE", "slice.selected"}, {"START", "slice.start"},
+            {"END", "slice.end"}, {"TUNE", "sample.pitch"},
+            {"GAIN", "sample.gain"}, {"PAN", "sample.pan"},
+            {"MODE", "pad.playback-mode"}, {"ZOOM", "sample.zoom"}});
+    else if (page == "fx")
+        set_descriptor_page({"effect.", "external-fx."});
+    else if (page == "modulation")
+        set_descriptor_page({"modulation.source.", "modulator."});
+    else if (page == "modulation-routing" || page == "routing") {
+        set_named_parameters({{"SOURCE", "modulation.route.source"},
+            {"DEST", "modulation.route.destination"},
+            {"DEPTH", "modulation.route.depth"},
+            {"POLARITY", "modulation.route.polarity"}});
+        if (state.selected_modulation_route) {
+            const auto end = state.modulation.routes.begin() + state.modulation.route_count;
+            const auto route = std::find_if(state.modulation.routes.begin(), end,
+                [&](const auto &value) { return value.id == state.selected_modulation_route; });
+            if (route != end) {
+                result[2].active = true;
+                result[2].role = "route-depth";
+                result[2].value = formatted(static_cast<double>(route->depth));
+                result[2].minimum = -1;
+                result[2].maximum = 1;
+                result[2].arguments = {{"route_id", static_cast<std::int64_t>(route->id)}};
+            }
+        }
+    } else if (page == "macros") {
+        std::size_t index{};
+        for (const auto &macro : state.performance_macros.macros) {
+            if (index == 8) break;
+            auto &control = result[index++];
+            control.label = macro.name.empty() ? "MACRO" : macro.name;
+            control.value = formatted(static_cast<double>(macro.value));
+            control.minimum = 0; control.maximum = 1; control.active = macro.enabled;
+            control.parameter_id = "macro." + std::to_string(macro.id) + ".value";
+            control.role = "performance-macro";
+            control.arguments = {{"macro_id", static_cast<std::int64_t>(macro.id)}};
+        }
+    } else if (page == "scenes") {
+        if (!state.performance_macros.scenes.empty()) {
+            result[0].label = "SCENE";
+            result[0].value = state.performance_macros.scenes.front().name;
+            result[0].role = "scene-selection";
+            result[0].active = true;
+        }
+    } else if (page == "song")
+        set_named_parameters({{"CLIP", "arrangement.clip"},
+            {"POSITION", "arrangement.position"},
+            {"DURATION", "arrangement.duration"}, {"OFFSET", "arrangement.offset"},
+            {"TRACK", "arrangement.track"}, {"REPEAT", "arrangement.repeat"},
+            {"LOOP START", "arrangement.loop-start"},
+            {"LOOP END", "arrangement.loop-end"}});
+    else if (page == "setup" || page == "browser" || page == "presets" ||
+             page == "xy") {
+        // These destinations expose navigation/actions, not invented musical
+        // parameters. DATA remains owned by the shared focus contract.
+    } else if (page == "parameters" || page == "sound") {
+        // Preserve the established reference ordering for the built-in synth;
+        // other instruments continue through their discovered descriptor page.
         set_parameters({"synth.cutoff", "synth.resonance", "synth.attack",
                         "synth.decay", "synth.sustain", "synth.release",
-                        "synth.gain", "effect.delay.mix"});
+                        "synth.gain", "synth.pitch"});
+        if (!result[0].active)
+            set_descriptor_page({"instrument.", "voice.", "synth."});
+    }
     else if (page == "sequencer" && explicit_bank) {
         static constexpr std::array<std::string_view, 7> properties{
             "pitch", "velocity", "duration", "probability", "condition",
@@ -438,12 +521,27 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
          {"ENTER", "navigation.confirm.v1"},
          {"PAGE+", "step.page-next.v1"},
          {"PLAY", "transport.play.v1"}}};
-    if (page == "samples" || page == "sample" || page == "slice") {
-        lower[0] = {"PREVIEW", "slice.preview.v1"};
-        lower[1] = {"STOP PREV", "slice.preview-stop.v1"};
+    if (page == "samples" || page == "sample") {
+        lower = {{{"PREVIEW", "sample.preview.v1"},
+                  {"SELECT", "sample.slot-select.v1"},
+                  {"PROCESS", "sample-processing.start.v1"},
+                  {"REVERSE", ""}, {"LOOP", ""}, {"TRIM", ""},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
+    } else if (page == "slice") {
+        lower = {{{"PREVIEW", "slice.preview.v1"},
+                  {"STOP", "slice.preview-stop.v1"},
+                  {"ADD", "slice.create.v1"}, {"REMOVE", "slice.delete.v1"},
+                  {"EQUAL", "slice.equal-divisions.v1"},
+                  {"TRANSIENT", "slice.detect-transients.v1"},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
     } else if (page == "mixer") {
-        lower[0] = {"MUTE", "mixer.mute-toggle.v1"};
-        lower[1] = {"SOLO", "mixer.solo-toggle.v1"};
+        lower = {{{"TRACKS", "mixer.channel-select.v1"},
+                  {"GROUPS", "mixer.group-select.v1"},
+                  {"AUX", ""}, {"MASTER", ""}, {"ROUTING", ""},
+                  {"SENDS", ""}, {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
     } else if (page == "sequencer") {
         lower[0] = {"PAGE-", "step.page-previous.v1"};
         lower[1] = {"PAGE+", "step.page-next.v1"};
@@ -453,8 +551,32 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         lower[5] = {"REDO", "edit.redo.v1"};
         lower[6] = {"PATTERN-", "pattern.previous.v1"};
         lower[7] = {"PATTERN+", "pattern.next.v1"};
-    } else if ((page == "modulation" || page == "modulation-routing" ||
-                page == "fx") && state.selected_modulation_route) {
+    } else if (page == "sound") {
+        lower = {{{"INSTRUMENT", ""}, {"VOICE", ""},
+                  {"MOD", "navigation.confirm.v1"}, {"PRESET", "preset.query.v1"},
+                  {"RESET", "parameter.reset.v1"}, {"SAVE", "preset.capture.v1"},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
+    } else if (page == "presets") {
+        lower = {{{"BROWSE", "preset.query.v1"}, {"CAPTURE", "preset.capture.v1"},
+                  {"ACTIVATE", "preset.apply.v1"}, {"INSPECT", "preset.query.v1"},
+                  {"RENAME", "preset.rename.v1"}, {"REMOVE", "preset.delete.v1"},
+                  {"PREVIOUS", "navigation.focus-previous.v1"},
+                  {"NEXT", "navigation.focus-next.v1"}}};
+    } else if (page == "fx") {
+        lower = {{{"ADD", "effect.create.v1"}, {"REMOVE", "effect.delete.v1"},
+                  {"MOVE", "effect.reorder.v1"}, {"BYPASS", "effect.bypass.v1"},
+                  {"PRESET", "preset.query.v1"}, {"INSPECT", "effect.query.v1"},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
+    } else if (page == "modulation" && !state.selected_modulation_route) {
+        lower = {{{"NEW", "modulation.source-configure.v1"}, {"DUPLICATE", ""},
+                  {"ENABLE", ""}, {"REMOVE", ""}, {"SCOPE", ""},
+                  {"RESET", "modulation.source-reset.v1"},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
+    } else if ((page == "modulation" || page == "modulation-routing" || page == "routing") &&
+               state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -468,6 +590,28 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             lower[2] = {route->enabled ? "DISABLE" : "ENABLE",
                         "modulation.route-enable.v1"};
         }
+    } else if (page == "macros") {
+        lower = {{{"NEW", "macro.create.v1"}, {"ASSIGN", "macro.assignment-set.v1"},
+                  {"RANGE", "macro.assignment-update.v1"},
+                  {"REMOVE", "macro.delete.v1"}, {"RENAME", "macro.rename.v1"},
+                  {"RESET", "macro.value-set.v1"},
+                  {"BANK-", "navigation.page-previous.v1"},
+                  {"BANK+", "navigation.page-next.v1"}}};
+    } else if (page == "scenes") {
+        lower = {{{"CAPTURE", "macro.scene-capture.v1"},
+                  {"RECALL", "macro.scene-recall.v1"},
+                  {"UPDATE", "macro.scene-update.v1"},
+                  {"DUPLICATE", "macro.scene-duplicate.v1"},
+                  {"RENAME", "macro.scene-rename.v1"},
+                  {"DELETE", "macro.scene-delete.v1"},
+                  {"PREVIOUS", "navigation.focus-previous.v1"},
+                  {"NEXT", "navigation.focus-next.v1"}}};
+    } else if (page == "song") {
+        lower = {{{"ADD CLIP", "arrangement.clip-create.v1"},
+                  {"SPLIT", ""}, {"DUPLICATE", "arrangement.clip-duplicate.v1"},
+                  {"SNAP", ""}, {"PATTERN", "pattern.select.v1"},
+                  {"AUDIO", ""}, {"ZOOM-", "navigation.page-previous.v1"},
+                  {"ZOOM+", "navigation.page-next.v1"}}};
     } else if (page == "browser") {
         lower = {{{"PREVIOUS", "navigation.focus-previous.v1"},
                   {"NEXT", "navigation.focus-next.v1"},
@@ -477,6 +621,15 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                   {"CONFIRM", "navigation.confirm.v1"},
                   {"PAGE-", "step.page-previous.v1"},
                   {"PAGE+", "step.page-next.v1"}}};
+    } else if (page == "setup") {
+        lower = {{{"AUDIO", "navigation.confirm.v1"},
+                  {"MIDI", "navigation.confirm.v1"},
+                  {"CONTROLLER", "navigation.confirm.v1"},
+                  {"STORAGE", "navigation.confirm.v1"},
+                  {"DISPLAY", "navigation.confirm.v1"},
+                  {"SYSTEM", "navigation.confirm.v1"},
+                  {"DIAGNOSTICS", "navigation.confirm.v1"},
+                  {"APPLY", "navigation.confirm.v1"}}};
     } else if (page == "performance" && !state.live_loops.empty()) {
         const auto session = std::find_if(
             state.live_loops.begin(), state.live_loops.end(),
@@ -513,8 +666,9 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
             lower[6] = {"PAGE-", "step.page-previous.v1"};
             lower[7] = {"PAGE+", "step.page-next.v1"};
         } else {
-            lower[0] = {"UNDO", "edit.undo.v1"};
-            lower[1] = {"REDO", "edit.redo.v1"};
+            lower = {{{"UNDO", "edit.undo.v1"}, {"REDO", "edit.redo.v1"},
+                      {"--", ""}, {"--", ""}, {"--", ""}, {"--", ""},
+                      {"--", ""}, {"--", ""}}};
         }
     }
     for (std::size_t i = 0; i < 8 && !custom_performance; ++i) {
@@ -536,8 +690,37 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
         result[10].arguments = {
             {"parameter_id", state.selected_lock_parameter}};
     }
+    if (page == "sample" || page == "samples") {
+        result[9].arguments = {{"slot_id", static_cast<std::int64_t>(
+            state.selected_sample_slot.value)}};
+        result[9].active = state.selected_sample_slot != invalid_sample_slot;
+        // Processing starts only after the shared processing proposal exists.
+        result[10].active = !state.sample_processing_jobs.empty();
+    } else if (page == "mixer") {
+        result[8].arguments = {{"index", static_cast<std::int64_t>(
+            state.selected_mixer_channel)}};
+        result[9].arguments = {{"id", static_cast<std::int64_t>(state.selected_group)}};
+        result[9].active = state.selected_group != 0;
+    } else if (page == "scenes" && !state.performance_macros.scenes.empty() &&
+               !(modifiers.shift || modifiers.shift_latched)) {
+        const auto &scene = state.performance_macros.scenes.front();
+        const auto id = static_cast<std::int64_t>(scene.id);
+        result[9].arguments = {{"id", id}, {"duration", 0.0},
+            {"tempo_sync", false}, {"curve", std::string("linear")},
+            {"start_frame", static_cast<std::int64_t>(state.transport_frame)}};
+        result[10].arguments = {{"id", id}, {"name", scene.name},
+            {"duration", static_cast<double>(scene.morph_duration)},
+            {"tempo_sync", scene.tempo_sync}, {"curve", std::string("linear")}};
+        result[11].arguments = {{"id", id}, {"name", scene.name + " Copy"}};
+        result[12].arguments = {{"id", id}, {"name", scene.name}};
+        result[13].arguments = {{"id", id}};
+    } else if ((page == "modulation" || page == "modulation-routing" ||
+                page == "routing") &&
+               state.selected_modulation_route) {
+        result[8].role = result[9].role = result[10].role = "route-action";
+    }
     if ((page == "modulation" || page == "modulation-routing" ||
-         page == "fx") && state.selected_modulation_route) {
+         page == "routing") && state.selected_modulation_route) {
         const auto route = std::find_if(
             state.modulation.routes.begin(),
             state.modulation.routes.begin() + state.modulation.route_count,
@@ -584,6 +767,26 @@ resolve_controller_context(const ApplicationState &state, std::string_view conte
                             loop.state == LiveLoopState::waiting ||
                             result[9].active;
     }
+    // Descriptor presence alone is not a usable binding. Operations whose
+    // registered contract requires a proposal or stable object arguments stay
+    // unavailable until this resolver can supply those arguments completely.
+    static constexpr std::array<std::string_view, 27> argument_actions{
+        "arrangement.clip-create.v1", "arrangement.clip-duplicate.v1",
+        "effect.bypass.v1", "effect.create.v1", "effect.delete.v1",
+        "effect.reorder.v1", "macro.assignment-set.v1",
+        "macro.assignment-update.v1", "macro.create.v1", "macro.delete.v1",
+        "macro.rename.v1", "macro.scene-capture.v1", "macro.scene-delete.v1",
+        "macro.scene-duplicate.v1", "macro.scene-recall.v1",
+        "macro.scene-rename.v1", "macro.scene-update.v1", "macro.value-set.v1",
+        "mixer.channel-select.v1", "mixer.group-select.v1",
+        "modulation.source-configure.v1", "modulation.source-reset.v1",
+        "pattern.select.v1", "preset.capture.v1", "preset.delete.v1",
+        "preset.rename.v1", "slice.create.v1"};
+    for (std::size_t i = 8; i < result.size(); ++i)
+        if (result[i].active && result[i].arguments.empty() &&
+            std::find(argument_actions.begin(), argument_actions.end(),
+                      result[i].action_id) != argument_actions.end())
+            result[i].active = false;
     for (auto &control : result) control.bank_id = std::string(bank);
     return result;
 }
@@ -591,6 +794,210 @@ std::array<ContextControl, 16>
 build_controller_context(const ApplicationState &state) {
     return resolve_controller_context(state, state.controller_context,
                                       state.modifiers);
+}
+
+std::array<ContextPadControl, 16>
+resolve_controller_pads(const ApplicationState &state, std::string_view context,
+                        const ModifierState &modifiers) {
+    std::array<ContextPadControl, 16> pads{};
+    const auto separator = context.find(':');
+    const auto page = context.substr(0, separator);
+    const auto bank = separator == std::string_view::npos
+        ? std::string_view("primary") : context.substr(separator + 1);
+    const auto shifted = modifiers.shift || modifiers.shift_latched;
+    const auto available = [&](std::string_view action) {
+        return !action.empty() && std::find(state.available_actions.begin(),
+            state.available_actions.end(), action) != state.available_actions.end();
+    };
+    const auto assign = [&](std::size_t position, std::string label,
+                            std::string role, std::string action,
+                            std::map<std::string, ApplicationValue> arguments = {},
+                            std::string target = {}, std::string release = {},
+                            std::map<std::string, ApplicationValue> release_args = {}) {
+        auto &pad = pads[position];
+        pad.position = static_cast<std::uint16_t>(position);
+        pad.label = std::move(label);
+        pad.role = std::move(role);
+        pad.action_id = std::move(action);
+        pad.arguments = std::move(arguments);
+        pad.target_identity = std::move(target);
+        pad.release_action_id = std::move(release);
+        pad.release_arguments = std::move(release_args);
+        pad.available = available(pad.action_id);
+        pad.bank_id = std::string(page) + ":" + std::string(bank) +
+            (shifted ? ":shift" : ":normal");
+        pad.feedback_revision = state.revision;
+    };
+    for (std::size_t i = 0; i < pads.size(); ++i) {
+        pads[i].position = static_cast<std::uint16_t>(i);
+        pads[i].bank_id = std::string(page) + ":" + std::string(bank) +
+            (shifted ? ":shift" : ":normal");
+        pads[i].feedback_revision = state.revision;
+    }
+
+    if (page == "performance" || page == "xy") {
+        const auto selected = std::find_if(state.performance_banks.banks.begin(),
+            state.performance_banks.banks.end(), [&](const auto &value) {
+                return value.id == state.performance_banks.active_bank;
+            });
+        if (selected != state.performance_banks.banks.end()) {
+            for (const auto &assignment : selected->pads) {
+                if (assignment.position >= pads.size()) continue;
+                const auto target = "launch-slot:" +
+                    std::to_string(assignment.launch_slot);
+                assign(assignment.position,
+                    assignment.label.empty() ? "PAD " +
+                        std::to_string(assignment.position + 1) : assignment.label,
+                    shifted ? "performance-assignment-select" : "performance-launch",
+                    shifted ? "performance.assignment-select.v1"
+                            : "performance.slot-launch.v1",
+                    shifted ? std::map<std::string, ApplicationValue>{{"assignment",
+                        static_cast<std::int64_t>(assignment.id)}}
+                            : std::map<std::string, ApplicationValue>{{"slot",
+                                static_cast<std::int64_t>(assignment.launch_slot)}},
+                    target);
+                pads[assignment.position].selected =
+                    state.performance_banks.selected_assignment == assignment.id;
+            }
+        } else {
+            for (const auto &slot : state.performance_launching.slots) {
+                if (slot.logical_position < 0 ||
+                    static_cast<std::size_t>(slot.logical_position) >= pads.size()) continue;
+                assign(slot.logical_position, "SLOT " + std::to_string(slot.id),
+                    shifted ? "unavailable" : "performance-launch",
+                    shifted ? "" : "performance.slot-launch.v1",
+                    {{"slot", static_cast<std::int64_t>(slot.id)}},
+                    "launch-slot:" + std::to_string(slot.id));
+            }
+        }
+    } else if (page == "sequencer") {
+        const auto base = state.step_page * 16;
+        for (std::size_t i = 0; i < pads.size(); ++i) {
+            const auto step = static_cast<std::int64_t>(base + i);
+            const auto valid = state.selected_track != 0 &&
+                std::any_of(state.patterns.begin(), state.patterns.end(), [&](const auto &p) {
+                    return p.id == state.selected_pattern &&
+                        static_cast<MusicalTick>(step) * state.step_ticks < p.length;
+                });
+            assign(i, "STEP " + std::to_string(step + 1),
+                shifted ? "step-select" : "step-toggle",
+                shifted ? "step.selection-toggle.v1" : "step.toggle.v1",
+                shifted ? std::map<std::string, ApplicationValue>{
+                    {"pattern_id", static_cast<std::int64_t>(state.selected_pattern)},
+                    {"track_id", static_cast<std::int64_t>(state.selected_track)},
+                    {"step", step}}
+                : std::map<std::string, ApplicationValue>{
+                    {"step", step}, {"velocity", static_cast<double>(state.step_velocity)},
+                    {"duration_ticks", static_cast<std::int64_t>(state.step_duration)},
+                    {"pattern_id", static_cast<std::int64_t>(state.selected_pattern)},
+                    {"track_id", static_cast<std::int64_t>(state.selected_track)}},
+                "pattern:" + std::to_string(state.selected_pattern) + ":track:" +
+                    std::to_string(state.selected_track) + ":step:" + std::to_string(step));
+            pads[i].available = valid && pads[i].available;
+            pads[i].selected = std::any_of(state.selected_steps.begin(),
+                state.selected_steps.end(), [&](const auto &selection) {
+                    return selection.pattern_id == state.selected_pattern &&
+                        selection.track_id == state.selected_track && selection.step == step;
+                });
+        }
+    } else if (page == "song") {
+        for (std::size_t i = 0; i < pads.size() && i < state.patterns.size(); ++i) {
+            const auto &pattern = state.patterns[i];
+            assign(i, pattern.name.empty() ? "PATTERN " + std::to_string(pattern.id)
+                                           : pattern.name,
+                shifted ? "pattern-select" : "pattern-launch",
+                shifted ? "pattern.select.v1" : "pattern.launch.v1",
+                shifted ? std::map<std::string, ApplicationValue>{{"pattern_id",
+                    static_cast<std::int64_t>(pattern.id)}}
+                    : std::map<std::string, ApplicationValue>{{"id",
+                        static_cast<std::int64_t>(pattern.id)}, {"queued", true}},
+                "pattern:" + std::to_string(pattern.id));
+            pads[i].selected = state.selected_pattern == pattern.id;
+            pads[i].active = state.active_pattern == pattern.id;
+            pads[i].queued = state.queued_pattern == pattern.id;
+        }
+    } else if (page == "sample") {
+        for (std::size_t i = 0; i < pads.size() && i < state.sample_slots.size(); ++i) {
+            const auto &slot = state.sample_slots[i];
+            const auto selected = state.selected_sample_slot == slot.id;
+            assign(i, slot.source_path.filename().string().empty()
+                    ? "SAMPLE " + std::to_string(slot.id.value)
+                    : slot.source_path.filename().string(),
+                shifted ? "sample-select" : "sample-audition",
+                shifted ? "sample.slot-select.v1" : (selected ? "sample.preview.v1" : ""),
+                shifted ? std::map<std::string, ApplicationValue>{{"slot_id",
+                    static_cast<std::int64_t>(slot.id.value)}}
+                    : std::map<std::string, ApplicationValue>{},
+                "sample-slot:" + std::to_string(slot.id.value));
+            pads[i].available = slot.has_sample && pads[i].available;
+            pads[i].selected = selected;
+        }
+    } else if (page == "slice") {
+        for (std::size_t i = 0; i < pads.size() && i < state.slices.size(); ++i) {
+            const auto &slice = state.slices[i];
+            const auto selected = state.selected_slice == slice.id;
+            assign(i, slice.name.empty() ? "SLICE " + std::to_string(slice.id) : slice.name,
+                shifted ? "slice-select" : "slice-audition",
+                shifted ? "slice.select.v1" : (selected ? "slice.preview.v1" : ""),
+                shifted ? std::map<std::string, ApplicationValue>{{"slice_id",
+                    static_cast<std::int64_t>(slice.id)}}
+                    : std::map<std::string, ApplicationValue>{},
+                "slice:" + std::to_string(slice.id),
+                shifted ? "" : "slice.preview-stop.v1");
+            pads[i].selected = selected;
+        }
+    } else if (page == "sound") {
+        for (std::size_t i = 0; i < pads.size(); ++i) {
+            assign(i, "NOTE " + std::to_string(36 + i),
+                shifted ? "instrument-select" : "instrument-note",
+                shifted ? "" : "pad.trigger.v1",
+                {{"pad", static_cast<std::int64_t>(i)}, {"velocity", 1.0},
+                 {"pitch_offset", 0.0}},
+                "track:" + std::to_string(state.selected_track) + ":note:" +
+                    std::to_string(36 + i), shifted ? "" : "pad.release.v1",
+                {{"pad", static_cast<std::int64_t>(i)}});
+            pads[i].available = state.selected_track != 0 && pads[i].available;
+        }
+    } else if (page == "mixer") {
+        for (std::size_t i = 0; i < pads.size() && i < state.tracks.size(); ++i) {
+            const auto &track = state.tracks[i];
+            assign(i, track.name.empty() ? "TRACK " + std::to_string(track.id) : track.name,
+                "track-select", "track.select.v1",
+                {{"track_id", static_cast<std::int64_t>(track.id)}},
+                "track:" + std::to_string(track.id));
+            pads[i].selected = track.id == state.selected_track;
+            pads[i].active = !track.muted;
+        }
+    } else if (page == "modulation-routing") {
+        for (std::size_t i = 0; i < pads.size() && i < state.modulation.route_count; ++i) {
+            const auto &route = state.modulation.routes[i];
+            assign(i, "ROUTE " + std::to_string(route.id), "route-select",
+                "modulation.route-select.v1",
+                {{"route_id", static_cast<std::int64_t>(route.id)}},
+                "route:" + std::to_string(route.id));
+            pads[i].selected = route.id == state.selected_modulation_route;
+            pads[i].active = route.enabled;
+        }
+    } else if (page == "macros") {
+        for (std::size_t i = 0; i < pads.size() && i < state.performance_macros.macros.size(); ++i) {
+            const auto &macro = state.performance_macros.macros[i];
+            assign(i, macro.name, shifted ? "macro-select" : "macro-invoke",
+                shifted ? "" : "macro.value-set.v1",
+                {{"id", static_cast<std::int64_t>(macro.id)}, {"value", 1.0}},
+                "macro:" + std::to_string(macro.id));
+        }
+    } else if (page == "scenes") {
+        for (std::size_t i = 0; i < pads.size() && i < state.performance_macros.scenes.size(); ++i) {
+            const auto &scene = state.performance_macros.scenes[i];
+            assign(i, scene.name, shifted ? "scene-select" : "scene-recall",
+                shifted ? "" : "macro.scene-recall.v1",
+                {{"id", static_cast<std::int64_t>(scene.id)}, {"duration", 0.0},
+                 {"tempo_sync", false}, {"curve", std::string("linear")},
+                 {"start_frame", static_cast<std::int64_t>(state.transport_frame)}},
+                "scene:" + std::to_string(scene.id));
+        }
+    }
+    return pads;
 }
 std::vector<std::uint8_t>
 encode_controller_packet(const ControllerPacket &packet) {

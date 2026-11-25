@@ -1,5 +1,11 @@
 # Project-owned Performance banks
 
+## Contextual pad integration
+
+Performance and XY pad descriptors compose project-owned assignments with the
+shared resolver. Normal presses launch the stable slot; SHIFT selects the
+assignment without launching. Missing and unassigned targets remain inert.
+
 ## Shared graphical authoring
 
 Task 096F connects the Performance editor to the shared discovery target model.

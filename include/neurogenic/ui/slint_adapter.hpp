@@ -31,7 +31,7 @@ struct SlintContextItem {
 };
 
 struct SlintPadItem {
-    std::string label, status{"Unavailable"};
+    std::string label, status;
     std::uint64_t slot_id{};
     bool active{}, queued{}, selected{}, available{};
 };
@@ -69,6 +69,7 @@ struct SlintContextState {
     std::string identity{"performance:primary"}, bank{"Primary"};
     std::array<SlintContextItem, 8> encoders;
     std::array<SlintContextItem, 8> functions;
+    std::array<SlintPadItem, 16> pads;
 };
 
 struct SlintPerformancePageState {
@@ -736,6 +737,9 @@ class SlintFrontendAdapter {
     SlintUiState state_;
     SlintRefreshDiagnostics refresh_diagnostics_;
     std::uint64_t structural_fingerprint_{};
+    std::uint64_t context_pad_fingerprint_{};
+    std::unordered_map<std::uint64_t, std::array<SlintPadItem, 16>>
+        context_pad_cache_;
     std::string last_error_;
     bool active_{true};
     std::uint64_t local_revision_{1}, published_local_revision_{};

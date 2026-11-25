@@ -1,5 +1,17 @@
 # Implementation status
 
+## Task 097C contextual-bank and pad-mode closure
+
+The shared resolver now preserves all sixteen V2 destination identities and
+publishes explicit encoder, function and destination-owned pad descriptors.
+V2 pad dispatch consumes those descriptors; unsupported operations remain
+visible but inert, while legacy controllers retain their established pad-mode
+behavior. See [Task 097C validation](audit/task-088/TASK_097C_VALIDATION.md).
+
+RC2-004 is substantially implemented for existing capabilities. Missing engine
+operations and shared selection metadata keep RC2-001/003 and AUD2-007 partial.
+Physical validation remains **NOT RUN**.
+
 ## Task 096G physical V2 protocol and firmware conformance
 
 Reference Controller V2 now has a concrete USB CDC protocol-1.3 contract:

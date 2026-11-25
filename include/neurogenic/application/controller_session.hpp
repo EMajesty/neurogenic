@@ -20,6 +20,14 @@ struct ContextControl {
     bool locked{};
     PerformanceAssignmentId assignment_id{};
 };
+struct ContextPadControl {
+    std::uint16_t position{};
+    std::string label{"--"}, role{"unavailable"}, action_id,
+        release_action_id, target_identity, bank_id;
+    std::map<std::string, ApplicationValue> arguments, release_arguments;
+    bool available{}, selected{}, active{}, queued{};
+    std::uint64_t feedback_revision{};
+};
 enum class ControllerFeedbackKind : std::uint8_t { rgb, indicator, context, text };
 struct ControllerFeedback {
     ControllerFeedbackKind kind{ControllerFeedbackKind::indicator};
@@ -43,6 +51,9 @@ struct ControllerSessionState {
 [[nodiscard]] std::array<ContextControl, 16>
 resolve_controller_context(const ApplicationState &, std::string_view context,
                            const ModifierState &modifiers);
+[[nodiscard]] std::array<ContextPadControl, 16>
+resolve_controller_pads(const ApplicationState &, std::string_view context,
+                        const ModifierState &modifiers);
 [[nodiscard]] std::array<ContextControl, 16>
 build_controller_context(const ApplicationState &);
 
@@ -128,6 +139,7 @@ class ControllerSession {
     };
     std::unordered_map<std::string, ActivePerformanceAction>
         active_performance_actions_;
+    std::unordered_map<std::string, ContextPadControl> active_pad_actions_;
     std::unordered_map<std::string, FaderPickup> pickup_;
     std::unordered_map<std::string, std::string> pickup_targets_;
     std::unordered_map<std::string, HeldStepTarget> held_steps_;

@@ -1,5 +1,12 @@
 # Application control and controller API
 
+## Contextual controls
+
+Reference V2 sessions consume the same destination-specific encoder, function
+and pad descriptors as the frontend. Pad descriptors are independent of wire
+IDs and physical positions. Legacy profiles continue to use their existing
+`PerformanceGrid` behavior.
+
 ## Physical Reference Controller V2
 
 The reference panel is a normal descriptor/profile consumer, not a core engine

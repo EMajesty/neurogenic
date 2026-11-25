@@ -497,3 +497,10 @@ presentation focus and modal ownership. SHIFT+UP/DOWN page, SHIFT+LEFT/RIGHT
 first/last, SHIFT+BACK root and SHIFT+ENTER Save use stable requests. Browser
 DATA and representative Sequencer confirmation are production tested. See the
 [validation and reachability matrix](audit/task-088/TASK_097A_VALIDATION.md).
+
+Task 097C implementation status: `resolve_controller_context()` and
+`resolve_controller_pads()` are the shared source for all sixteen destinations.
+Each pad descriptor carries stable target, role, press/release actions,
+availability and feedback state. SHIFT selection cannot fall through to a
+normal trigger. Missing authoritative operations remain unavailable; see
+[Task 097C validation](audit/task-088/TASK_097C_VALIDATION.md).

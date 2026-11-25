@@ -1,5 +1,12 @@
 # Slint UI foundation
 
+## Task 097C contextual publication
+
+Slint context state includes destination-owned pad descriptors beside encoder
+and function banks. Secondary destinations preserve their own identities even
+when central content is reused. Generated tests are software evidence, not
+coordinate or physical touchscreen validation.
+
 ## Task 097B assignment coverage
 
 The generated production shell exposes all 48 Reference Performance positions,

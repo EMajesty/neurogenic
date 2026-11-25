@@ -212,6 +212,14 @@ void ControllerSession::cancel_performance_actions() noexcept {
                       state_.session_id, 0}, ignored);
     }
     active_performance_actions_.clear();
+    for (auto &[control, owned] : active_pad_actions_) {
+        (void)control;
+        if (owned.release_action_id.empty()) continue;
+        std::string ignored;
+        (void)submit({owned.release_action_id, std::move(owned.release_arguments),
+                      state_.session_id, 0}, ignored);
+    }
+    active_pad_actions_.clear();
 }
 
 bool ControllerSession::dispatch_legacy(const ControllerInput &input,
@@ -251,6 +259,21 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         auto owned = std::move(active->second);
         active_performance_actions_.erase(active);
         return submit({owned.action_id, std::move(owned.release_arguments),
+                       state_.session_id, input.sequence}, error);
+    }
+    if (mapping->semantic == "performance-pad" && !input.pressed) {
+        const auto active = active_pad_actions_.find(input.control_id);
+        if (active == active_pad_actions_.end()) {
+            error.clear();
+            return true;
+        }
+        auto owned = std::move(active->second);
+        active_pad_actions_.erase(active);
+        if (owned.release_action_id.empty()) {
+            error.clear();
+            return true;
+        }
+        return submit({owned.release_action_id, std::move(owned.release_arguments),
                        state_.session_id, input.sequence}, error);
     }
     if (!input.pressed && control->type != ControlType::relative_encoder &&
@@ -327,57 +350,37 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
                        state_.session_id, input.sequence}, error);
     }
     if (mapping->semantic == "performance-pad") {
-        if (state_.context.starts_with("performance")) {
-            const auto bank = std::find_if(
-                snapshot.performance_banks.banks.begin(),
-                snapshot.performance_banks.banks.end(), [&](const auto &value) {
-                    return value.id == snapshot.performance_banks.active_bank;
-                });
-            if (bank != snapshot.performance_banks.banks.end()) {
-                const auto assignment = std::find_if(
-                    bank->pads.begin(), bank->pads.end(), [&](const auto &value) {
-                        return value.position ==
-                               static_cast<std::uint32_t>(mapping->index);
-                    });
-                if (assignment == bank->pads.end()) {
-                    error.clear();
-                    return true;
-                }
-                if (state_.modifiers.shift || state_.modifiers.shift_latched)
-                    return submit(
-                        {"performance.assignment-select.v1",
-                         {{"assignment", static_cast<std::int64_t>(
-                                              assignment->id)}},
-                         state_.session_id, input.sequence}, error);
-                return submit({"performance.slot-launch.v1",
-                               {{"slot", static_cast<std::int64_t>(
-                                             assignment->launch_slot)}},
-                               state_.session_id, input.sequence}, error);
-            }
-            const auto slot = std::find_if(
-                snapshot.performance_launching.slots.begin(),
-                snapshot.performance_launching.slots.end(),
-                [&](const auto &candidate) {
-                    return candidate.logical_position == mapping->index;
-                });
-            if (slot == snapshot.performance_launching.slots.end()) {
-                error.clear();
-                return true;
-            }
-            return submit({"performance.slot-launch.v1",
-                           {{"slot", static_cast<std::int64_t>(slot->id)}},
-                           state_.session_id, input.sequence}, error);
+        if (profile_.profile_id !=
+                "neurogenic.reference-controller-v2.default.v1" &&
+            !state_.context.starts_with("performance")) {
+            PerformanceGrid grid;
+            grid.set_mode(snapshot.pad_mode);
+            grid.set_step_page(snapshot.step_page);
+            grid.set_selected_slot(snapshot.selected_sample_slot);
+            grid.set_selected_pad(snapshot.selected_pad);
+            auto command = grid_application_command(
+                grid.press(static_cast<std::size_t>(mapping->index),
+                           state_.modifiers.select),
+                state_.session_id, input.sequence);
+            return !command || submit(std::move(*command), error);
         }
-        PerformanceGrid grid;
-        grid.set_mode(snapshot.pad_mode);
-        grid.set_step_page(snapshot.step_page);
-        grid.set_selected_slot(snapshot.selected_sample_slot);
-        grid.set_selected_pad(snapshot.selected_pad);
-        auto command = grid_application_command(
-            grid.press(static_cast<std::size_t>(mapping->index),
-                       state_.modifiers.select),
-            state_.session_id, input.sequence);
-        return !command || submit(std::move(*command), error);
+        if (mapping->index < 0 || mapping->index >= 16) {
+            error = "context pad index is invalid";
+            return false;
+        }
+        const auto pads = resolve_controller_pads(
+            snapshot, state_.context, state_.modifiers);
+        const auto &target = pads[static_cast<std::size_t>(mapping->index)];
+        if (!target.available || target.action_id.empty()) {
+            error.clear();
+            return true;
+        }
+        if (!submit({target.action_id, target.arguments, state_.session_id,
+                     input.sequence}, error))
+            return false;
+        if (!target.release_action_id.empty())
+            active_pad_actions_[input.control_id] = target;
+        return true;
     }
     const auto context = resolve_controller_context(
         snapshot, state_.context, state_.modifiers);

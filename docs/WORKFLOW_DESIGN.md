@@ -1,5 +1,11 @@
 # Designing musical workflows with NEUROGENIC
 
+## Contextual workflow independence
+
+Context descriptors express stable roles and targets without requiring the
+reference panel. Alternative clients may expose fewer controls, paginate them
+differently, or invoke semantic operations directly.
+
 Task 096F demonstrates that one discovery-backed target-selection workflow can
 serve both portable project Performance banks and appliance controller profiles
 without merging their ownership. Alternative instruments may expose different

@@ -103,6 +103,44 @@ std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
     return value;
 }
 
+std::uint64_t slint_context_pad_fingerprint(const ApplicationState &state,
+                                            std::string_view context,
+                                            const ModifierState &modifiers) {
+    std::uint64_t value{0xcbf29ce484222325ULL};
+    const auto add = [&](std::uint64_t item) { hash_combine(value, item); };
+    add(std::hash<std::string_view>{}(context));
+    add(modifiers.shift); add(modifiers.shift_latched); add(modifiers.select);
+    add(state.selected_track); add(state.selected_pattern); add(state.step_page);
+    add(state.selected_sample_slot.value); add(state.selected_slice);
+    add(state.active_pattern); add(state.queued_pattern);
+    add(state.performance_banks.active_bank);
+    add(state.performance_banks.selected_assignment);
+    for (const auto &bank : state.performance_banks.banks) {
+        add(bank.id); add(bank.pads.size());
+        for (const auto &pad : bank.pads) {
+            add(pad.id); add(pad.position); add(pad.launch_slot);
+        }
+    }
+    for (const auto &slot : state.performance_launching.slots) {
+        add(slot.id); add(static_cast<std::uint64_t>(slot.logical_position + 1));
+    }
+    for (const auto &pattern : state.patterns) { add(pattern.id); add(pattern.length); }
+    for (const auto &track : state.tracks) { add(track.id); add(track.muted); }
+    for (const auto &slot : state.sample_slots) {
+        add(slot.id.value); add(slot.has_sample);
+    }
+    for (const auto &slice : state.slices) add(slice.id);
+    for (std::size_t i = 0; i < state.modulation.route_count; ++i) {
+        const auto &route = state.modulation.routes[i];
+        add(route.id); add(route.enabled);
+    }
+    for (const auto &macro : state.performance_macros.macros) {
+        add(macro.id); add(macro.enabled);
+    }
+    for (const auto &scene : state.performance_macros.scenes) add(scene.id);
+    return value;
+}
+
 constexpr std::size_t browser_page_size = 128;
 constexpr std::size_t browser_chunk_pages = 8;
 constexpr std::size_t browser_chunk_size =
@@ -679,6 +717,26 @@ bool SlintFrontendAdapter::refresh() {
             state_.context.encoders[i] = copy(context[i]);
             state_.context.functions[i] = copy(context[8 + i]);
         }
+        const auto pad_fingerprint = slint_context_pad_fingerprint(
+            snapshot, context_name, snapshot.modifiers);
+        if (pad_fingerprint != context_pad_fingerprint_) {
+            if (const auto cached = context_pad_cache_.find(pad_fingerprint);
+                cached != context_pad_cache_.end()) {
+                state_.context.pads = cached->second;
+            } else {
+                const auto context_pads = resolve_controller_pads(
+                    snapshot, context_name, snapshot.modifiers);
+                for (std::size_t i = 0; i < context_pads.size(); ++i) {
+                    const auto &from = context_pads[i];
+                    state_.context.pads[i] = {from.label, from.role, i,
+                        from.active, from.queued, from.selected, from.available};
+                }
+                if (context_pad_cache_.size() >= 32) context_pad_cache_.clear();
+                context_pad_cache_.emplace(pad_fingerprint,
+                                           state_.context.pads);
+            }
+            context_pad_fingerprint_ = pad_fingerprint;
+        }
         if (state_.shell.position == before_position &&
             state_.shell.transport == before_transport &&
             state_.recording.phase == before_recording_phase &&
@@ -697,6 +755,7 @@ bool SlintFrontendAdapter::refresh() {
     const auto construction_started = std::chrono::steady_clock::now();
     SlintUiState next;
     next.text_entry = state_.text_entry;
+    next.context.pads = state_.context.pads;
     next.shell.revision = snapshot.revision;
     next.shell.playing = snapshot.playing;
     next.shell.record_armed = snapshot.recording.state == RecordingState::armed;
@@ -983,10 +1042,9 @@ bool SlintFrontendAdapter::refresh() {
         }
     }
 
-    const auto context_page = next.shell.page_id == "sample" ? "samples"
-        : next.shell.page_id == "sound" ? "sound"
-        : next.shell.page_id == "fx" ? "fx"
-        : next.shell.page_id;
+    // Destination identity is semantic. Secondary destinations may reuse a
+    // page component but must not inherit that component's contextual bank.
+    const auto &context_page = next.shell.destination_id;
     next.context.bank = context_bank_ == 0 ? "Primary" : "Secondary";
     next.context.identity = std::string(context_page) +
                             (context_bank_ == 0 ? ":primary" : ":secondary");
@@ -1010,6 +1068,25 @@ bool SlintFrontendAdapter::refresh() {
         };
         next.context.encoders[i] = copy(context[i]);
         next.context.functions[i] = copy(context[8 + i]);
+    }
+    const auto pad_fingerprint = slint_context_pad_fingerprint(
+        snapshot, context_name, snapshot.modifiers);
+    if (pad_fingerprint != context_pad_fingerprint_) {
+        if (const auto cached = context_pad_cache_.find(pad_fingerprint);
+            cached != context_pad_cache_.end()) {
+            next.context.pads = cached->second;
+        } else {
+            const auto context_pads =
+                resolve_controller_pads(snapshot, context_name, snapshot.modifiers);
+            for (std::size_t i = 0; i < context_pads.size(); ++i) {
+                const auto &from = context_pads[i];
+                next.context.pads[i] = {from.label, from.role, i,
+                    from.active, from.queued, from.selected, from.available};
+            }
+            if (context_pad_cache_.size() >= 32) context_pad_cache_.clear();
+            context_pad_cache_.emplace(pad_fingerprint, next.context.pads);
+        }
+        context_pad_fingerprint_ = pad_fingerprint;
     }
 
     // The current reference surface exposes sixteen positions, but assignments

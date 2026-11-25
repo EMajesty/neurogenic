@@ -109,3 +109,11 @@ fields backed by current assignment/profile services. The exact next milestone
 is **Task 097C — supported contextual-bank and pad-mode closure** across all
 sixteen destinations. The missing coordinator-owned profile library is retained
 as a focused RC2-006 follow-up rather than simulated in frontend state.
+
+Task 097C completed the supported contextual definition and shared pad-mode
+projection across sixteen destinations. The next bounded milestone is **Task
+097D — acceptance closure**: controller-authored lock scheduling/persistence,
+held-step cancellation/stale targets, grouped edits, stable note release,
+Performance momentary ownership, profile replacement, protocol feedback
+overflow convergence, physical-navigation simulation and generated-component
+reachability. The coordinator-owned profile library remains a separate task.

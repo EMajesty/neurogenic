@@ -225,6 +225,15 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_reference_controller_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.reference-controller-tests.v1 passed"
     TIMEOUT 15)
+  add_executable(neurogenic_contextual_coverage_tests
+    tests/contextual_coverage_tests.cpp)
+  target_link_libraries(neurogenic_contextual_coverage_tests PRIVATE
+    neurogenic_engine)
+  add_test(NAME neurogenic_contextual_coverage_tests
+    COMMAND neurogenic_contextual_coverage_tests)
+  set_tests_properties(neurogenic_contextual_coverage_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION "neurogenic.contextual-coverage-tests.v1 passed"
+    TIMEOUT 15)
   add_executable(neurogenic_performance_banks_tests
     tests/performance_banks_tests.cpp)
   target_link_libraries(neurogenic_performance_banks_tests PRIVATE

@@ -264,6 +264,18 @@ int main() {
                     adapter.state().shell.page_id == "sequencer" &&
                     adapter.state().shell.notification.empty(),
                 "sequencer page selection is implemented");
+        require(adapter.set_reference_shift(true) &&
+                    adapter.select_reference_page(1) &&
+                    adapter.refresh() &&
+                    adapter.state().shell.destination_id == "song" &&
+                    adapter.state().context.identity.starts_with("song:") &&
+                    !adapter.state().context.pads.empty(),
+                "secondary destination lost its contextual identity in Slint");
+        require(adapter.set_reference_shift(false) &&
+                    adapter.select_reference_page(1) &&
+                    adapter.refresh() &&
+                    adapter.state().shell.destination_id == "sequencer",
+                "primary destination did not restore after shifted context test");
         require(adapter.state().sequencer.steps[0].available &&
                     !adapter.state().sequencer.steps[0].active,
                 "sequencer exposes authoritative empty steps");

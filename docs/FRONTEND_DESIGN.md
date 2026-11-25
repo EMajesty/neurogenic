@@ -1,5 +1,11 @@
 # Designing a frontend for NEUROGENIC
 
+## Context descriptor agreement
+
+Slint publication is keyed by semantic destination, not a reused page component.
+It copies the same eight encoder, eight function and sixteen pad descriptors as
+ControllerSession, so secondary destinations retain distinct banks.
+
 ## Shared assignment forms
 
 An alternative frontend may consume `AssignmentTargetPicker` metadata and

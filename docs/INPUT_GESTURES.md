@@ -1,5 +1,13 @@
 # Input gesture ownership
 
+## Task 097C contextual pad ownership
+
+Reference V2 pad presses resolve once from a destination-specific shared pad
+descriptor. It captures a stable target and any matching release. Context
+change, modal cancellation and disconnect use the existing cancellation path.
+Generic profiles are not forced through V2 pad policy. Precedence remains modal,
+explicit held modifier, effective SHIFT, then ordinary contextual behavior.
+
 ## Assignment-mode ownership
 
 Opening a Performance or Setup assignment proposal captures the bank/profile,

@@ -1,5 +1,12 @@
 # Designing a controller for NEUROGENIC
 
+## Destination-specific contextual resolution
+
+Context identity is `(destination, bank, layer)`, not the reused visual page.
+Sound/Presets and Modulation/Routing can share components without sharing banks.
+Unsupported operations are explicit unavailable descriptors, never substitute
+actions.
+
 ## Authoring mappings in the reference frontend
 
 The Setup editor and project Performance editor share discovered target and
