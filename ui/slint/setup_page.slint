@@ -32,6 +32,9 @@ export component SetupPage inherits Rectangle {
     in property <[SetupMappingItem]> mappings;
     in property <[SetupMappingTargetItem]> mapping-targets;
     in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
+    in-out property <string> manual-port: "1"; in-out property <string> manual-channel: "1";
+    in-out property <string> manual-number: "0"; in-out property <string> manual-control: "encoder.1";
+    in-out property <string> manual-mode: "cc-absolute"; in-out property <bool> manual-feedback: false;
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
     callback preferences-action(string); callback controller-selected(int);
@@ -39,6 +42,7 @@ export component SetupPage inherits Rectangle {
     callback midi-route-selected(int); callback midi-route-action(string);
     callback mapping-selected(int); callback mapping-remove();
     callback mapping-target-selected(int); callback mapping-target-apply();
+    callback mapping-source-apply(int, int, int, string, string, bool, bool);
 
     VerticalLayout { padding: 6px; spacing: 5px;
         HorizontalLayout { height: 40px; spacing: 4px;
@@ -107,6 +111,27 @@ export component SetupPage inherits Rectangle {
                 LineEdit { text <=> root.learn-control; placeholder-text: "Logical control ID"; }
                 LineEdit { text <=> root.learn-mode; placeholder-text: "cc-absolute / relative / note"; }
                 HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Confirm"; implemented: root.learn-status == "Learned — confirm mapping"; clicked => { root.midi-learn("confirm", "", ""); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
+                Text { text: "Manual source"; color: Theme.foreground; font-size: 18px; }
+                HorizontalLayout {
+                    LineEdit { text <=> root.manual-port; placeholder-text: "Port"; }
+                    LineEdit { text <=> root.manual-channel; placeholder-text: "Channel 1–16"; }
+                    LineEdit { text <=> root.manual-number; placeholder-text: "Note / CC"; }
+                }
+                LineEdit { text <=> root.manual-control; placeholder-text: "Stable logical control ID"; }
+                LineEdit { text <=> root.manual-mode; placeholder-text: "cc-absolute / cc-relative-2c / cc-relative-offset / note"; }
+                HorizontalLayout {
+                    PageButton { text: root.manual-feedback ? "Feedback On" : "Feedback Off"; clicked => { root.manual-feedback = !root.manual-feedback; } }
+                    PageButton { text: "Validate + Add"; implemented: root.controllers.length > 0; clicked => {
+                        root.mapping-source-apply(root.manual-port.to-float(), root.manual-channel.to-float() - 1,
+                            root.manual-number.to-float(), root.manual-mode, root.manual-control,
+                            root.manual-feedback, false);
+                    } }
+                    PageButton { text: "Replace Conflict"; implemented: root.controllers.length > 0; clicked => {
+                        root.mapping-source-apply(root.manual-port.to-float(), root.manual-channel.to-float() - 1,
+                            root.manual-number.to-float(), root.manual-mode, root.manual-control,
+                            root.manual-feedback, true);
+                    } }
+                }
                 Text { text: "Mappings"; color: Theme.foreground; font-size: 18px; }
                 ScrollView { vertical-stretch: 1; VerticalLayout { spacing: 3px;
                     for mapping[i] in root.mappings: PageButton { text: mapping.control + " ← " + mapping.source + " (" + mapping.mode + ")"; selected: mapping.selected; clicked => { root.mapping-selected(i); } }
@@ -118,7 +143,7 @@ export component SetupPage inherits Rectangle {
                 PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-target-apply(); } }
                 PageButton { text: "Remove selected mapping"; implemented: root.mappings.length > 0; clicked => { root.mapping-remove(); } }
                 PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }
-                Text { text: "Mapping targets come from the selected profile and application discovery. Graphical layout editing is intentionally not provided."; color: Theme.muted; wrap: word-wrap; }
+                Text { text: "Manual and learned sources share validation. Targets come from application discovery; replacement is explicit and atomic."; color: Theme.muted; wrap: word-wrap; }
             } }
         }
         if root.subview == "preferences": Rectangle { vertical-stretch: 1; background: Theme.panel; VerticalLayout { padding: 8px; spacing: 5px;

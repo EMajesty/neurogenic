@@ -94,6 +94,17 @@ struct MidiControllerProfile {
     std::string port_selector;
     std::vector<MidiControlBinding> midi;
 };
+struct MidiBindingConflict {
+    std::size_t index{};
+    MidiControlBinding existing;
+    std::string reason;
+};
+[[nodiscard]] bool validate_midi_control_binding(
+    const MidiControlBinding &, const ControllerDeviceDescriptor &,
+    std::string &error);
+[[nodiscard]] std::vector<MidiBindingConflict> find_midi_binding_conflicts(
+    const MidiControlBinding &, const std::vector<MidiControlBinding> &,
+    std::optional<std::size_t> ignored = {});
 enum class MidiLearnState : std::uint8_t { idle, waiting, learned, cancelled, timed_out };
 struct MidiLearnStatus {
     MidiLearnState state{MidiLearnState::idle};

@@ -1,5 +1,10 @@
 # Dedicated controller protocol
 
+Task 096F requires no wire-format change: manual source proposals and connection
+generation invalidation are host-side. Task 096G must define the concrete V2
+identity/version negotiation, input sequencing, lost-release recovery,
+heartbeat and bounded RGB feedback contract without reinterpreting legacy IDs.
+
 Input connection generations and gesture ownership are host-side in Task 096A;
 the wire format is unchanged. Firmware continues sending stable logical
 identities and press/release events. See [Input gestures](INPUT_GESTURES.md).

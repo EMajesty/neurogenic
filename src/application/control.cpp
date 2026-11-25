@@ -1,4 +1,5 @@
 #include "neurogenic/application/control.hpp"
+#include "neurogenic/application/assignment_picker.hpp"
 #include "neurogenic/dsp/parameter_destination.hpp"
 #include "neurogenic/dsp/voice_modulation.hpp"
 #include "neurogenic/timeline/arrangement.hpp"
@@ -5848,19 +5849,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     const auto secondary = *argument<bool>(command, "secondary");
                     const auto &action_id = *argument<std::string>(command, "action_id");
                     const auto *descriptor = actions_.find(action_id);
-                    const auto safe = action_id == "performance.slot-launch.v1" ||
-                        action_id == "performance.slot-stop.v1" ||
-                        action_id == "performance.slot-retrigger.v1" ||
-                        action_id == "performance.scene-launch.v1" ||
-                        action_id == "performance.fill-set.v1" ||
-                        action_id == "performance.fill-latch.v1" ||
-                        action_id == "macro.value-set.v1" ||
-                        action_id == "macro.scene-recall.v1" ||
-                        action_id == "track.mute-toggle.v1" ||
-                        action_id == "mixer.mute-toggle.v1" ||
-                        action_id == "effect.bypass.v1" ||
-                        action_id == "transport.play.v1" ||
-                        action_id == "transport.stop.v1";
+                    const auto safe = descriptor &&
+                        performance_safe_assignment_action(*descriptor);
                     const auto &behavior_name = *argument<std::string>(command, "behavior");
                     PerformanceActionBehavior behavior{};
                     if (behavior_name == "one-shot") behavior = PerformanceActionBehavior::one_shot;

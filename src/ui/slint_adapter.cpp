@@ -1,4 +1,5 @@
 #include "neurogenic/ui/slint_adapter.hpp"
+#include "neurogenic/application/assignment_picker.hpp"
 #include "neurogenic/application/reference_controller.hpp"
 #include "neurogenic/audio/slicing.hpp"
 #include "neurogenic/project/preset.hpp"
@@ -782,6 +783,36 @@ bool SlintFrontendAdapter::refresh() {
     }
     next.performance.selected_assignment =
         snapshot.performance_banks.selected_assignment;
+    next.performance.editor_visible = state_.performance.editor_visible;
+    next.performance.editor_position = state_.performance.editor_position;
+    next.performance.editor_secondary = state_.performance.editor_secondary;
+    next.performance.editor_action = state_.performance.editor_action;
+    next.performance.editor_label = state_.performance.editor_label;
+    next.performance.editor_behavior = state_.performance.editor_behavior;
+    next.performance.editor_argument_names =
+        state_.performance.editor_argument_names;
+    next.performance.editor_argument_values =
+        state_.performance.editor_argument_values;
+    next.performance.selected_assignment_target =
+        state_.performance.selected_assignment_target;
+    AssignmentTargetPicker performance_picker(application_);
+    for (const auto &target : performance_picker.targets(
+             [](const auto &action) {
+                 return performance_safe_assignment_action(action);
+             })) {
+        const auto desired = next.performance.editor_action
+            ? AssignmentTargetKind::action : AssignmentTargetKind::parameter;
+        if (target.kind != desired) continue;
+        next.performance.assignment_targets.push_back(
+            {target.kind == AssignmentTargetKind::action ? "action" : "parameter",
+             target.id, target.label, target.category, false, target.available});
+    }
+    if (next.performance.selected_assignment_target >=
+        next.performance.assignment_targets.size())
+        next.performance.selected_assignment_target = 0;
+    if (!next.performance.assignment_targets.empty())
+        next.performance.assignment_targets[
+            next.performance.selected_assignment_target].selected = true;
     for (const auto &scene : snapshot.performance_launching.scenes) {
         const auto queued = std::any_of(
             snapshot.performance_launching.pending.begin(),
@@ -1599,11 +1630,15 @@ bool SlintFrontendAdapter::refresh() {
         next.browser.destination = "Current application session";
     next.setup = state_.setup;
     next.setup.mapping_targets.clear();
-    for (const auto &action : snapshot.available_actions)
-        next.setup.mapping_targets.push_back({"action", action, action, false});
-    for (const auto &parameter : snapshot.parameters)
+    AssignmentTargetPicker picker(application_);
+    for (const auto &target : picker.targets()) {
+        if (target.kind != AssignmentTargetKind::action &&
+            target.kind != AssignmentTargetKind::parameter)
+            continue;
         next.setup.mapping_targets.push_back(
-            {"parameter", parameter.id, parameter.name, false});
+            {target.kind == AssignmentTargetKind::action ? "action" : "parameter",
+             target.id, target.label, false});
+    }
     if (setup_runtime) {
         const auto &runtime = *setup_runtime;
         next.setup.audio_backend = runtime.audio_backend;
@@ -1944,6 +1979,118 @@ bool SlintFrontendAdapter::assign_performance_parameter(
                      {"secondary", secondary},
                      {"parameter_id", std::move(parameter_id)},
                      {"label", std::move(label)}}, {}, 0});
+}
+
+bool SlintFrontendAdapter::open_performance_assignment_editor(
+    std::size_t position, bool secondary, bool action) {
+    if (position > 65535 || application_.snapshot().performance_banks.active_bank == 0) {
+        last_error_ = "Select a Performance bank and valid logical position";
+        return false;
+    }
+    state_.performance.editor_position = static_cast<std::uint32_t>(position);
+    state_.performance.editor_secondary = secondary;
+    state_.performance.editor_action = action;
+    state_.performance.editor_visible = true;
+    state_.performance.selected_assignment_target = 0;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::select_performance_assignment_target(std::size_t index) {
+    if (index >= state_.performance.assignment_targets.size()) return false;
+    state_.performance.selected_assignment_target = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::confirm_performance_assignment(
+    std::string label, std::string behavior,
+    std::array<std::string, 4> argument_names,
+    std::array<std::string, 4> argument_values) {
+    if (!state_.performance.editor_visible ||
+        state_.performance.selected_assignment_target >=
+            state_.performance.assignment_targets.size()) {
+        last_error_ = "Select a compatible Performance assignment target";
+        return false;
+    }
+    const auto target = state_.performance.assignment_targets[
+        state_.performance.selected_assignment_target];
+    if (!state_.performance.editor_action) {
+        const auto accepted = assign_performance_parameter(
+            state_.performance.editor_position,
+            state_.performance.editor_secondary, target.id, std::move(label));
+        if (accepted) cancel_performance_assignment_editor();
+        return accepted;
+    }
+    AssignmentTargetPicker picker(application_);
+    AssignmentProposal proposal{AssignmentTargetKind::action, target.id, {}};
+    const auto targets = picker.targets([](const auto &action) {
+        return performance_safe_assignment_action(action);
+    });
+    const auto descriptor = std::find_if(targets.begin(), targets.end(),
+        [&](const auto &candidate) {
+            return candidate.kind == AssignmentTargetKind::action &&
+                   candidate.id == target.id;
+        });
+    if (descriptor == targets.end()) return false;
+    for (std::size_t i = 0; i < argument_names.size(); ++i) {
+        if (argument_names[i].empty() && argument_values[i].empty()) continue;
+        const auto field = std::find_if(descriptor->arguments.begin(),
+            descriptor->arguments.end(), [&](const auto &value) {
+                return value.name == argument_names[i];
+            });
+        if (field == descriptor->arguments.end()) {
+            last_error_ = "Unknown action argument: " + argument_names[i];
+            return false;
+        }
+        ApplicationValue value;
+        if (!AssignmentTargetPicker::parse_argument(
+                *field, argument_values[i], value, last_error_))
+            return false;
+        proposal.arguments.emplace(argument_names[i], std::move(value));
+    }
+    if (behavior == "momentary") proposal.arguments["active"] = true;
+    if (!picker.validate(proposal, last_error_, [](const auto &action) {
+            return performance_safe_assignment_action(action);
+        })) return false;
+    const auto snapshot = application_.snapshot();
+    PerformanceAssignmentId next{1};
+    const PerformanceBank *active{};
+    for (const auto &bank : snapshot.performance_banks.banks) {
+        if (bank.id == snapshot.performance_banks.active_bank) active = &bank;
+        for (const auto &v : bank.parameters) next = std::max(next, v.id + 1);
+        for (const auto &v : bank.actions) next = std::max(next, v.id + 1);
+        for (const auto &v : bank.pads) next = std::max(next, v.id + 1);
+    }
+    if (active)
+        if (const auto existing = std::find_if(
+                active->actions.begin(), active->actions.end(), [&](const auto &value) {
+                    return value.position == state_.performance.editor_position &&
+                           value.secondary == state_.performance.editor_secondary;
+                }); existing != active->actions.end()) next = existing->id;
+    ApplicationCommand command{"performance.action-assign.v1",
+        {{"bank", static_cast<std::int64_t>(snapshot.performance_banks.active_bank)},
+         {"assignment", static_cast<std::int64_t>(next)},
+         {"position", static_cast<std::int64_t>(state_.performance.editor_position)},
+         {"secondary", state_.performance.editor_secondary},
+         {"action_id", target.id}, {"behavior", behavior}, {"label", label}}, {}, 0};
+    for (std::size_t i = 0; i < argument_names.size(); ++i)
+        if (!argument_names[i].empty()) {
+            const auto prefix = "argument_" + std::to_string(i + 1);
+            command.arguments[prefix + "_name"] = argument_names[i];
+            command.arguments[prefix + "_value"] = argument_values[i];
+        }
+    const auto accepted = execute(std::move(command));
+    if (accepted) cancel_performance_assignment_editor();
+    return accepted;
+}
+
+void SlintFrontendAdapter::cancel_performance_assignment_editor() noexcept {
+    state_.performance.editor_visible = false;
+    state_.performance.editor_label.clear();
+    state_.performance.editor_argument_names.fill({});
+    state_.performance.editor_argument_values.fill({});
+    ++local_revision_;
 }
 
 bool SlintFrontendAdapter::select_page(std::size_t index) {
@@ -4289,6 +4436,62 @@ bool SlintFrontendAdapter::remove_setup_mapping() {
     ++local_revision_;
     (void)refresh();
     return result;
+}
+
+bool SlintFrontendAdapter::author_setup_midi_mapping(
+    std::uint32_t port, std::uint8_t channel, std::uint8_t number,
+    std::string mode, std::string control_id, bool feedback,
+    bool replace_conflict) {
+    if (state_.setup.selected_controller >= state_.setup.controllers.size() ||
+        !setup_services_.set_midi_binding) {
+        last_error_ = "Manual MIDI mapping authoring is unavailable";
+        return false;
+    }
+    MidiControlMode parsed;
+    if (mode == "note" || mode == "note-momentary")
+        parsed = MidiControlMode::note_momentary;
+    else if (mode == "cc-absolute" || mode == "absolute")
+        parsed = MidiControlMode::cc_absolute;
+    else if (mode == "cc-relative-2c" || mode == "relative-2c")
+        parsed = MidiControlMode::cc_relative_twos_complement;
+    else if (mode == "cc-relative-offset" || mode == "relative-offset")
+        parsed = MidiControlMode::cc_relative_binary_offset;
+    else {
+        last_error_ = "Unsupported MIDI mapping mode";
+        return false;
+    }
+    if (!port || port > maximum_midi_ports || channel > 15 || number > 127 ||
+        control_id.empty()) {
+        last_error_ = "MIDI port, channel, number or logical control is invalid";
+        return false;
+    }
+    const auto &endpoint =
+        state_.setup.controllers[state_.setup.selected_controller].id;
+    std::optional<std::size_t> conflict;
+    for (const auto &mapping : state_.setup.mappings)
+        if (mapping.endpoint_id == endpoint && mapping.port == port &&
+            mapping.channel == channel && mapping.number == number &&
+            mapping.midi_mode == parsed) {
+            conflict = mapping.binding_index;
+            break;
+        }
+    if (conflict && !replace_conflict) {
+        last_error_ = "Mapping conflict requires explicit replacement confirmation";
+        return false;
+    }
+    const auto index = conflict ? *conflict
+        : static_cast<std::size_t>(std::count_if(
+              state_.setup.mappings.begin(), state_.setup.mappings.end(),
+              [&](const auto &mapping) { return mapping.endpoint_id == endpoint; }));
+    std::string error;
+    const auto accepted = setup_services_.set_midi_binding(
+        endpoint, index,
+        MidiControlBinding{port, channel, number, parsed,
+                           std::move(control_id), feedback}, error);
+    last_error_ = accepted ? std::string{} : std::move(error);
+    ++local_revision_;
+    (void)refresh();
+    return accepted;
 }
 
 bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,

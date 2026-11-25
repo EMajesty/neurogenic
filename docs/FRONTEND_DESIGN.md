@@ -1,5 +1,10 @@
 # Designing a frontend for NEUROGENIC
 
+Assignment editors should consume the shared copied target model and submit a
+proposal to their owning service. The Performance editor commits project
+transactions; the Setup mapping editor commits appliance profile candidates.
+Neither requires Slint, and neither may infer stable identities from row order.
+
 Alternative frontends can read `ApplicationState::performance_banks`, select a
 bank through semantic actions and render any subset of its logical positions.
 Current values still come from parameter/macro/launcher state. No Slint type or

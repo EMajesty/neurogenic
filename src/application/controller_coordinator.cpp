@@ -309,8 +309,11 @@ bool ControllerCoordinator::set_midi_binding(std::string_view id,
       if (found != midi_.end()) endpoint = *found; }
     if (!endpoint) { error = "unknown MIDI controller endpoint"; return false; }
     const auto count = endpoint->adapter->bindings().size();
-    if (index == count) return endpoint->adapter->add(std::move(binding), error);
-    return endpoint->adapter->replace(index, std::move(binding), error);
+    const auto accepted = index == count
+        ? endpoint->adapter->add(std::move(binding), error)
+        : endpoint->adapter->replace(index, std::move(binding), error);
+    if (accepted) endpoint->session.reconnect();
+    return accepted;
 }
 bool ControllerCoordinator::remove_midi_binding(std::string_view id,
                                                  std::size_t index,
@@ -321,7 +324,9 @@ bool ControllerCoordinator::remove_midi_binding(std::string_view id,
           [&](const auto &value) { return value->id == id; });
       if (found != midi_.end()) endpoint = *found; }
     if (!endpoint) { error = "unknown MIDI controller endpoint"; return false; }
-    return endpoint->adapter->remove(index, error);
+    const auto accepted = endpoint->adapter->remove(index, error);
+    if (accepted) endpoint->session.reconnect();
+    return accepted;
 }
 
 bool ControllerCoordinator::set_controller_binding(std::string_view id,

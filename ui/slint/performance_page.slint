@@ -1,9 +1,11 @@
 import { PageButton, TransportControls, TrackSelector, PerformanceSlot } from "components.slint";
 import { Theme } from "theme.slint";
+import { ScrollView, LineEdit } from "std-widgets.slint";
 
 export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
 export struct SceneItem { label: string, queued: bool }
 export struct PerformanceBankItem { id: int, name: string, selected: bool }
+export struct PerformanceAssignmentTargetItem { kind: string, id: string, label: string, category: string, selected: bool, available: bool }
 
 export component PerformancePage inherits VerticalLayout {
     in property <string> transport-state;
@@ -15,10 +17,19 @@ export component PerformancePage inherits VerticalLayout {
     in property <[SceneItem]> scenes;
     in property <[PerformanceBankItem]> banks;
     in property <string> bank-name;
+    in property <[PerformanceAssignmentTargetItem]> assignment-targets;
+    in property <bool> assignment-editor-visible: false;
+    in-out property <string> assignment-label;
+    in-out property <string> assignment-behavior: "one-shot";
+    in-out property <string> argument-1-name; in-out property <string> argument-1-value;
+    in-out property <string> argument-2-name; in-out property <string> argument-2-value;
     callback transport-invoked(string); callback track-selected(int);
     callback return-arrangement(); callback quantization-invoked();
     callback scene-invoked(int); callback pad-invoked(int, bool);
     callback bank-selected(int); callback bank-action(string);
+    callback assignment-open(int, bool, bool); callback assignment-target-selected(int);
+    callback assignment-confirm(string, string, string, string, string, string);
+    callback assignment-cancel();
     spacing: 6px;
     HorizontalLayout {
         height: 38px; spacing: 5px;
@@ -29,6 +40,9 @@ export component PerformancePage inherits VerticalLayout {
         PageButton { text: "+ Bank"; clicked => { root.bank-action("create"); } }
         PageButton { text: "Duplicate"; implemented: root.banks.length > 0; clicked => { root.bank-action("duplicate"); } }
         PageButton { text: "Delete"; implemented: root.banks.length > 0; clicked => { root.bank-action("delete"); } }
+        PageButton { text: "Assign P1"; implemented: root.banks.length > 0; clicked => { root.assignment-open(0, false, false); } }
+        PageButton { text: "SHIFT+P1"; implemented: root.banks.length > 0; clicked => { root.assignment-open(0, true, false); } }
+        PageButton { text: "Assign F1"; implemented: root.banks.length > 0; clicked => { root.assignment-open(0, false, true); } }
     }
     HorizontalLayout {
         height: 58px; spacing: 6px;
@@ -38,4 +52,22 @@ export component PerformancePage inherits VerticalLayout {
     }
     if root.scenes.length > 0: HorizontalLayout { height: 38px; spacing: 5px; for scene[i] in root.scenes: PageButton { text: scene.label + (scene.queued ? " (Queued)" : ""); implemented: true; clicked => { root.scene-invoked(i); } } }
     Rectangle { background: Theme.panel; border-radius: Theme.radius; vertical-stretch: 1; GridLayout { padding: 8px; spacing: 6px; for pad[i] in root.pads: PerformanceSlot { row: i / 8; col: mod(i, 8); label: pad.label; state: pad.status; selected: pad.selected; available: pad.available; invoked => { root.pad-invoked(i, true); } } } }
+    if root.assignment-editor-visible: Rectangle {
+        height: 230px; background: Theme.panel; border-radius: Theme.radius;
+        HorizontalLayout { padding: 6px; spacing: 6px;
+            ScrollView { horizontal-stretch: 1; VerticalLayout { spacing: 2px;
+                for target[i] in root.assignment-targets: PageButton { text: target.category + " — " + target.label; selected: target.selected; implemented: target.available; clicked => { root.assignment-target-selected(i); } }
+            } }
+            VerticalLayout { horizontal-stretch: 1; spacing: 4px;
+                LineEdit { text <=> root.assignment-label; placeholder-text: "Optional user label"; }
+                LineEdit { text <=> root.assignment-behavior; placeholder-text: "one-shot / toggle / momentary"; }
+                HorizontalLayout { LineEdit { text <=> root.argument-1-name; placeholder-text: "Argument 1"; } LineEdit { text <=> root.argument-1-value; placeholder-text: "Value"; } }
+                HorizontalLayout { LineEdit { text <=> root.argument-2-name; placeholder-text: "Argument 2"; } LineEdit { text <=> root.argument-2-value; placeholder-text: "Value"; } }
+                HorizontalLayout {
+                    PageButton { text: "Validate + Confirm"; implemented: root.assignment-targets.length > 0; clicked => { root.assignment-confirm(root.assignment-label, root.assignment-behavior, root.argument-1-name, root.argument-1-value, root.argument-2-name, root.argument-2-value); } }
+                    PageButton { text: "Cancel"; clicked => { root.assignment-cancel(); } }
+                }
+            }
+        }
+    }
 }

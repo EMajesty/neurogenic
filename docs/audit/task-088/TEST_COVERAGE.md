@@ -1,5 +1,17 @@
 # Test and validation audit
 
+## Task 096F additions
+
+- `controller_mapping_authoring_tests`: disconnected manual source proposals,
+  source/descriptor validation, typed actions, direct and Performance-role
+  dispatch, bank-following versus stable direct targets, conflict replacement,
+  `.ngc` reload and reconnect recovery.
+- `slint_adapter_tests`: shared Performance target selection and cancellation,
+  typed Fill action authoring, Setup source creation and explicit replacement.
+- Production generated-component interaction invokes Performance editor open,
+  target selection, confirm/cancel and Setup manual-source callbacks.
+- Physical MIDI, PCB, touchscreen and audio validation remain NOT RUN.
+
 ## Task 096E additions
 
 `neurogenic_performance_banks_tests` covers bank lifecycle foundations,

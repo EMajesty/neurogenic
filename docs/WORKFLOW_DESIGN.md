@@ -1,5 +1,11 @@
 # Designing musical workflows with NEUROGENIC
 
+Task 096F demonstrates that one discovery-backed target-selection workflow can
+serve both portable project Performance banks and appliance controller profiles
+without merging their ownership. Alternative instruments may expose different
+control counts and authoring navigation while preserving the same typed target
+and validation contracts.
+
 Performance banks are reusable workflow composition rather than a new musical
 engine: a tracker client, sampler surface or headless controller may group
 existing parameters, macros, safe actions and launch slots into its own named

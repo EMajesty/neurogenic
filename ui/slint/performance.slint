@@ -1,6 +1,6 @@
 import { PageButton, ContextualEncoder, ContextualFunctionButton, GlobalStatus, EmptyState, Notification, ModalDialog, ParameterDisplay, TouchKeyboard } from "components.slint";
 import { Theme } from "theme.slint";
-import { PerformancePage, PadItem, SceneItem, PerformanceBankItem } from "performance_page.slint";
+import { PerformancePage, PadItem, SceneItem, PerformanceBankItem, PerformanceAssignmentTargetItem } from "performance_page.slint";
 import { SequencerPage, StepItem, PatternItem, ArrangementItem, TrackItem } from "sequencer_page.slint";
 import { SamplePage, SliceItem, RegionItem } from "sample_page.slint";
 import { SoundPage, SoundParameterItem, SoundModulationItem } from "sound_page.slint";
@@ -95,6 +95,8 @@ export component PerformanceWindow inherits Window {
     in property <[SceneItem]> scenes;
     in property <[PerformanceBankItem]> performance-banks;
     in property <string> performance-bank-name: "No Performance bank";
+    in property <[PerformanceAssignmentTargetItem]> performance-assignment-targets;
+    in property <bool> performance-assignment-editor-visible: false;
     in property <[StepItem]> steps;
     in property <[PatternItem]> patterns;
     in property <[ArrangementItem]> arrangement-items;
@@ -199,6 +201,10 @@ export component PerformanceWindow inherits Window {
     callback track-selected(int); callback return-arrangement();
     callback scene-invoked(int); callback notification-dismissed();
     callback performance-bank-selected(int); callback performance-bank-action(string);
+    callback performance-assignment-open(int, bool, bool);
+    callback performance-assignment-target-selected(int);
+    callback performance-assignment-confirm(string, string, string, string, string, string);
+    callback performance-assignment-cancel();
     callback quantization-invoked();
     callback sequencer-step-invoked(int); callback pattern-invoked(int, bool);
     callback pattern-create(bool); callback resolution-invoked();
@@ -251,6 +257,7 @@ export component PerformanceWindow inherits Window {
     callback setup-midi-route-selected(int); callback setup-midi-route-action(string);
     callback setup-mapping-selected(int); callback setup-mapping-remove();
     callback setup-mapping-target-selected(int); callback setup-mapping-target-apply();
+    callback setup-mapping-source-apply(int, int, int, string, string, bool, bool);
 
     FocusScope { key-pressed(event) => { root.keyboard-input(event.text, true); accept } key-released(event) => { root.keyboard-input(event.text, false); accept } }
     VerticalLayout {
@@ -270,6 +277,8 @@ export component PerformanceWindow inherits Window {
             active-content: root.active-content; launch-quantization: root.launch-quantization;
             pads: root.pads; scenes: root.scenes; banks: root.performance-banks;
             bank-name: root.performance-bank-name;
+            assignment-targets: root.performance-assignment-targets;
+            assignment-editor-visible: root.performance-assignment-editor-visible;
             transport-invoked(action) => { root.transport-invoked(action); }
             track-selected(direction) => { root.track-selected(direction); }
             return-arrangement => { root.return-arrangement(); }
@@ -277,6 +286,10 @@ export component PerformanceWindow inherits Window {
             scene-invoked(index) => { root.scene-invoked(index); }
             bank-selected(index) => { root.performance-bank-selected(index); }
             bank-action(action) => { root.performance-bank-action(action); }
+            assignment-open(position, secondary, action) => { root.performance-assignment-open(position, secondary, action); }
+            assignment-target-selected(index) => { root.performance-assignment-target-selected(index); }
+            assignment-confirm(label, behavior, n1, v1, n2, v2) => { root.performance-assignment-confirm(label, behavior, n1, v1, n2, v2); }
+            assignment-cancel => { root.performance-assignment-cancel(); }
             pad-invoked(index, pressed) => { root.pad-invoked(index, pressed); }
         }
         if root.page-id == "sequencer": SequencerPage {
@@ -393,6 +406,9 @@ export component PerformanceWindow inherits Window {
             midi-route-selected(index) => { root.setup-midi-route-selected(index); } midi-route-action(action) => { root.setup-midi-route-action(action); }
             mapping-selected(index) => { root.setup-mapping-selected(index); } mapping-remove => { root.setup-mapping-remove(); }
             mapping-target-selected(index) => { root.setup-mapping-target-selected(index); } mapping-target-apply => { root.setup-mapping-target-apply(); }
+            mapping-source-apply(port, channel, number, mode, control, feedback, replace-conflict) => {
+                root.setup-mapping-source-apply(port, channel, number, mode, control, feedback, replace-conflict);
+            }
             text-requested(operation, current) => { root.text-entry-requested(operation, current); } exit-requested => { root.setup-exit(); }
         }
         if root.page-id != "performance" && root.page-id != "sequencer" && root.page-id != "sample" && root.page-id != "sound" && root.page-id != "mixer" && root.page-id != "fx" && root.page-id != "browser" && root.page-id != "setup": EmptyState { vertical-stretch: 1; title: root.page-title; message: "This destination is registered, but its production page is not implemented."; }

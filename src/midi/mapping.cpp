@@ -221,29 +221,22 @@ bool save_midi_controller_profile(const std::filesystem::path &path,
     return true;
 }
 
-std::size_t MidiMapper::dispatch_pending() {
-    std::size_t count{};
-    while (dispatch_one())
-        ++count;
-    return count;
-}
-
-bool MidiControlSurfaceAdapter::add(MidiControlBinding binding,
-                                    std::string &error) {
-    std::lock_guard lock(mutex_);
+bool validate_midi_control_binding(const MidiControlBinding &binding,
+                                   const ControllerDeviceDescriptor &descriptor,
+                                   std::string &error) {
     if (!binding.port || binding.port > maximum_midi_ports ||
         binding.channel > 15 || binding.number > 127 ||
         binding.control_id.empty()) {
-        error = "MIDI control binding has an invalid channel, number or ID";
+        error = "MIDI control binding has an invalid port, channel, number or ID";
         return false;
     }
     const auto control = std::find_if(
-        session_->descriptor().controls.begin(),
-        session_->descriptor().controls.end(), [&](const auto &value) {
+        descriptor.controls.begin(), descriptor.controls.end(),
+        [&](const auto &value) {
             return value.id == binding.control_id && value.available;
         });
-    if (control == session_->descriptor().controls.end()) {
-        error = "MIDI binding references an unavailable physical control";
+    if (control == descriptor.controls.end()) {
+        error = "MIDI binding references an unavailable logical control";
         return false;
     }
     const bool note = binding.mode == MidiControlMode::note_momentary;
@@ -257,15 +250,44 @@ bool MidiControlSurfaceAdapter::add(MidiControlBinding binding,
          control->type != ControlType::absolute_potentiometer &&
          control->type != ControlType::fader &&
          control->type != ControlType::crossfader)) {
-        error = "MIDI binding mode is incompatible with the physical control";
+        error = "MIDI binding mode is incompatible with the logical control";
         return false;
     }
-    const auto duplicate = std::find_if(
-        bindings_.begin(), bindings_.end(), [&](const auto &value) {
-            return value.port == binding.port && value.channel == binding.channel &&
-                   value.number == binding.number && value.mode == binding.mode;
-        });
-    if (duplicate != bindings_.end()) {
+    error.clear();
+    return true;
+}
+
+std::vector<MidiBindingConflict> find_midi_binding_conflicts(
+    const MidiControlBinding &candidate,
+    const std::vector<MidiControlBinding> &bindings,
+    std::optional<std::size_t> ignored) {
+    std::vector<MidiBindingConflict> result;
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+        if (ignored && i == *ignored) continue;
+        const auto &existing = bindings[i];
+        if (existing.port == candidate.port &&
+            existing.channel == candidate.channel &&
+            existing.number == candidate.number &&
+            existing.mode == candidate.mode)
+            result.push_back({i, existing,
+                              "same MIDI source, message and encoding"});
+    }
+    return result;
+}
+
+std::size_t MidiMapper::dispatch_pending() {
+    std::size_t count{};
+    while (dispatch_one())
+        ++count;
+    return count;
+}
+
+bool MidiControlSurfaceAdapter::add(MidiControlBinding binding,
+                                    std::string &error) {
+    std::lock_guard lock(mutex_);
+    if (!validate_midi_control_binding(binding, session_->descriptor(), error))
+        return false;
+    if (!find_midi_binding_conflicts(binding, bindings_).empty()) {
         error = "MIDI control binding is ambiguous";
         return false;
     }
@@ -282,29 +304,9 @@ bool MidiControlSurfaceAdapter::replace(std::size_t index,
         error = "MIDI control binding index is out of range";
         return false;
     }
-    const auto control = std::find_if(
-        session_->descriptor().controls.begin(), session_->descriptor().controls.end(),
-        [&](const auto &value) { return value.id == binding.control_id && value.available; });
-    const bool note = binding.mode == MidiControlMode::note_momentary;
-    const bool relative = binding.mode == MidiControlMode::cc_relative_twos_complement ||
-                          binding.mode == MidiControlMode::cc_relative_binary_offset;
-    if (!binding.port || binding.port > maximum_midi_ports || binding.channel > 15 ||
-        binding.number > 127 || control == session_->descriptor().controls.end() ||
-        (note && control->type != ControlType::momentary_button &&
-         control->type != ControlType::toggle_button) ||
-        (relative && control->type != ControlType::relative_encoder) ||
-        (!note && !relative && control->type != ControlType::absolute_potentiometer &&
-         control->type != ControlType::fader && control->type != ControlType::crossfader)) {
-        error = "MIDI control binding is invalid or incompatible";
+    if (!validate_midi_control_binding(binding, session_->descriptor(), error))
         return false;
-    }
-    const auto duplicate = std::find_if(bindings_.begin(), bindings_.end(),
-        [&](const auto &value) {
-            return &value != &bindings_[index] && value.port == binding.port &&
-                   value.channel == binding.channel && value.number == binding.number &&
-                   value.mode == binding.mode;
-        });
-    if (duplicate != bindings_.end()) {
+    if (!find_midi_binding_conflicts(binding, bindings_, index).empty()) {
         error = "MIDI control binding is ambiguous";
         return false;
     }

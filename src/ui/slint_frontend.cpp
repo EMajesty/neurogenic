@@ -52,6 +52,8 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupMappingTargetItem>> mapping_targets;
     std::shared_ptr<slint::VectorModel<LiveLoopItem>> live_loops;
     std::shared_ptr<slint::VectorModel<PerformanceBankItem>> performance_banks;
+    std::shared_ptr<slint::VectorModel<PerformanceAssignmentTargetItem>>
+        performance_assignment_targets;
 };
 
 class HeadlessWindowAdapter final : public slint::platform::WindowAdapter {
@@ -320,6 +322,17 @@ void publish(const SlintUiState &state,
     publish_model(models.performance_banks, std::move(performance_banks),
                   [&](auto value) { window->set_performance_banks(value); });
     window->set_performance_bank_name(text(state.performance.bank_name));
+    std::vector<PerformanceAssignmentTargetItem> performance_targets;
+    for (const auto &target : state.performance.assignment_targets)
+        performance_targets.push_back(
+            {text(target.kind), text(target.id), text(target.label),
+             text(target.category), target.selected, target.available});
+    publish_model(models.performance_assignment_targets,
+                  std::move(performance_targets), [&](auto value) {
+                      window->set_performance_assignment_targets(value);
+                  });
+    window->set_performance_assignment_editor_visible(
+        state.performance.editor_visible);
     std::vector<StepItem> steps;
     for (const auto &step : state.sequencer.steps)
         steps.push_back({text(step.label), text(step.status), step.active,
@@ -708,6 +721,33 @@ int run_slint_frontend(ApplicationService &application,
         });
         window->on_performance_bank_action([&](slint::SharedString operation) {
             (void)adapter.manage_performance_bank(operation.data());
+            publish(adapter.state(), window);
+        });
+        window->on_performance_assignment_open(
+            [&](int position, bool secondary, bool action) {
+                (void)adapter.open_performance_assignment_editor(
+                    static_cast<std::size_t>(std::max(position, 0)), secondary,
+                    action);
+                publish(adapter.state(), window);
+            });
+        window->on_performance_assignment_target_selected([&](int index) {
+            (void)adapter.select_performance_assignment_target(
+                static_cast<std::size_t>(std::max(index, 0)));
+            publish(adapter.state(), window);
+        });
+        window->on_performance_assignment_confirm(
+            [&](slint::SharedString label, slint::SharedString behavior,
+                slint::SharedString n1, slint::SharedString v1,
+                slint::SharedString n2, slint::SharedString v2) {
+                (void)adapter.confirm_performance_assignment(
+                    label.data(), behavior.data(),
+                    {n1.data(), n2.data(), std::string{}, std::string{}},
+                    {v1.data(), v2.data(), std::string{}, std::string{}});
+                publish(adapter.state(), window);
+            });
+        window->on_performance_assignment_cancel([&] {
+            adapter.cancel_performance_assignment_editor();
+            (void)adapter.refresh();
             publish(adapter.state(), window);
         });
         window->on_keyboard_input([&](slint::SharedString key, bool pressed) {
@@ -1187,6 +1227,17 @@ int run_slint_frontend(ApplicationService &application,
             (void)adapter.apply_setup_mapping_target();
             publish(adapter.state(), window);
         });
+        window->on_setup_mapping_source_apply(
+            [&](int port, int channel, int number, slint::SharedString mode,
+                slint::SharedString control, bool feedback,
+                bool replace_conflict) {
+                (void)adapter.author_setup_midi_mapping(
+                    static_cast<std::uint32_t>(std::max(port, 0)),
+                    static_cast<std::uint8_t>(std::max(channel, 0)),
+                    static_cast<std::uint8_t>(std::max(number, 0)), mode.data(),
+                    control.data(), feedback, replace_conflict);
+                publish(adapter.state(), window);
+            });
         window->on_setup_profile_save([&](slint::SharedString path) {
             (void)adapter.save_setup_controller_profile(path.data()); publish(adapter.state(), window);
         });
@@ -1242,7 +1293,29 @@ int run_slint_frontend(ApplicationService &application,
                     destination_ids[static_cast<std::size_t>(page)])
                     throw std::runtime_error("generated page callback lost destination identity");
                 switch (page) {
-                case 0: window->invoke_pad_invoked(0, true); break;
+                case 0:
+                    window->invoke_performance_bank_action("create");
+                    window->invoke_performance_assignment_open(0, false, false);
+                    if (!window->get_performance_assignment_editor_visible() ||
+                        !window->get_performance_assignment_targets() ||
+                        window->get_performance_assignment_targets()->row_count() == 0)
+                        throw std::runtime_error(
+                            "generated Performance assignment editor did not publish");
+                    window->invoke_performance_assignment_target_selected(0);
+                    window->invoke_performance_assignment_confirm(
+                        "Generated P1", "one-shot", "", "", "", "");
+                    if (application.snapshot().performance_banks.banks.empty() ||
+                        application.snapshot().performance_banks.banks.front()
+                            .parameters.empty())
+                        throw std::runtime_error(
+                            "generated Performance assignment did not round-trip");
+                    window->invoke_performance_assignment_open(1, false, false);
+                    window->invoke_performance_assignment_cancel();
+                    if (window->get_performance_assignment_editor_visible())
+                        throw std::runtime_error(
+                            "generated Performance assignment cancellation failed");
+                    window->invoke_pad_invoked(0, true);
+                    break;
                 case 1: {
                     window->invoke_step_page(1);
                     if (std::string_view(window->get_step_page_label().data()) !=
@@ -1354,6 +1427,8 @@ int run_slint_frontend(ApplicationService &application,
                         window->invoke_setup_mapping_target_selected(0);
                         window->invoke_setup_mapping_target_apply();
                     }
+                    window->invoke_setup_mapping_source_apply(
+                        1, 0, 74, "cc-absolute", "knob.1", false, false);
                     break;
                 }
                 if (!options.screenshot_path.empty())

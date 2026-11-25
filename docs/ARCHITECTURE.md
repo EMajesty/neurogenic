@@ -1,5 +1,15 @@
 # Architecture
 
+## Shared assignment authoring boundary
+
+Task 096F adds a presentation-neutral target projection above the existing
+action and parameter registries. It is immutable copied metadata, not an
+authority. Project Performance edits use application history and project
+persistence; controller mapping edits use candidate profile validation and
+atomic appliance persistence. Profile activation invalidates affected input
+ownership before new-generation events can dispatch. No discovery, persistence
+or gesture processing enters the audio callback.
+
 `SongArrangement::performance_banks` is project-owned presentation metadata.
 It references existing parameter descriptors, semantic actions and launcher
 slots by stable identity and therefore adds no playback, parameter or

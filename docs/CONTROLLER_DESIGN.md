@@ -1,5 +1,15 @@
 # Designing a controller for NEUROGENIC
 
+## Shared authoring contract
+
+Task 096F exposes the existing discovery registries through a copy-only target
+picker. Custom controller tools may author direct parameter/action bindings,
+contextual roles or project Performance roles without depending on V2 geometry.
+The caller owns profile persistence and transactions; the picker owns no values.
+MIDI sources can be prepared for disconnected devices when a validated device
+descriptor is available. See [Controllers](CONTROLLERS.md) and the
+[Task 096F evidence](audit/task-088/TASK_096F_VALIDATION.md).
+
 For customizable live surfaces, map physical controls to contextual
 Performance roles rather than copying project target IDs into the appliance
 profile. Named banks and assignments are restored with the project and can be

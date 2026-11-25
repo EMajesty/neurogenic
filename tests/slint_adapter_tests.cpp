@@ -89,11 +89,16 @@ int main() {
             "profile.1", "MIDI", "Connected", {}, "Idle", true, true, false}};
         setup_runtime.mappings = {{"surface.1", "encoder.1",
             "Port 1 / Ch 1 / 74", "Absolute CC", 0, false, false}};
+        setup_runtime.mappings.front().port = 1;
+        setup_runtime.mappings.front().channel = 0;
+        setup_runtime.mappings.front().number = 74;
+        setup_runtime.mappings.front().midi_mode = MidiControlMode::cc_absolute;
         setup_runtime.requested.audio_output = "Output A";
         setup_runtime.requested.audio_input = "Input A";
         setup_runtime.requested.audio_buffer_frames = 128;
         bool preferences_saved{}, learn_started{}, learn_cancelled{},
-            mapping_removed{}, mapping_target_applied{}, exit_requested{};
+            mapping_removed{}, mapping_target_applied{}, manual_mapping_set{},
+            exit_requested{};
         SlintSetupServices setup_services;
         setup_services.snapshot = [&] { return setup_runtime; };
         setup_services.save = [&](const AppliancePreferences &value,
@@ -131,6 +136,16 @@ int main() {
                     binding.parameter_id == "synth.cutoff";
                 return mapping_target_applied;
             };
+        setup_services.set_midi_binding =
+            [&](std::string_view id, std::size_t index,
+                MidiControlBinding binding, std::string &) {
+                manual_mapping_set = id == "surface.1" && index == 0 &&
+                    binding.port == 1 && binding.channel == 0 &&
+                    binding.number == 74 &&
+                    binding.mode == MidiControlMode::cc_absolute &&
+                    binding.control_id == "encoder.1";
+                return manual_mapping_set;
+            };
         setup_services.request_exit = [&] {
             exit_requested = true;
             return true;
@@ -148,6 +163,50 @@ int main() {
                     adapter.state().shell.pages.front().implemented &&
                     adapter.state().shell.pages[1].implemented,
                 "page registry exposes eight default destinations");
+        require(adapter.manage_performance_bank("create") &&
+                    adapter.open_performance_assignment_editor(0, false, false) &&
+                    adapter.state().performance.editor_visible &&
+                    !adapter.state().performance.assignment_targets.empty(),
+                "Performance shared target editor opens on a named bank");
+        const auto parameter_target = std::find_if(
+            adapter.state().performance.assignment_targets.begin(),
+            adapter.state().performance.assignment_targets.end(),
+            [](const auto &target) { return target.id == "synth.cutoff"; });
+        require(parameter_target !=
+                    adapter.state().performance.assignment_targets.end() &&
+                    adapter.select_performance_assignment_target(
+                        static_cast<std::size_t>(parameter_target -
+                            adapter.state().performance.assignment_targets.begin())) &&
+                    adapter.confirm_performance_assignment("Cutoff", "one-shot") &&
+                    !application.snapshot().performance_banks.banks.front()
+                         .parameters.empty(),
+                "Performance parameter assignment round-trips authoritatively");
+        require(adapter.open_performance_assignment_editor(0, true, true),
+                "Performance secondary action editor opens");
+        const auto fill_target = std::find_if(
+            adapter.state().performance.assignment_targets.begin(),
+            adapter.state().performance.assignment_targets.end(),
+            [](const auto &target) {
+                return target.id == "performance.fill-set.v1";
+            });
+        require(fill_target != adapter.state().performance.assignment_targets.end() &&
+                    adapter.select_performance_assignment_target(
+                        static_cast<std::size_t>(fill_target -
+                            adapter.state().performance.assignment_targets.begin())) &&
+                    adapter.confirm_performance_assignment(
+                        "Fill", "momentary", {"active", {}, {}, {}},
+                        {"true", {}, {}, {}}),
+                "Performance momentary typed action assignment validates");
+        require(adapter.open_performance_assignment_editor(1, false, false),
+                "Performance replacement proposal opens");
+        adapter.cancel_performance_assignment_editor();
+        require(!adapter.state().performance.editor_visible,
+                "Performance assignment cancellation preserves prior state");
+        std::array<float, 16> performance_ack_left{}, performance_ack_right{};
+        engine.process(performance_ack_left, performance_ack_right);
+        (void)application.snapshot();
+        require(adapter.manage_performance_bank("delete"),
+                "Performance editor fixture bank cleanup");
         require(adapter.state().performance.pads[0].available &&
                     adapter.state().performance.pads[0].slot_id == 3 &&
                     adapter.state().performance.pads[1].slot_id == 11,
@@ -1016,6 +1075,14 @@ int main() {
                 "manual mapping target selection");
         require(adapter.apply_setup_mapping_target() && mapping_target_applied,
                 ("manual mapping target apply: " + adapter.last_error()).c_str());
+        require(!adapter.author_setup_midi_mapping(
+                    1, 0, 74, "cc-absolute", "encoder.1", false, false) &&
+                    adapter.last_error().find("conflict") != std::string::npos,
+                "manual mapping conflict requires explicit replacement");
+        require(adapter.author_setup_midi_mapping(
+                    1, 0, 74, "cc-absolute", "encoder.1", false, true) &&
+                    manual_mapping_set,
+                "confirmed manual mapping replacement uses coordinator service");
         require(adapter.select_setup_mapping(0) && adapter.remove_setup_mapping() &&
                     mapping_removed && adapter.state().setup.mappings.empty(),
                 "controller mappings are removed through coordinator services");

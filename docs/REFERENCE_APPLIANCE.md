@@ -1,7 +1,10 @@
 # Reference appliance deployment
 
-This guide prepares software for Intel N150-class x86_64 and Raspberry Pi
-5-class AArch64 Linux systems. It is not a hardware qualification report. All
+This guide prepares software for the G10 primary x86 reference appliance,
+Intel N150-class x86_64 comparison systems, and Raspberry Pi 5 as the secondary
+AArch64 reference target. The G10's detailed component specification is not yet
+recorded and must not be inferred. The remaining N150 criteria are retained
+where they are platform-independent. It is not a hardware qualification report. All
 physical audio, MIDI, controller and touchscreen checks remain **NOT RUN** until
 recorded on the target machine.
 

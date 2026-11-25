@@ -940,6 +940,10 @@ bool ControllerSession::set_binding(std::size_t index, ControlBinding binding,
                                            *application_, error))
         return false;
     profile_ = std::move(candidate);
+    // A changed binding cannot inherit ownership from the old mapping. Reuse
+    // the normal connection-generation transition so held modifiers,
+    // momentary actions and queued stale input are cancelled consistently.
+    reconnect();
     pickup_.clear();
     pickup_targets_.clear();
     state_.pickup.clear();

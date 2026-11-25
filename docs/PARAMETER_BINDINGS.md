@@ -1,5 +1,11 @@
 # Typed parameter bindings
 
+Task 096F reuses `ParameterBindingService` for manual absolute and relative
+controller mappings and Performance assignments. The shared picker publishes
+stable parameter identity, ranges and units but never caches the authoritative
+value. Pickup, inversion, fine scale and acceleration remain properties of the
+existing binding path rather than a second scaling implementation.
+
 Context descriptors now distinguish ordinary `parameter` bindings from
 `step-property` and `step-lock` roles. A held step never adjusts the stored base
 parameter: the session captures a stable musical target and submits a validated

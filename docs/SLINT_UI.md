@@ -1,5 +1,12 @@
 # Slint UI foundation
 
+Task 096F adds production callbacks for Performance target selection,
+confirmation and cancellation, and Setup manual MIDI-source creation with
+explicit conflict replacement. Both use shared copied discovery data. Current
+graphical limitations are listed in
+[Task 096F validation](audit/task-088/TASK_096F_VALIDATION.md); generated callback
+tests do not constitute coordinate, touchscreen or physical-controller testing.
+
 The Performance page now publishes named bank selection and lifecycle, banked
 pad assignments, and primary/SHIFT P/F labels from the shared resolver. Missing
 targets remain visible as unavailable. The complete category/object/typed-

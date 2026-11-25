@@ -1,5 +1,21 @@
 # Implementation status
 
+## Task 096F controller mapping and shared assignment authoring
+
+Task 096F introduces a shared discovery-backed target picker used by controller
+mapping and Performance assignment authoring. Manual MIDI note, absolute CC and
+supported relative CC sources can be prepared while disconnected, validated,
+persisted, dispatched through the production mapper/session path and replaced
+transactionally after explicit conflict confirmation. Performance parameters
+and safe typed actions use the same picker while retaining project ownership and
+unified musical history. See
+[Task 096F validation](audit/task-088/TASK_096F_VALIDATION.md).
+
+RC2-005, RC2-006 and AUD2-006 remain partial for the explicitly documented
+graphical profile-library, Setup typed-argument and full logical-position editor
+gaps. Reference Controller V2 firmware and all physical validation remain NOT
+RUN.
+
 ## Task 096E project-owned Performance banks
 
 Projects now persist bounded named Performance banks with stable primary and

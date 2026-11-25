@@ -1,5 +1,10 @@
 # Reference Controller V2 interaction design
 
+Task 096F does not change the locked inventory. Its shared picker and mapping
+proposal path let the V2 profile and non-reference controllers address the same
+semantic targets. Complete RGB/heartbeat/firmware conformance remains Task
+096G; PCB and physical validation remain NOT RUN.
+
 Task 096E implements named project-owned banks with stable primary/SHIFT P/F
 assignments, macro/parameter targets and launcher-pad references independently
 of controller profiles. The reference shell exposes bank lifecycle and shared

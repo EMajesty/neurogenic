@@ -183,10 +183,14 @@ See `TASK_096E_VALIDATION.md`.
 
 ### RC2-006 — Manual mapping closure (P2; AUD2-006)
 
-Finish manual source creation, typed argument editing/selection, conflicts,
-feedback/context properties and recovery-profile workflows. Acceptance: create
-without MIDI learn, persist/reload, dispatch stable targets and reject stale or
-incompatible bindings transactionally.
+**Task 096F status: partially resolved with production-path evidence.** Shared
+discovery now drives Performance and Setup target selection; supported manual
+MIDI sources validate while disconnected; typed actions, direct parameters,
+contextual/Performance roles, conflict-safe candidate replacement, `.ngc`
+round-trips and active-session generation invalidation are tested. Remaining
+closure is the full graphical profile-library lifecycle, Setup typed-argument
+form, rich conflict presentation and complete feedback authoring. See
+[`TASK_096F_VALIDATION.md`](TASK_096F_VALIDATION.md).
 
 ### RC2-007 — Feedback semantics and firmware contract (P2, hardware-bound)
 

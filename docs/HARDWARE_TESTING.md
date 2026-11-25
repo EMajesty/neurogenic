@@ -37,9 +37,32 @@ encoder direction, pickup arrows, scene-recall pickup invalidation, incremental
 LED traffic and complete refresh after reset/reconnect.
 
 NEUROGENIC does not infer hardware compatibility from compilation. These tools
-collect repeatable evidence on the N150, Raspberry Pi 5, and development hosts
+collect repeatable evidence on the G10 primary x86 reference appliance,
+Raspberry Pi 5 secondary AArch64 target, N150-class comparison systems, and
+development hosts
 without changing system configuration.
 The focused N150 runbook is [N150_BRINGUP.md](N150_BRINGUP.md).
+
+## Initial G10 bring-up checklist
+
+The ordered G10 is the intended primary x86 reference appliance; no processor,
+memory or storage specification is assumed here. On arrival:
+
+1. Install and update the pinned NixOS configuration.
+2. Verify native display mode and touchscreen event enumeration.
+3. Start the installed production application in a clean environment.
+4. Verify Reference Controller USB CDC enumeration.
+5. Validate controller identity, protocol version and selected profile.
+6. Run standalone controller input/feedback diagnostics.
+7. Verify authoritative feedback and reconnect resynchronization.
+8. Enumerate intended audio input/output devices.
+9. Verify fixed 48 kHz operation.
+10. Measure supported buffer sizes, round-trip latency, XRUNs and sustained
+    behavior.
+
+The Reference Controller V2 PCB/firmware and audio hardware are still under
+development. Every physical result remains **NOT RUN** until recorded evidence
+is attached.
 
 ## Initial N150 procedure
 

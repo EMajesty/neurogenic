@@ -1,5 +1,19 @@
 # Project-owned Performance banks
 
+## Shared graphical authoring
+
+Task 096F connects the Performance editor to the shared discovery target model.
+Parameter assignments and the explicit Performance-safe semantic-action subset
+are validated by stable identity; action arguments are parsed from registered
+boolean, integer, real and text descriptors before the existing project
+transaction is invoked. Confirmation replaces an assignment atomically,
+cancellation preserves it, and controller profile data is never written into
+the project bank model.
+
+The production page currently provides representative P1, SHIFT+P1 and F1 entry
+points. The service and adapter accept arbitrary logical positions, while a
+complete graphical position chooser remains follow-up work.
+
 Performance banks are the project's portable live-control surface. They map
 logical positions to existing parameters, semantic actions and launcher slots;
 they do not own parameter values, duplicate musical material, or describe a

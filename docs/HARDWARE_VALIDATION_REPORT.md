@@ -1,5 +1,12 @@
 # NEUROGENIC hardware validation report
 
+The intended primary x86 reference appliance is now the ordered G10; Raspberry
+Pi 5 remains the secondary AArch64 reference target. Existing N150 criteria are
+retained where platform-independent and may still be used for comparison. No
+G10 component specifications are inferred. Reference Controller V2 PCB,
+firmware and audio hardware are under development, and all physical rows remain
+**NOT RUN**.
+
 Copy this file per machine. Default status is **NOT RUN**. PASS requires the
 listed physical evidence; simulation is not physical evidence.
 

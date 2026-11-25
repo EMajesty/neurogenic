@@ -1,5 +1,21 @@
 # Application control and controller API
 
+## Shared assignment authoring
+
+Task 096F uses `AssignmentTargetPicker` as a presentation-neutral view of the
+existing action, parameter and object discovery registries. Project-owned
+Performance assignments and appliance-owned `.ngc` mappings consume the same
+descriptors and typed validation, but retain separate persistence and history.
+Manual mappings support MIDI note, absolute CC, relative two's-complement CC and
+relative binary-offset CC sources. Candidate profiles are validated before an
+explicit conflicting-source replacement becomes active; session replacement
+cancels held ownership and advances the connection generation.
+
+The current Setup form targets an existing endpoint/profile. Complete graphical
+profile-library lifecycle, rich conflict lists and arbitrary action-argument
+forms remain open. See
+[Task 096F validation](audit/task-088/TASK_096F_VALIDATION.md).
+
 Controller profiles may address logical Performance encoder/function/pad
 positions without owning their musical targets. The project supplies the
 active bank; V2, generic MIDI and alternative inventories resolve the same

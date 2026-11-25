@@ -831,6 +831,10 @@ int main(int argc, char **argv) {
                                         std::to_string(binding.number),
                                     std::move(mode), i, binding.feedback, false});
                                 auto &presented = result.mappings.back();
+                                presented.port = binding.port;
+                                presented.channel = binding.channel;
+                                presented.number = binding.number;
+                                presented.midi_mode = binding.mode;
                                 const auto target = std::find_if(
                                     profile->controller.bindings.begin(),
                                     profile->controller.bindings.end(),
@@ -914,6 +918,13 @@ int main(int argc, char **argv) {
                         std::string &remove_error) {
                         return controllers.remove_midi_binding(endpoint, index,
                                                                remove_error);
+                    };
+                slint_options.setup.set_midi_binding =
+                    [&](std::string_view endpoint, std::size_t index,
+                        neurogenic::MidiControlBinding binding,
+                        std::string &mapping_error) {
+                        return controllers.set_midi_binding(
+                            endpoint, index, std::move(binding), mapping_error);
                     };
                 slint_options.setup.set_controller_binding =
                     [&](std::string_view endpoint, std::size_t index,

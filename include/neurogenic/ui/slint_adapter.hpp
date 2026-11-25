@@ -1,4 +1,5 @@
 #pragma once
+#include "neurogenic/midi/mapping.hpp"
 
 #include "neurogenic/application/controller_protocol.hpp"
 #include "neurogenic/application/lifecycle.hpp"
@@ -81,6 +82,17 @@ struct SlintPerformancePageState {
     std::vector<BankItem> banks;
     std::string bank_name{"No Performance bank"}, assignment_status;
     std::uint64_t selected_assignment{};
+    struct AssignmentTargetItem {
+        std::string kind, id, label, category;
+        bool selected{}, available{true};
+    };
+    std::vector<AssignmentTargetItem> assignment_targets;
+    std::size_t selected_assignment_target{};
+    std::uint32_t editor_position{};
+    bool editor_secondary{}, editor_action{}, editor_visible{};
+    std::string editor_label, editor_behavior{"one-shot"};
+    std::array<std::string, 4> editor_argument_names,
+        editor_argument_values;
 };
 
 struct SlintStepItem {
@@ -391,6 +403,9 @@ struct SlintSetupMappingItem {
     bool pickup{}, invert{};
     double fine_scale{0.1}, acceleration{2.0};
     std::map<std::string, ApplicationValue> arguments;
+    std::uint32_t port{1};
+    std::uint8_t channel{}, number{};
+    MidiControlMode midi_mode{MidiControlMode::cc_absolute};
 };
 struct SlintSetupMappingTargetItem {
     std::string kind, id, label;
@@ -425,6 +440,8 @@ struct SlintSetupServices {
     std::function<bool(std::string_view, std::string &)> confirm_midi_learn;
     std::function<bool(std::string_view, std::size_t, std::string &)>
         remove_midi_binding;
+    std::function<bool(std::string_view, std::size_t, MidiControlBinding,
+                       std::string &)> set_midi_binding;
     std::function<bool(std::string_view, std::size_t, ControlBinding,
                        std::string &)> set_controller_binding;
     std::function<bool(std::string_view, std::string_view, std::string &)>
@@ -521,6 +538,14 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool assign_performance_parameter(
         std::size_t position, bool secondary, std::string parameter_id,
         std::string label = {});
+    [[nodiscard]] bool open_performance_assignment_editor(
+        std::size_t position, bool secondary, bool action);
+    [[nodiscard]] bool select_performance_assignment_target(std::size_t index);
+    [[nodiscard]] bool confirm_performance_assignment(
+        std::string label, std::string behavior,
+        std::array<std::string, 4> argument_names = {},
+        std::array<std::string, 4> argument_values = {});
+    void cancel_performance_assignment_editor() noexcept;
     [[nodiscard]] bool select_page(std::size_t index);
     [[nodiscard]] bool select_reference_page(std::size_t index);
     [[nodiscard]] bool set_reference_shift(bool effective);
@@ -656,6 +681,10 @@ class SlintFrontendAdapter {
                                         std::string mode = {});
     [[nodiscard]] bool select_setup_mapping(std::size_t index);
     [[nodiscard]] bool remove_setup_mapping();
+    [[nodiscard]] bool author_setup_midi_mapping(
+        std::uint32_t port, std::uint8_t channel, std::uint8_t number,
+        std::string mode, std::string control_id, bool feedback,
+        bool replace_conflict);
     [[nodiscard]] bool edit_setup_mapping(std::string target_kind,
                                           std::string target_id,
                                           bool pickup, bool invert,

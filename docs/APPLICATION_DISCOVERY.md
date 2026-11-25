@@ -1,5 +1,14 @@
 # Application discovery contract
 
+## Assignment target projection
+
+`AssignmentTargetPicker` is a bounded, copy-only projection of application
+discovery plus registered action argument descriptors. It groups compatible
+parameters, safe actions, contextual roles and Performance roles for multiple
+editors. It does not form a second registry, retain mutable engine pointers or
+own persistence. Object-valued argument choices carry stable identities rather
+than display indices.
+
 Performance capture reuses the arrangement-recording state and adds semantic
 capture, scene-editing, and follow-configuration actions. Acknowledged launch
 history is ordinary revisioned state rather than high-frequency telemetry.
