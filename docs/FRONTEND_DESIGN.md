@@ -217,3 +217,8 @@ Track presentation distinguishes mute, solo, effective audibility, arm, and
 captured recording owner from frontend-local selection. The visual direction
 is documented in [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md); Task 098B does not
 perform a palette or typography migration.
+# Repeat and erase presentation
+
+Frontends consume the presentation-neutral repeat division/active state and
+live-erase status. They may invoke the registered semantic operations but do
+not run musical timers or mutate timeline containers.

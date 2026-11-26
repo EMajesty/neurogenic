@@ -220,6 +220,24 @@ void ControllerSession::cancel_performance_actions() noexcept {
                       state_.session_id, 0}, ignored);
     }
     active_pad_actions_.clear();
+    if (!active_repeats_.empty()) {
+        std::string ignored;
+        (void)submit({"performance.note-repeat-cancel.v1", {},
+                      state_.session_id, 0}, ignored);
+        active_repeats_.clear();
+    }
+    if (!active_live_erase_.empty()) {
+        for (const auto &[control, owned] : active_live_erase_) {
+            (void)control;
+            std::string ignored;
+            (void)submit({"sequencer.live-erase-end.v1",
+                          {{"owner", static_cast<std::int64_t>(owned.owner)},
+                           {"generation", static_cast<std::int64_t>(
+                                              owned.generation)}},
+                          state_.session_id, 0}, ignored);
+        }
+        active_live_erase_.clear();
+    }
 }
 
 bool ControllerSession::dispatch_legacy(const ControllerInput &input,
@@ -576,6 +594,36 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
 bool ControllerSession::dispatch_gesture(const GestureEvent &event,
                                          const ControllerInput &original,
                                          std::string &error) {
+    if ((event.kind == GestureEventKind::cancelled ||
+         event.kind == GestureEventKind::release) &&
+        active_repeats_.contains(event.control_id)) {
+        const auto owned = active_repeats_.at(event.control_id);
+        active_repeats_.erase(event.control_id);
+        return submit({"performance.note-repeat-end.v1",
+                       {{"owner", static_cast<std::int64_t>(owned.owner)},
+                        {"generation",
+                         static_cast<std::int64_t>(owned.generation)}},
+                       state_.session_id, original.sequence}, error);
+    }
+    if ((event.kind == GestureEventKind::cancelled ||
+         event.kind == GestureEventKind::release) &&
+        active_live_erase_.contains(event.control_id)) {
+        const auto owned = active_live_erase_.at(event.control_id);
+        active_live_erase_.erase(event.control_id);
+        return submit({"sequencer.live-erase-end.v1",
+                       {{"owner", static_cast<std::int64_t>(owned.owner)},
+                        {"generation",
+                         static_cast<std::int64_t>(owned.generation)}},
+                       state_.session_id, original.sequence}, error);
+    }
+    if (event.kind == GestureEventKind::modifier_changed &&
+        event.control_id == "transport.repeat" &&
+        !gestures_.state().effective_modifiers.contains("transport.repeat") &&
+        !active_repeats_.empty()) {
+        active_repeats_.clear();
+        return submit({"performance.note-repeat-cancel.v1", {},
+                       state_.session_id, original.sequence}, error);
+    }
     if (event.kind == GestureEventKind::cancelled && held_step_edit_ &&
         held_step_edit_->owner_control == event.control_id)
         return finish_held_step_edit(false, error);
@@ -643,6 +691,46 @@ bool ControllerSession::dispatch_reference_gesture(
                        {{"parameter_id", std::string("transport.tempo")},
                         {"steps", steps}},
                        state_.session_id, original.sequence}, error);
+    }
+    if (event.target.action_id == "reference.repeat-pad.v1") {
+        if (!pad_index) {
+            error = "repeat gesture has an invalid pad identity";
+            return false;
+        }
+        std::string target{"sample"};
+        std::map<std::string, ApplicationValue> arguments{
+            {"target", target},
+            {"note", static_cast<std::int64_t>(36 + *pad_index)},
+            {"velocity", std::clamp(original.value, 0.0, 1.0)},
+            {"owner", static_cast<std::int64_t>(*pad_index + 1)},
+            {"generation", static_cast<std::int64_t>(
+                               event.connection_generation)}};
+        if (state_.context == "sound" || state_.context == "presets") {
+            const auto track = std::find_if(
+                snapshot.tracks.begin(), snapshot.tracks.end(),
+                [&](const auto &item) { return item.id == snapshot.selected_track; });
+            if (track == snapshot.tracks.end()) {
+                error = "repeat target track is unavailable";
+                return false;
+            }
+            if (track->instrument_id == subtractive_instrument_id) {
+                arguments["target"] = std::string("synth");
+                arguments["note"] = static_cast<std::int64_t>(48 + *pad_index);
+                arguments["instance_id"] = static_cast<std::int64_t>(
+                    track->instrument_instance_id);
+            } else if (track->instrument_id == external_midi_instrument_id) {
+                error = "external MIDI repeat requires an explicit endpoint mapping";
+                return false;
+            }
+        }
+        active_repeats_[event.control_id] =
+            {*pad_index + 1, event.connection_generation};
+        if (!submit({"performance.note-repeat-begin.v1", std::move(arguments),
+                     state_.session_id, original.sequence}, error)) {
+            active_repeats_.erase(event.control_id);
+            return false;
+        }
+        return true;
     }
     if (event.target.action_id == "track.solo-clear.v1" ||
         event.target.action_id == "track.record-arm-clear.v1" ||
@@ -755,6 +843,46 @@ bool ControllerSession::dispatch_reference_gesture(
                        original.sequence}, error);
     }
     if (event.target.action_id == "reference.erase-pad.v1") {
+        if (snapshot.live_erase_available) {
+            if (state_.interaction.effective_modifiers.contains(
+                    "transport.repeat")) {
+                error = "REPEAT and ERASE cannot own the same pad";
+                return false;
+            }
+            auto pitch = static_cast<std::uint8_t>(36 + *pad_index);
+            const auto absolute_step = snapshot.step_page * 16 + *pad_index;
+            const auto target_track = std::find_if(
+                snapshot.tracks.begin(), snapshot.tracks.end(),
+                [&](const auto &item) { return item.id == snapshot.selected_track; });
+            if (target_track != snapshot.tracks.end()) {
+                const auto tick = static_cast<MusicalTick>(absolute_step) *
+                                  snapshot.step_ticks;
+                const auto target_event = std::find_if(
+                    target_track->events.begin(), target_track->events.end(),
+                    [&](const auto &item) {
+                        return item.type == MusicalEventType::note &&
+                               item.tick == tick;
+                    });
+                if (target_event != target_track->events.end())
+                    pitch = target_event->pitch;
+            }
+            active_live_erase_[event.control_id] =
+                {*pad_index + 1, event.connection_generation};
+            if (!submit({"sequencer.live-erase-begin.v1",
+                         {{"pattern_id", static_cast<std::int64_t>(
+                                             snapshot.selected_pattern)},
+                          {"track_id", static_cast<std::int64_t>(
+                                           snapshot.selected_track)},
+                          {"pitch", static_cast<std::int64_t>(pitch)},
+                          {"owner", static_cast<std::int64_t>(*pad_index + 1)},
+                          {"generation", static_cast<std::int64_t>(
+                                             event.connection_generation)}},
+                         state_.session_id, original.sequence}, error)) {
+                active_live_erase_.erase(event.control_id);
+                return false;
+            }
+            return true;
+        }
         const auto step = static_cast<std::int64_t>(snapshot.step_page * 16 +
                                                     *pad_index);
         return submit({"step.erase.v1",
@@ -876,7 +1004,9 @@ void ControllerSession::observe(const ApplicationState &snapshot,
         "edit.mute");
     for (std::size_t i = 0; i < 16; ++i) {
         auto color = off;
-        if ((solo_mode || arm_mode || mute_mode) && i < snapshot.tracks.size()) {
+        if (snapshot.note_repeat_pad_mask & (std::uint16_t{1} << i))
+            color = selected;
+        else if ((solo_mode || arm_mode || mute_mode) && i < snapshot.tracks.size()) {
             const auto &target = snapshot.tracks[i];
             if (arm_mode) color = target.record_armed ? armed : off;
             else if (solo_mode) color = target.solo ? play : off;
@@ -934,6 +1064,10 @@ void ControllerSession::observe(const ApplicationState &snapshot,
             enabled = snapshot.metronome_enabled || snapshot.count_in_active;
         else if (mapping.action_id == "transport.tap-tempo.v1")
             enabled = snapshot.tempo_authority == "internal";
+        else if (mapping.control_id == "transport.repeat")
+            enabled = snapshot.note_repeat_active || snapshot.note_repeat_triplet;
+        else if (mapping.control_id == "edit.erase")
+            enabled = snapshot.live_erase_active;
         else if (mapping.semantic == "recording-toggle")
             enabled = snapshot.recording.state == RecordingState::recording;
         else if (mapping.semantic == "modifier-shift")

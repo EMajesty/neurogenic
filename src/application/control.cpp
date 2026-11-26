@@ -182,6 +182,36 @@ ActionRegistry::ActionRegistry() {
                "Recording"));
     add(action("transport.panic.v1", "Silence internal and MIDI sound",
                "Transport"));
+    add(action("performance.note-repeat-begin.v1", "Begin note repeat",
+               "Performance",
+               {{"target", ValueType::text}, {"note", ValueType::integer},
+                {"velocity", ValueType::real}, {"owner", ValueType::integer},
+                {"generation", ValueType::integer},
+                {"instance_id", ValueType::integer, false},
+                {"midi_port", ValueType::integer, false},
+                {"midi_channel", ValueType::integer, false}}));
+    add(action("performance.note-repeat-end.v1", "End note repeat",
+               "Performance", {{"owner", ValueType::integer},
+                                {"generation", ValueType::integer}}));
+    add(action("performance.note-repeat-cancel.v1", "Cancel note repeat",
+               "Performance"));
+    add(action("performance.note-repeat-division-next.v1",
+               "Select next repeat division", "Performance"));
+    add(action("performance.note-repeat-triplet-toggle.v1",
+               "Toggle triplet repeat", "Performance"));
+    add(action("sequencer.live-erase-begin.v1", "Begin live erase",
+               "Sequencer",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"pitch", ValueType::integer},
+                {"owner", ValueType::integer},
+                {"generation", ValueType::integer}}));
+    add(action("sequencer.live-erase-end.v1", "Commit live erase",
+               "Sequencer",
+               {{"owner", ValueType::integer},
+                {"generation", ValueType::integer}}));
+    add(action("sequencer.live-erase-cancel.v1", "Cancel live erase",
+               "Sequencer"));
     add(action("track.create.v1", "Create track", "Tracks",
                {{"track_id", ValueType::integer, false},
                 {"name", ValueType::text, false},
@@ -1859,6 +1889,7 @@ CommandResult ApplicationService::execute_with_history(
         command.action_id.rfind("pattern.", 0) == 0 ||
         command.action_id.rfind("arrangement.", 0) == 0 ||
         command.action_id.rfind("timeline.", 0) == 0 ||
+        command.action_id == "sequencer.live-erase-end.v1" ||
         command.action_id == "performance.bank-create.v1" ||
         command.action_id == "performance.bank-rename.v1" ||
         command.action_id == "performance.bank-duplicate.v1" ||
@@ -4698,6 +4729,13 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             }
             if (command.action_id == "project.query.v1")
                 return {true, sequence, before.revision, {}};
+            if (command.action_id == "project.new.v1" ||
+                command.action_id == "project.open.v1" ||
+                command.action_id == "project.close.v1") {
+                engine_.cancel_note_repeats();
+                live_erase_.reset();
+                transport_started_explicitly_ = false;
+            }
             if (command.action_id == "project.rename.v1") {
                 const auto &name = *argument<std::string>(command, "name");
                 if (name.empty())
@@ -5545,12 +5583,14 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         }
     } else if (command.action_id == "transport.play.v1") {
         engine_.play();
+        transport_started_explicitly_ = true;
         changed = true;
     } else if (command.action_id == "transport.stop.v1") {
         if (arrangement_recording_.status().phase ==
             ArrangementRecordPhase::recording)
             arrangement_recording_.stop(state_.transport_tick, error);
         engine_.stop();
+        transport_started_explicitly_ = false;
         engine_.cancel_count_in();
         if (recording_.state() == RecordingState::armed)
             recording_.cancel();
@@ -5568,7 +5608,158 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         }
         engine_.cancel_count_in();
         engine_.panic();
+        transport_started_explicitly_ = false;
         fill_momentary_ = false;
+        engine_.cancel_note_repeats();
+        changed = true;
+    } else if (command.action_id == "performance.note-repeat-begin.v1") {
+        const auto &target_name = *argument<std::string>(command, "target");
+        const auto note = *argument<std::int64_t>(command, "note");
+        const auto velocity = *argument<double>(command, "velocity");
+        const auto owner = *argument<std::int64_t>(command, "owner");
+        const auto generation = *argument<std::int64_t>(command, "generation");
+        NoteRepeatTarget target;
+        target.owner = owner > 0 ? static_cast<std::uint64_t>(owner) : 0;
+        target.generation = generation > 0
+                                ? static_cast<std::uint64_t>(generation) : 0;
+        target.note = note >= 0 && note <= 127
+                          ? static_cast<std::uint8_t>(note) : 255;
+        target.velocity = static_cast<float>(velocity);
+        target.division = note_repeat_division_;
+        if (target_name == "sample")
+            target.kind = NoteRepeatTargetKind::sample;
+        else if (target_name == "synth") {
+            target.kind = NoteRepeatTargetKind::synth;
+            if (const auto value =
+                    argument<std::int64_t>(command, "instance_id"))
+                target.instrument = static_cast<InstrumentInstanceId>(*value);
+            else
+                target.instrument = 0;
+        } else if (target_name == "midi") {
+            target.kind = NoteRepeatTargetKind::external_midi;
+            if (const auto value = argument<std::int64_t>(command, "midi_port"))
+                target.midi_port = static_cast<std::uint32_t>(*value);
+            if (const auto value =
+                    argument<std::int64_t>(command, "midi_channel"))
+                target.midi_channel = static_cast<std::uint8_t>(*value);
+            else
+                target.midi_channel = 16;
+        } else
+            error = "unknown note-repeat target kind";
+        if (error.empty() &&
+            (!engine_.playing() || !engine_.begin_note_repeat(target)))
+            error = engine_.playing()
+                        ? "note-repeat target is invalid or capacity is full"
+                        : "note repeat requires running internal transport";
+        else if (error.empty())
+            changed = true;
+    } else if (command.action_id == "performance.note-repeat-end.v1") {
+        const auto owner = *argument<std::int64_t>(command, "owner");
+        const auto generation = *argument<std::int64_t>(command, "generation");
+        if (owner <= 0 || generation <= 0 ||
+            !engine_.end_note_repeat(static_cast<std::uint64_t>(owner),
+                                     static_cast<std::uint64_t>(generation)))
+            error = "note-repeat ownership is invalid";
+        else
+            changed = true;
+    } else if (command.action_id == "performance.note-repeat-cancel.v1") {
+        engine_.cancel_note_repeats();
+        changed = true;
+    } else if (command.action_id ==
+               "performance.note-repeat-division-next.v1") {
+        const bool triplet = note_repeat_division_ ==
+                                 NoteRepeatDivision::eighth_triplet ||
+                             note_repeat_division_ ==
+                                 NoteRepeatDivision::sixteenth_triplet ||
+                             note_repeat_division_ ==
+                                 NoteRepeatDivision::thirty_second_triplet;
+        if (triplet)
+            note_repeat_division_ =
+                note_repeat_division_ == NoteRepeatDivision::eighth_triplet
+                    ? NoteRepeatDivision::sixteenth_triplet
+                : note_repeat_division_ ==
+                      NoteRepeatDivision::sixteenth_triplet
+                    ? NoteRepeatDivision::thirty_second_triplet
+                    : NoteRepeatDivision::eighth_triplet;
+        else
+            note_repeat_division_ =
+                note_repeat_division_ == NoteRepeatDivision::quarter
+                    ? NoteRepeatDivision::eighth
+                : note_repeat_division_ == NoteRepeatDivision::eighth
+                    ? NoteRepeatDivision::sixteenth
+                : note_repeat_division_ == NoteRepeatDivision::sixteenth
+                    ? NoteRepeatDivision::thirty_second
+                    : NoteRepeatDivision::quarter;
+        if (!engine_.set_note_repeat_division(note_repeat_division_))
+            error = "note-repeat command queue is full";
+        else
+            changed = true;
+    } else if (command.action_id ==
+               "performance.note-repeat-triplet-toggle.v1") {
+        switch (note_repeat_division_) {
+        case NoteRepeatDivision::quarter:
+        case NoteRepeatDivision::eighth:
+            note_repeat_division_ = NoteRepeatDivision::eighth_triplet; break;
+        case NoteRepeatDivision::sixteenth:
+            note_repeat_division_ = NoteRepeatDivision::sixteenth_triplet; break;
+        case NoteRepeatDivision::thirty_second:
+            note_repeat_division_ = NoteRepeatDivision::thirty_second_triplet; break;
+        case NoteRepeatDivision::eighth_triplet:
+            note_repeat_division_ = NoteRepeatDivision::eighth; break;
+        case NoteRepeatDivision::sixteenth_triplet:
+            note_repeat_division_ = NoteRepeatDivision::sixteenth; break;
+        case NoteRepeatDivision::thirty_second_triplet:
+            note_repeat_division_ = NoteRepeatDivision::thirty_second; break;
+        }
+        if (!engine_.set_note_repeat_division(note_repeat_division_))
+            error = "note-repeat command queue is full";
+        else
+            changed = true;
+    } else if (command.action_id == "sequencer.live-erase-begin.v1") {
+        const auto pattern = *argument<std::int64_t>(command, "pattern_id");
+        const auto track = *argument<std::int64_t>(command, "track_id");
+        const auto pitch = *argument<std::int64_t>(command, "pitch");
+        const auto owner = *argument<std::int64_t>(command, "owner");
+        const auto generation = *argument<std::int64_t>(command, "generation");
+        auto transaction = timeline_.edit();
+        if (!before.playing || !transport_started_explicitly_)
+            error = "live erase requires running transport";
+        else if (live_erase_)
+            error = "a live-erase gesture is already active";
+        else if (pattern < 0 || track <= 0 || pitch < 0 || pitch > 127 ||
+                 owner <= 0 || generation <= 0 ||
+                 !transaction.find_edit_pattern(
+                     static_cast<PatternId>(pattern),
+                     static_cast<TrackId>(track)))
+            error = "live-erase target is unavailable";
+        else {
+            live_erase_ = LiveEraseGesture{
+                static_cast<PatternId>(pattern), static_cast<TrackId>(track),
+                static_cast<std::uint8_t>(pitch), before.transport_tick,
+                static_cast<std::uint64_t>(owner),
+                static_cast<std::uint64_t>(generation),
+                std::move(transaction), 0};
+            changed = true;
+        }
+    } else if (command.action_id == "sequencer.live-erase-end.v1") {
+        const auto owner = *argument<std::int64_t>(command, "owner");
+        const auto generation = *argument<std::int64_t>(command, "generation");
+        if (!live_erase_ || owner <= 0 || generation <= 0 ||
+            live_erase_->owner != static_cast<std::uint64_t>(owner) ||
+            live_erase_->generation != static_cast<std::uint64_t>(generation))
+            error = "live-erase ownership is stale";
+        else {
+            auto gesture = std::move(*live_erase_);
+            live_erase_.reset();
+            if (gesture.removed != 0 &&
+                !timeline_.commit(std::move(gesture.transaction),
+                                  TimelineCommitPolicy::next_audio_callback,
+                                  error)) {
+            } else
+                changed = true;
+        }
+    } else if (command.action_id == "sequencer.live-erase-cancel.v1") {
+        live_erase_.reset();
         changed = true;
     } else if (command.action_id == "transport.restart.v1") {
         if (arrangement_recording_.status().phase ==
@@ -5576,6 +5767,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             error = "stop arrangement recording before restarting transport";
         else {
             engine_.restart();
+            transport_started_explicitly_ = true;
             changed = true;
         }
     } else if (command.action_id == "arrangement.seek.v1") {
@@ -10380,6 +10572,47 @@ void ApplicationService::synchronize_locked() const {
     const auto playing = engine_.playing();
     const auto frame = engine_.frame_position();
     auto timeline = timeline_.snapshot();
+    if (live_erase_) {
+        const auto tempo = timeline.timeline.transport.microseconds_per_quarter;
+        const auto tick = static_cast<MusicalTick>(
+            (static_cast<__uint128_t>(frame) * ticks_per_quarter * 1'000'000U) /
+            (static_cast<__uint128_t>(engine_.sample_rate()) * tempo));
+        auto &gesture = *live_erase_;
+        auto *pattern = gesture.transaction.find_edit_pattern(
+            gesture.pattern, gesture.track);
+        if (!playing || !pattern || pattern->length <= 0 ||
+            tick < gesture.last_tick) {
+            gesture.last_tick = tick;
+        } else if (tick > gesture.last_tick) {
+            std::array<EventId, 256> matches{};
+            std::size_t match_count{};
+            const auto first_loop = gesture.last_tick / pattern->length;
+            const auto last_loop = tick / pattern->length;
+            const auto bounded_last = std::min<MusicalTick>(last_loop,
+                                                            first_loop + 8);
+            for (const auto &event : pattern->events) {
+                if ((event.type != MusicalEventType::note &&
+                     event.type != MusicalEventType::note_on) ||
+                    event.pitch != gesture.pitch)
+                    continue;
+                for (auto loop = first_loop; loop <= bounded_last; ++loop) {
+                    const auto occurrence = loop * pattern->length + event.tick;
+                    if (occurrence > gesture.last_tick && occurrence <= tick &&
+                        match_count < matches.size()) {
+                        matches[match_count++] = event.id;
+                        break;
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < match_count; ++i) {
+                std::string ignored;
+                if (gesture.transaction.remove_event(
+                        gesture.pattern, gesture.track, matches[i], ignored))
+                    ++gesture.removed;
+            }
+            gesture.last_tick = tick;
+        }
+    }
     AudioEngine::TimelineActivationEvent activation;
     while (engine_.pop_timeline_activation(activation)) {
         ++observed_timeline_activation_count_;
@@ -10809,6 +11042,25 @@ void ApplicationService::synchronize_locked() const {
     state_.metronome_downbeat = metronome.downbeat;
     state_.count_in_bars = count_in_bars_;
     state_.count_in_active = metronome.count_in_active;
+    const auto repeat = engine_.note_repeat_state();
+    state_.note_repeat_active = repeat.active_targets != 0;
+    state_.note_repeat_targets = repeat.active_targets;
+    state_.note_repeat_pad_mask = repeat.owner_mask;
+    switch (note_repeat_division_) {
+    case NoteRepeatDivision::quarter: state_.note_repeat_division = "1/4"; break;
+    case NoteRepeatDivision::eighth: state_.note_repeat_division = "1/8"; break;
+    case NoteRepeatDivision::sixteenth: state_.note_repeat_division = "1/16"; break;
+    case NoteRepeatDivision::thirty_second: state_.note_repeat_division = "1/32"; break;
+    case NoteRepeatDivision::eighth_triplet: state_.note_repeat_division = "1/8T"; break;
+    case NoteRepeatDivision::sixteenth_triplet: state_.note_repeat_division = "1/16T"; break;
+    case NoteRepeatDivision::thirty_second_triplet: state_.note_repeat_division = "1/32T"; break;
+    }
+    state_.note_repeat_triplet =
+        note_repeat_division_ == NoteRepeatDivision::eighth_triplet ||
+        note_repeat_division_ == NoteRepeatDivision::sixteenth_triplet ||
+        note_repeat_division_ == NoteRepeatDivision::thirty_second_triplet;
+    state_.live_erase_active = live_erase_.has_value();
+    state_.live_erase_available = playing && transport_started_explicitly_;
     const auto callback_frame = engine_.callback_frame_position();
     state_.count_in_remaining_frames =
         metronome.count_in_active && metronome.count_in_end_frame > callback_frame

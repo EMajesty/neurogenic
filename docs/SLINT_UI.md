@@ -473,3 +473,8 @@ resolutions. Coordinate-driven touch and physical hardware remain NOT RUN.
 Track rows receive explicit solo, recording-arm, and effective-audibility
 fields in addition to mute. Generated callbacks and rendered structure remain
 separate evidence from simulated protocol input and physical validation.
+# Task 098C presentation
+
+The production shell publishes repeat active state, straight/triplet division,
+and live-erase activity at both supported resolutions. These are projections of
+application/engine authority, not frontend-owned musical state.

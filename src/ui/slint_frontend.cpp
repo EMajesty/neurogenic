@@ -139,6 +139,11 @@ void publish(const SlintUiState &state,
         window->set_click_level(text(std::to_string(static_cast<int>(
             std::lround(state.shell.metronome_level * 100.0))) + "%"));
         window->set_tap_tempo_available(state.shell.tap_tempo_available);
+        window->set_note_repeat_active(state.shell.note_repeat_active);
+        window->set_note_repeat_triplet(state.shell.note_repeat_triplet);
+        window->set_note_repeat_division(
+            slint::SharedString(state.shell.note_repeat_division));
+        window->set_live_erase_active(state.shell.live_erase_active);
         window->set_history_pending(state.shell.history_pending);
         window->set_can_undo(state.shell.can_undo);
         window->set_can_redo(state.shell.can_redo);
@@ -219,6 +224,11 @@ void publish(const SlintUiState &state,
     window->set_click_level(text(std::to_string(
         static_cast<int>(std::lround(state.shell.metronome_level * 100.0))) + "%"));
     window->set_tap_tempo_available(state.shell.tap_tempo_available);
+    window->set_note_repeat_active(state.shell.note_repeat_active);
+    window->set_note_repeat_triplet(state.shell.note_repeat_triplet);
+    window->set_note_repeat_division(
+        slint::SharedString(state.shell.note_repeat_division));
+    window->set_live_erase_active(state.shell.live_erase_active);
     window->set_project_name(text(state.shell.project_name));
     window->set_project_dirty(state.shell.project_dirty);
     window->set_history_pending(state.shell.history_pending);

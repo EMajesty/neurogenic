@@ -11,6 +11,39 @@
 #include <stdexcept>
 
 namespace neurogenic {
+namespace {
+constexpr MusicalTick repeat_ticks(NoteRepeatDivision division) noexcept {
+    switch (division) {
+    case NoteRepeatDivision::quarter: return ticks_per_quarter;
+    case NoteRepeatDivision::eighth: return ticks_per_quarter / 2;
+    case NoteRepeatDivision::sixteenth: return ticks_per_quarter / 4;
+    case NoteRepeatDivision::thirty_second: return ticks_per_quarter / 8;
+    case NoteRepeatDivision::eighth_triplet: return ticks_per_quarter / 3;
+    case NoteRepeatDivision::sixteenth_triplet: return ticks_per_quarter / 6;
+    case NoteRepeatDivision::thirty_second_triplet: return ticks_per_quarter / 12;
+    }
+    return ticks_per_quarter / 4;
+}
+MusicalTick repeat_tick_at_frame(std::uint64_t frame, std::uint32_t rate,
+                                 std::uint32_t tempo_us) noexcept {
+    const auto numerator = static_cast<__uint128_t>(frame) * 1'000'000U *
+                           ticks_per_quarter;
+    return static_cast<MusicalTick>(numerator /
+        (static_cast<__uint128_t>(rate) * tempo_us));
+}
+std::uint64_t repeat_frame_at_tick(MusicalTick tick, std::uint32_t rate,
+                                   std::uint32_t tempo_us) noexcept {
+    if (tick <= 0) return 0;
+    const auto numerator = static_cast<__uint128_t>(tick) * rate * tempo_us;
+    const auto denominator =
+        static_cast<__uint128_t>(1'000'000U) * ticks_per_quarter;
+    return static_cast<std::uint64_t>((numerator + denominator - 1) /
+                                      denominator);
+}
+constexpr TrackId repeat_track_owner(std::uint64_t owner) noexcept {
+    return (TrackId{1} << 63U) | (owner & ~(TrackId{1} << 63U));
+}
+}
 AudioEngine::AudioEngine(std::uint32_t rate, std::size_t voice_capacity,
                          std::size_t event_staging_capacity,
                          std::size_t sample_version_capacity)
@@ -468,6 +501,57 @@ void AudioEngine::trigger_synth(std::uint8_t note, float velocity, bool note_on,
     if (instance == 0 || instance > synths_.size() ||
         !synth_triggers_.push({note, velocity, note_on, instance}))
         dropped_triggers_.fetch_add(1, std::memory_order_relaxed);
+}
+bool AudioEngine::begin_note_repeat(const NoteRepeatTarget &target) noexcept {
+    if (target.owner == 0 || target.generation == 0 || target.note > 127 ||
+        !std::isfinite(target.velocity) || target.velocity < 0.0F ||
+        target.velocity > 1.0F ||
+        (target.kind == NoteRepeatTargetKind::synth &&
+         (target.instrument == 0 || target.instrument > synths_.size())) ||
+        (target.kind == NoteRepeatTargetKind::external_midi &&
+         (target.midi_port == 0 || target.midi_port > maximum_midi_ports ||
+          target.midi_channel > 15)))
+        return false;
+    if (!note_repeat_commands_.push(
+            {NoteRepeatCommand::Type::begin, target})) {
+        dropped_note_repeat_commands_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
+}
+bool AudioEngine::end_note_repeat(std::uint64_t owner,
+                                  std::uint64_t generation) noexcept {
+    if (owner == 0 || generation == 0) return false;
+    NoteRepeatTarget target;
+    target.owner = owner;
+    target.generation = generation;
+    if (!note_repeat_commands_.push({NoteRepeatCommand::Type::end, target})) {
+        dropped_note_repeat_commands_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
+}
+bool AudioEngine::set_note_repeat_division(
+    NoteRepeatDivision division) noexcept {
+    NoteRepeatTarget target;
+    target.division = division;
+    if (!note_repeat_commands_.push(
+            {NoteRepeatCommand::Type::update_division, target})) {
+        dropped_note_repeat_commands_.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+    return true;
+}
+void AudioEngine::cancel_note_repeats() noexcept {
+    if (!note_repeat_commands_.push({NoteRepeatCommand::Type::cancel_all, {}}))
+        dropped_note_repeat_commands_.fetch_add(1, std::memory_order_relaxed);
+}
+NoteRepeatState AudioEngine::note_repeat_state() const noexcept {
+    return {published_note_repeat_count_.load(std::memory_order_acquire),
+            published_note_repeat_owner_mask_.load(std::memory_order_acquire),
+            note_repeat_triggers_.load(std::memory_order_acquire),
+            note_repeat_cancellations_.load(std::memory_order_acquire),
+            dropped_note_repeat_commands_.load(std::memory_order_acquire)};
 }
 bool AudioEngine::set_synth_parameter(SynthParameter parameter, float value,
                                       InstrumentInstanceId instance) noexcept {
@@ -1416,6 +1500,12 @@ void AudioEngine::process(std::span<float> left,
         Trigger discarded;
         while (triggers_.pop(discarded)) {}
         pending_trigger_count_ = 0;
+        for (auto &repeat : note_repeats_) repeat = {};
+        NoteRepeatCommand discarded_repeat;
+        while (note_repeat_commands_.pop(discarded_repeat)) {}
+        published_note_repeat_count_.store(0, std::memory_order_release);
+        published_note_repeat_owner_mask_.store(0, std::memory_order_release);
+        note_repeat_cancellations_.fetch_add(1, std::memory_order_relaxed);
         if (auto *output = midi_output_.load(std::memory_order_acquire))
             output->panic();
         panic_acknowledgements_.fetch_add(1, std::memory_order_release);
@@ -1661,6 +1751,10 @@ void AudioEngine::process(std::span<float> left,
         } else if (command == TransportCommand::stop) {
             transport_playing_ = false;
             stop_voices();
+            for (auto &repeat : note_repeats_) repeat = {};
+            published_note_repeat_count_.store(0, std::memory_order_release);
+            published_note_repeat_owner_mask_.store(0,
+                                                     std::memory_order_release);
             modulation_.clear_automation();
             if (auto *midi = midi_output_.load(std::memory_order_acquire))
                 if (midi_clock_configuration_.enabled)
@@ -1690,6 +1784,111 @@ void AudioEngine::process(std::span<float> left,
             published_fill_.store(fill, std::memory_order_release);
         }
     }
+    auto release_repeat = [&](ActiveNoteRepeat &repeat) noexcept {
+        if (!repeat.active) return;
+        const auto owner = repeat_track_owner(repeat.target.owner);
+        const auto identity = NoteIdentity{owner, repeat.target.generation,
+                                           repeat.occurrence};
+        if (repeat.gate_active) {
+            if (repeat.target.kind == NoteRepeatTargetKind::sample)
+                release_note(repeat.target.note, owner,
+                             repeat.target.generation, repeat.occurrence, true);
+            else if (repeat.target.kind == NoteRepeatTargetKind::synth)
+                synths_[repeat.target.instrument - 1]->note_off(
+                    repeat.target.note, identity);
+            else if (auto *midi = midi_output_.load(std::memory_order_acquire)) {
+                MidiPacket packet;
+                packet.port = repeat.target.midi_port;
+                packet.frame = callback_frame;
+                packet.bytes = {
+                    static_cast<std::uint8_t>(0x80 |
+                        (repeat.target.midi_channel & 0x0F)),
+                    repeat.target.note, 0};
+                packet.size = 3;
+                (void)midi->enqueue(packet);
+            }
+        }
+        repeat = {};
+        note_repeat_cancellations_.fetch_add(1, std::memory_order_relaxed);
+    };
+    NoteRepeatCommand repeat_command;
+    while (note_repeat_commands_.pop(repeat_command)) {
+        if (repeat_command.type == NoteRepeatCommand::Type::cancel_all) {
+            for (auto &repeat : note_repeats_) release_repeat(repeat);
+            continue;
+        }
+        if (repeat_command.type == NoteRepeatCommand::Type::end) {
+            for (auto &repeat : note_repeats_)
+                if (repeat.active &&
+                    repeat.target.owner == repeat_command.target.owner &&
+                    repeat.target.generation ==
+                        repeat_command.target.generation)
+                    release_repeat(repeat);
+            continue;
+        }
+        if (repeat_command.type == NoteRepeatCommand::Type::update_division) {
+            for (auto &repeat : note_repeats_) {
+                if (!repeat.active) continue;
+                auto target = repeat.target;
+                release_repeat(repeat);
+                target.division = repeat_command.target.division;
+                repeat.target = target;
+                repeat.active = transport_playing_ && !accept_external_clock_;
+                const auto now = repeat_tick_at_frame(
+                    transport_frame_, rate_, active_timeline_tempo_us_);
+                const auto division = repeat_ticks(target.division);
+                repeat.next_tick = static_cast<std::uint64_t>(
+                    ((now + division - 1) / division) * division);
+                if (repeat_frame_at_tick(
+                        static_cast<MusicalTick>(repeat.next_tick), rate_,
+                        active_timeline_tempo_us_) < transport_frame_)
+                    repeat.next_tick += static_cast<std::uint64_t>(division);
+            }
+            continue;
+        }
+        auto *slot = static_cast<ActiveNoteRepeat *>(nullptr);
+        for (auto &repeat : note_repeats_)
+            if (repeat.active &&
+                repeat.target.owner == repeat_command.target.owner &&
+                repeat.target.generation == repeat_command.target.generation) {
+                release_repeat(repeat);
+                slot = &repeat;
+                break;
+            }
+        if (!slot)
+            for (auto &repeat : note_repeats_)
+                if (!repeat.active) { slot = &repeat; break; }
+        if (!slot) {
+            dropped_note_repeat_commands_.fetch_add(1,
+                                                     std::memory_order_relaxed);
+            continue;
+        }
+        slot->target = repeat_command.target;
+        slot->active = transport_playing_ && !accept_external_clock_;
+        if (!slot->active) continue;
+        const auto now = repeat_tick_at_frame(transport_frame_, rate_,
+                                              active_timeline_tempo_us_);
+        const auto division = repeat_ticks(slot->target.division);
+        slot->next_tick = static_cast<std::uint64_t>(
+            ((now + division - 1) / division) * division);
+        if (repeat_frame_at_tick(static_cast<MusicalTick>(slot->next_tick),
+                                 rate_, active_timeline_tempo_us_) <
+            transport_frame_)
+            slot->next_tick += static_cast<std::uint64_t>(division);
+    }
+    published_note_repeat_count_.store(
+        static_cast<std::size_t>(std::count_if(
+            note_repeats_.begin(), note_repeats_.end(),
+            [](const auto &repeat) { return repeat.active; })),
+        std::memory_order_release);
+    std::uint16_t repeat_owner_mask{};
+    for (const auto &repeat : note_repeats_)
+        if (repeat.active && repeat.target.owner >= 1 &&
+            repeat.target.owner <= 16)
+            repeat_owner_mask |= static_cast<std::uint16_t>(
+                std::uint16_t{1} << (repeat.target.owner - 1));
+    published_note_repeat_owner_mask_.store(repeat_owner_mask,
+                                             std::memory_order_release);
     const auto metronome_transport_start =
         accept_external_clock_ ? external_start_frame : transport_frame_;
 
@@ -1877,6 +2076,73 @@ void AudioEngine::process(std::span<float> left,
                 (void)mixer_.set_modulation(destination, value);
         });
         mixer_.capture_modulation_frame(frame);
+        const auto repeat_frame = transport_frame_ + frame;
+        const auto repeat_tick = repeat_tick_at_frame(
+            repeat_frame, rate_, active_timeline_tempo_us_);
+        for (auto &repeat : note_repeats_) {
+            if (!repeat.active) continue;
+            const auto owner = repeat_track_owner(repeat.target.owner);
+            if (repeat.gate_active && repeat_tick >= 0 &&
+                static_cast<std::uint64_t>(repeat_tick) >=
+                    repeat.gate_off_tick) {
+                const NoteIdentity identity{owner, repeat.target.generation,
+                                            repeat.occurrence};
+                if (repeat.target.kind == NoteRepeatTargetKind::sample)
+                    release_note(repeat.target.note, owner,
+                                 repeat.target.generation, repeat.occurrence,
+                                 true);
+                else if (repeat.target.kind == NoteRepeatTargetKind::synth)
+                    synths_[repeat.target.instrument - 1]->note_off(
+                        repeat.target.note, identity);
+                else if (auto *midi =
+                             midi_output_.load(std::memory_order_acquire)) {
+                    MidiPacket packet;
+                    packet.port = repeat.target.midi_port;
+                    packet.frame = callback_frame + frame;
+                    packet.bytes = {
+                        static_cast<std::uint8_t>(
+                            0x80 | (repeat.target.midi_channel & 0x0F)),
+                        repeat.target.note, 0};
+                    packet.size = 3;
+                    (void)midi->enqueue(packet);
+                }
+                repeat.gate_active = false;
+            }
+            const auto target_frame = repeat_frame_at_tick(
+                static_cast<MusicalTick>(repeat.next_tick), rate_,
+                active_timeline_tempo_us_);
+            if (repeat_frame < target_frame) continue;
+            ++repeat.occurrence;
+            const NoteIdentity identity{owner, repeat.target.generation,
+                                        repeat.occurrence};
+            if (repeat.target.kind == NoteRepeatTargetKind::sample)
+                start_voice(repeat.target.note, repeat.target.velocity, owner,
+                            repeat.target.generation, repeat.occurrence, true,
+                            &note_slices_[repeat.target.note]);
+            else if (repeat.target.kind == NoteRepeatTargetKind::synth) {
+                synths_[repeat.target.instrument - 1]->note_on(
+                    repeat.target.note, repeat.target.velocity, identity);
+                synth_active_[repeat.target.instrument - 1] = true;
+            } else if (auto *midi =
+                           midi_output_.load(std::memory_order_acquire)) {
+                MidiPacket packet;
+                packet.port = repeat.target.midi_port;
+                packet.frame = callback_frame + frame;
+                packet.bytes = {
+                    static_cast<std::uint8_t>(
+                        0x90 | (repeat.target.midi_channel & 0x0F)),
+                    repeat.target.note,
+                    static_cast<std::uint8_t>(repeat.target.velocity * 127.0F)};
+                packet.size = 3;
+                (void)midi->enqueue(packet);
+            }
+            const auto division = repeat_ticks(repeat.target.division);
+            repeat.gate_off_tick = repeat.next_tick +
+                                   static_cast<std::uint64_t>(division / 2);
+            repeat.next_tick += static_cast<std::uint64_t>(division);
+            repeat.gate_active = true;
+            note_repeat_triggers_.fetch_add(1, std::memory_order_relaxed);
+        }
         while (external_index < pending_trigger_count_ &&
                pending_triggers_[external_index].frame_offset == frame) {
             const auto &event = pending_triggers_[external_index++];

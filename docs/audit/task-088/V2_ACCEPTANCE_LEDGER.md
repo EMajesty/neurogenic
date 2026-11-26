@@ -1,5 +1,7 @@
 # Reference Controller V2 acceptance ledger
 
+| 098C / RC2-001, RC2-003, AUD2-007 | REPEAT+pad/DATA/triplet and running ERASE+pad | fixed AudioEngine repeat slots plus stable live-erase timeline transaction | `neurogenic_note_repeat_live_erase_tests`; reference controller regressions | production scheduler/MIDI/PCM/history | PASS software for live generation and erase; recorded-repeat event insertion OPEN; physical NOT RUN |
+
 | 098B / RC2-001, RC2-003, AUD2-007 | SOLO/ARM stable pad modes and SHIFT+STOP unified panic | transient ApplicationService track state, prepared mixer/engine audibility, atomic panic acknowledgement | `neurogenic_solo_arm_panic_tests`, `neurogenic_reference_controller_tests`, generated Slint fixture | production PCM + semantic + generated callback | PASS in software; physical controls/LEDs NOT RUN |
 
 Date: 2026-11-26. Baseline: Task 097C
@@ -40,9 +42,8 @@ or structured layout; **physical** requires manufactured hardware.
 
 ## Missing capability ledger (not failed integration)
 
-Metronome, count-in, tap-tempo estimator, note/triplet repeat, typed musical
-clipboard, per-track solo, per-track recording arm, unified internal-voice and
-MIDI panic, live erase, generalized loop configuration, remaining recording
+Typed musical clipboard, persistent repeated-event recording, generalized loop
+configuration, remaining recording
 mode/overdub and swing controls belong to Task 098. No unrelated action is used
 as a substitute.
 

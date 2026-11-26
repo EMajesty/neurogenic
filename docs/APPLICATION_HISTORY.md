@@ -128,3 +128,10 @@ both checkpoint and active state. Implementation and V2 gestures remain Task
 Track solo, recording arm, and panic are transient performance/safety
 operations and do not enter musical Undo/Redo. Actual recorded content remains
 an ordinary authoritative musical edit under the existing recording workflow.
+# Task 098C live-erase history
+
+A continuous live-erase gesture owns one uncommitted `TimelineTransaction`.
+Matching encountered event IDs are removed from that candidate and the normal
+prepared commit occurs once on release, yielding one application Undo/Redo
+entry. Cancellation before publication drops the candidate; no second history
+stack exists.

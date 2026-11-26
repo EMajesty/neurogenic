@@ -1,5 +1,12 @@
 # Reference Controller V2 interaction design
 
+Task 098C completes REPEAT as a held modifier: pad chords generate bounded
+transport-grid repeats, DATA selects division, and SHIFT selects triplets.
+Running Sequencer ERASE+pad removes matching encountered events; stopped erase
+retains stable step deletion. The normative 67-control inventory and protocol
+fingerprint are unchanged. See [Note repeat](NOTE_REPEAT.md) and
+[Live erase](LIVE_ERASE.md).
+
 Functional color and operational precedence are specified in
 [`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md). CLICK toggles the authoritative
 metronome, SHIFT+CLICK cycles/focuses count-in configuration, TAP submits a deferred

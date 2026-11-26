@@ -158,3 +158,8 @@ Unified panic cancels controller-owned sounding gestures at the audio/MIDI
 authorities without changing Performance bank definitions or assignments.
 Solo and recording arm are transient track state, not Performance assignment
 values and not automatic bank-capture targets.
+# Note-repeat interaction
+
+Repeat captures the resolved pad/note target for its gesture generation; later
+bank or selection changes do not redirect it. Repeat ownership is transient and
+is not stored in project Performance banks.

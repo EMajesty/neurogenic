@@ -1,5 +1,11 @@
 # Test and validation audit
 
+`neurogenic_note_repeat_live_erase_tests` covers exact straight/triplet MIDI
+frames across non-divisor callback blocks, gate note-offs, sample PCM, synth
+voice activation, stable release/PANIC cancellation, matching event encounter,
+unvisited/nonmatching preservation and unified Undo. Physical hardware and
+persistent recorded-repeat insertion are NOT RUN/open respectively.
+
 `neurogenic_solo_arm_panic_tests` covers transient additive solo state,
 effective audibility, captured recording owner, arm cancellation, internal
 synth cleanup, MIDI safety messages, coalesced repeated panic, and callback

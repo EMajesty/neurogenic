@@ -228,3 +228,9 @@ brightness from [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md). Detentless RGB-shaft
 encoders and a TLC5947-class PWM driver are candidates, not protocol
 assumptions. Optional push switches are unassigned and absent from the current
 67-control inventory.
+# Note-repeat boundary
+
+Controllers capture gesture ownership and submit semantic begin/end commands;
+they never generate musical repeat clocks. Feedback is copied from authoritative
+repeat division/active state and live-erase ownership through the existing
+bounded publication path.

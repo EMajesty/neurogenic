@@ -145,3 +145,10 @@ Per-track arm captures exactly one stable track as the existing
 armed/count-in wait cancels the request, while active capture retains content
 through ordinary stop/finalization. See
 [TRACK_SOLO_AND_ARM.md](TRACK_SOLO_AND_ARM.md).
+# Task 098C event-recording boundary
+
+Note repeat participates in live audio/MIDI generation but does not currently
+write sequencer events. The recording coordinator has authoritative audio and
+arrangement capture, not a live quantized note-event destination. Task 098C
+therefore leaves recorded-repeat acceptance open rather than conflating audio
+recording arm with event recording. Live erase does not require recording arm.

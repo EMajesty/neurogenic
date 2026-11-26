@@ -288,6 +288,11 @@ std::vector<GestureEvent> InputGestureArbiter::process(
     } else if (ownership.dispatched_press) {
         result.push_back(event(GestureEventKind::release, input.control_id,
                                {}, {}, ownership.policy.release_target));
+    } else if (ownership.consumed) {
+        // A chord input still owns a physical press after its ordinary action
+        // is consumed. Expose its release so captured musical targets can end
+        // independently of modifier release order.
+        result.push_back(event(GestureEventKind::release, input.control_id));
     }
     if (!ownership.policy.modifier.empty()) {
         if (ownership.policy.latchable && ownership.policy.latch_on_tap &&

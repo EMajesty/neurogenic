@@ -1,5 +1,10 @@
 # Task 088 prioritized backlog
 
+Task 098C implements bounded straight/triplet live repeat and matching-note
+transport-aware live erase. Quantized persistent repeat recording remains open
+because no live sequencer-event recording authority exists. Next capability is
+the typed musical clipboard (Task 098D).
+
 Task 098B implements additive track solo, single-owner track-channel record
 arm, and unified panic. Remaining musical capability priority moves to bounded
 note/triplet repeat, quantized repeated-event recording, and live erase.

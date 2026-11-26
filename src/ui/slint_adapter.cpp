@@ -559,6 +559,10 @@ bool SlintFrontendAdapter::refresh() {
         state_.shell.count_in_bars = snapshot.count_in_bars;
         state_.shell.count_in_active = snapshot.count_in_active;
         state_.shell.tap_tempo_available = snapshot.tempo_authority == "internal";
+        state_.shell.note_repeat_active = snapshot.note_repeat_active;
+        state_.shell.note_repeat_triplet = snapshot.note_repeat_triplet;
+        state_.shell.note_repeat_division = snapshot.note_repeat_division;
+        state_.shell.live_erase_active = snapshot.live_erase_active;
         state_.shell.history_pending = snapshot.history_pending;
         state_.shell.can_undo = snapshot.can_undo;
         state_.shell.can_redo = snapshot.can_redo;
@@ -782,6 +786,10 @@ bool SlintFrontendAdapter::refresh() {
     next.shell.count_in_bars = snapshot.count_in_bars;
     next.shell.count_in_active = snapshot.count_in_active;
     next.shell.tap_tempo_available = snapshot.tempo_authority == "internal";
+    next.shell.note_repeat_active = snapshot.note_repeat_active;
+    next.shell.note_repeat_triplet = snapshot.note_repeat_triplet;
+    next.shell.note_repeat_division = snapshot.note_repeat_division;
+    next.shell.live_erase_active = snapshot.live_erase_active;
     next.shell.transport =
         slint_recording_label(snapshot.recording.state, snapshot.playing);
     const auto recording = recording_workflow_.snapshot();

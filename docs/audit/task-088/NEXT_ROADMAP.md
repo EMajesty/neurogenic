@@ -1,8 +1,9 @@
 # Next development roadmap
 
-Task 098B completes solo/arm/unified panic. Task 098C should implement bounded
-note and triplet repeat through the existing scheduler, captured held-note
-ownership, cancellation, quantized recorded-event generation, and live erase.
+Task 098C completes bounded live straight/triplet ownership and transactional
+live erase. Persistent repeat-event recording remains blocked by the absent
+live event-recording authority. Task 098D should implement the typed musical
+clipboard through existing timeline transactions and unified history.
 A separate controller hardware/protocol task owns optional encoder push inputs
 and encoder illumination negotiation.
 

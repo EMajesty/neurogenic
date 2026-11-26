@@ -284,6 +284,11 @@ struct ApplicationState {
     bool history_pending{};
     std::string undo_label, redo_label;
     bool fill_active{}, fill_latched{};
+    bool note_repeat_active{}, note_repeat_triplet{}, live_erase_active{},
+        live_erase_available{};
+    std::string note_repeat_division{"1/16"};
+    std::size_t note_repeat_targets{};
+    std::uint16_t note_repeat_pad_mask{};
     std::uint64_t generation_seed{};
     std::size_t undo_depth{}, redo_depth{}, history_capacity{};
     PadMode pad_mode{PadMode::step};
@@ -532,6 +537,18 @@ class ApplicationService {
     mutable std::optional<std::uint64_t> pending_record_frame_;
     MusicalTick automation_thinning_ticks_{ticks_per_quarter / 64};
     bool fill_momentary_{};
+    NoteRepeatDivision note_repeat_division_{NoteRepeatDivision::sixteenth};
+    struct LiveEraseGesture {
+        PatternId pattern{};
+        TrackId track{};
+        std::uint8_t pitch{};
+        MusicalTick last_tick{};
+        std::uint64_t owner{}, generation{};
+        TimelineTransaction transaction;
+        std::size_t removed{};
+    };
+    mutable std::optional<LiveEraseGesture> live_erase_;
+    bool transport_started_explicitly_{};
     mutable std::optional<PendingPresetApplication> pending_preset_;
     mutable std::optional<PendingHistoryRestore> pending_history_restore_;
     mutable std::optional<PendingProjectRecovery> pending_project_recovery_;

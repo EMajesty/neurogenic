@@ -161,3 +161,11 @@ SOLO+pad and ARM+pad are consumed stable-target chords and suppress ordinary
 pad behavior. SHIFT+SOLO and SHIFT+ARM clear their transient sets.
 SHIFT+STOP invokes modal-safe unified panic. Overlapping SOLO, ARM, MUTE, and
 TRACK ownership never falls through to an unrelated pad operation.
+# Task 098C REPEAT and live ERASE ownership
+
+REPEAT is a modifier-only owner. REPEAT+pad consumes the ordinary pad gesture;
+the pad and modifier may be released in either order and address the captured
+generation. REPEAT+DATA changes division and SHIFT+REPEAT changes family.
+During running Sequencer playback ERASE+pad captures live-erase ownership;
+stopped ERASE+pad retains ordinary step erase. REPEAT+ERASE ambiguity is
+rejected. Modal/context/reconnect cancellation uses the existing arbiter path.

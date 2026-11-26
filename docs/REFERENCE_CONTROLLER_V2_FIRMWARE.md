@@ -229,3 +229,9 @@ overflow retains the newest final rendering state for later refresh.
 Simulator and pseudo-terminal results are software evidence only. MCU, USB,
 debounce, rollover, encoder, illumination, latency and electrical validation
 remain NOT RUN until measured on the manufactured controller.
+# Task 098C host semantics
+
+REPEAT and ERASE remain ordinary protocol-1.3 button transitions. Firmware must
+not schedule repeats, infer triplets, follow the playhead, or erase events.
+Those semantics and release recovery remain host-owned. No wire ID, inventory
+fingerprint, or capability negotiation changes are introduced.

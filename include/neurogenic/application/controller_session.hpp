@@ -144,6 +144,11 @@ class ControllerSession {
     std::unordered_map<std::string, std::string> pickup_targets_;
     std::unordered_map<std::string, HeldStepTarget> held_steps_;
     std::optional<HeldStepEdit> held_step_edit_;
+    struct ActiveRepeatAction {
+        std::uint64_t owner{}, generation{};
+    };
+    std::unordered_map<std::string, ActiveRepeatAction> active_repeats_;
+    std::unordered_map<std::string, ActiveRepeatAction> active_live_erase_;
 };
 
 } // namespace neurogenic

@@ -1,5 +1,12 @@
 # Implementation status
 
+Task 098C adds bounded transport-synchronized sample/synth/MIDI note repeat,
+exact straight/triplet PPQN divisions, stable release/PANIC ownership, and
+transactional matching-note live erase. REPEAT/ERASE controller chords and
+Slint state are integrated without changing the 67-control wire inventory.
+Persistent repeated-event recording remains blocked on a missing authoritative
+live event-recording window; physical validation remains **NOT RUN**.
+
 Task 098B adds transient additive per-track solo, stable per-track recording
 arm over the existing single track-channel capture authority, and unified
 internal/MIDI panic with next-callback acknowledgement. Reference SOLO/ARM pad

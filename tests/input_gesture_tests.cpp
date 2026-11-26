@@ -55,7 +55,9 @@ int main() try {
             "button chord was not recognized");
     (void)arbiter.process({"shift", 0, false, false, 7, 1}, error);
     events = arbiter.process({"pad", 0, false, false, 8, 1}, error);
-    require(events.empty(), "consumed chord produced an ordinary tap");
+    require(events.size() == 1 &&
+                events[0].kind == GestureEventKind::release,
+            "consumed chord did not publish its captured release");
     (void)arbiter.process({"shift", 1, true, false, 9, 1}, error);
     events = arbiter.process({"data", 2, true, true, 10, 1}, error);
     require(events.size() == 1 && events[0].target.parameter_id ==

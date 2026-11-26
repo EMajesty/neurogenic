@@ -27,3 +27,8 @@ prevents the running scheduler from immediately retriggering notes.
 Panic remains a permitted modal safety operation. Controller gesture ownership
 is generation-cancelled through the existing session recovery paths; stale
 releases cannot create a new press.
+# Repeat interaction
+
+Unified panic clears every callback-owned repeat slot before acknowledging,
+releases current sample/synth ownership, and invokes the existing MIDI panic.
+Queued stale repeat commands cannot restart sound without a new valid owner.

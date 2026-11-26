@@ -37,6 +37,10 @@ export component PerformanceWindow inherits Window {
     in property <int> count-in-bars: 0;
     in property <string> click-level: "35%";
     in property <bool> tap-tempo-available: true;
+    in property <bool> note-repeat-active: false;
+    in property <bool> note-repeat-triplet: false;
+    in property <string> note-repeat-division: "1/16";
+    in property <bool> live-erase-active: false;
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
@@ -305,7 +309,10 @@ export component PerformanceWindow inherits Window {
                     + "  ·  Count-in " + (root.count-in-bars == 0 ? "Off" : root.count-in-bars + " bar")
                     + (root.count-in-active ? " (active)" : "")
                     + "  ·  Level " + root.click-level
-                    + (root.tap-tempo-available ? "" : "  ·  External clock");
+                    + (root.tap-tempo-available ? "" : "  ·  External clock")
+                    + "  ·  Repeat " + root.note-repeat-division
+                    + (root.note-repeat-active ? " (active)" : "")
+                    + (root.live-erase-active ? "  ·  LIVE ERASE" : "");
                 color: root.interaction-modal-active ? Theme.warning : Theme.muted;
                 vertical-alignment: center; overflow: elide;
             }

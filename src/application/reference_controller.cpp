@@ -221,6 +221,9 @@ GestureConfiguration reference_controller_v2_gestures() {
         } else if (control.id == "transport.tap") {
             policy.modifier = control.id;
             policy.policy = GestureDispatchPolicy::deferred_tap;
+        } else if (control.id == "transport.repeat") {
+            policy.modifier = control.id;
+            policy.policy = GestureDispatchPolicy::modifier_only;
         } else if (control.id == "transport.fill") {
             policy.policy = GestureDispatchPolicy::momentary;
             policy.press_target.action_id = "performance.fill-set.v1";
@@ -256,6 +259,8 @@ GestureConfiguration reference_controller_v2_gestures() {
         result.chords.push_back(
             chord("edit.erase", pad, "reference.erase-pad.v1"));
         result.chords.push_back(
+            chord("transport.repeat", pad, "reference.repeat-pad.v1"));
+        result.chords.push_back(
             chord("edit.shift", pad, "reference.select-step.v1",
                   {"sequencer"}));
         result.chords.push_back(
@@ -275,6 +280,15 @@ GestureConfiguration reference_controller_v2_gestures() {
         chord("edit.arm", "edit.shift", "track.record-arm-clear.v1"));
     result.chords.push_back(
         chord("transport.tap", "data", "reference.tempo-data.v1"));
+    result.chords.push_back(chord(
+        "transport.repeat", "data",
+        "performance.note-repeat-division-next.v1"));
+    result.chords.push_back(chord(
+        "edit.shift", "transport.repeat",
+        "performance.note-repeat-triplet-toggle.v1"));
+    result.chords.push_back(chord(
+        "transport.repeat", "edit.shift",
+        "performance.note-repeat-triplet-toggle.v1"));
     result.chords.push_back(
         chord("edit.shift", "transport.fill", "performance.fill-latch.v1"));
     result.chords.push_back(

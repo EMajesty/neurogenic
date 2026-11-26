@@ -526,3 +526,9 @@ lifecycle, persistence, recovery and mapping-field details.
 Stable semantic actions now expose track solo, track arm, and unified panic to
 generic MIDI and alternative profiles. The reference controller's SOLO/ARM
 pad chords and SHIFT+STOP use the same application authority.
+# Task 098C controller semantics
+
+Generic clients may invoke the registered repeat/live-erase semantic actions.
+Reference REPEAT and ERASE remain existing logical controls; no protocol wire
+IDs were added. Musical timing is host-owned and controller firmware must emit
+only ordinary press/release transitions.

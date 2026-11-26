@@ -36,6 +36,32 @@ struct MetronomeState {
     bool count_in_active{}, beat_active{}, downbeat{};
     std::uint64_t click_count{}, count_in_start_frame{}, count_in_end_frame{};
 };
+enum class NoteRepeatDivision : std::uint8_t {
+    quarter,
+    eighth,
+    sixteenth,
+    thirty_second,
+    eighth_triplet,
+    sixteenth_triplet,
+    thirty_second_triplet
+};
+enum class NoteRepeatTargetKind : std::uint8_t { sample, synth, external_midi };
+struct NoteRepeatTarget {
+    std::uint64_t owner{};
+    std::uint64_t generation{};
+    NoteRepeatTargetKind kind{NoteRepeatTargetKind::sample};
+    NoteRepeatDivision division{NoteRepeatDivision::sixteenth};
+    std::uint8_t note{60}, midi_channel{};
+    float velocity{1.0F};
+    InstrumentInstanceId instrument{default_synth_instance_id};
+    std::uint32_t midi_port{};
+};
+struct NoteRepeatState {
+    static constexpr std::size_t capacity = 8;
+    std::size_t active_targets{};
+    std::uint16_t owner_mask{};
+    std::uint64_t trigger_count{}, cancellation_count{}, dropped_commands{};
+};
 enum class SamplePlaybackMode : std::uint8_t { one_shot, gate, toggle };
 enum class RegionFadeCurve : std::uint8_t { linear, equal_power };
 struct SampleRegionPlayback {
@@ -182,6 +208,13 @@ class AudioEngine {
     void trigger_synth(
         std::uint8_t note, float velocity, bool note_on = true,
         InstrumentInstanceId instance = default_synth_instance_id) noexcept;
+    [[nodiscard]] bool begin_note_repeat(const NoteRepeatTarget &) noexcept;
+    [[nodiscard]] bool end_note_repeat(std::uint64_t owner,
+                                       std::uint64_t generation) noexcept;
+    [[nodiscard]] bool
+    set_note_repeat_division(NoteRepeatDivision division) noexcept;
+    void cancel_note_repeats() noexcept;
+    [[nodiscard]] NoteRepeatState note_repeat_state() const noexcept;
     [[nodiscard]] bool set_synth_parameter(
         SynthParameter, float,
         InstrumentInstanceId instance = default_synth_instance_id) noexcept;
@@ -438,6 +471,17 @@ class AudioEngine {
         bool note_on{};
         InstrumentInstanceId instance{default_synth_instance_id};
     };
+    struct NoteRepeatCommand {
+        enum class Type : std::uint8_t { begin, end, cancel_all, update_division };
+        Type type{Type::begin};
+        NoteRepeatTarget target;
+    };
+    struct ActiveNoteRepeat {
+        NoteRepeatTarget target;
+        std::uint64_t next_tick{}, occurrence{};
+        std::uint64_t gate_off_tick{};
+        bool active{}, gate_active{};
+    };
     struct DspCommand {
         enum class Target : std::uint8_t {
             synth,
@@ -635,6 +679,12 @@ class AudioEngine {
     PurestGain effect_;
     SpscQueue<Trigger, 65> triggers_;
     SpscQueue<SynthTrigger, 65> synth_triggers_;
+    SpscQueue<NoteRepeatCommand, 33> note_repeat_commands_;
+    std::array<ActiveNoteRepeat, NoteRepeatState::capacity> note_repeats_{};
+    std::atomic<std::size_t> published_note_repeat_count_{};
+    std::atomic<std::uint16_t> published_note_repeat_owner_mask_{};
+    std::atomic<std::uint64_t> note_repeat_triggers_{},
+        note_repeat_cancellations_{}, dropped_note_repeat_commands_{};
     SpscQueue<DspCommand, 129> dsp_commands_;
     MacroMorphProcessor macro_morphs_;
     std::array<std::atomic<std::uint64_t>, MacroMorphProcessor::capacity>

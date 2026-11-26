@@ -756,3 +756,11 @@ track IDs. Solo projects into the existing mixer and timeline dispatch.
 Unified panic uses an atomic coalescing next-callback request and performs no
 allocation, locking, discovery, logging, or filesystem work in audio context.
 See [TRACK_SOLO_AND_ARM.md](TRACK_SOLO_AND_ARM.md) and [PANIC.md](PANIC.md).
+# Task 098C repeat and live erase boundary
+
+Live note repeat is fixed callback-owned state inside `AudioEngine` and derives
+event frames from the existing transport/tempo/PPQN authority. Live erase is a
+control-thread `TimelineTransaction`; it observes transport progress and
+publishes an immutable prepared replacement only on gesture completion. Neither
+path allocates, locks, discovers targets, logs, or touches files in the audio
+callback.

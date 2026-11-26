@@ -208,6 +208,12 @@ if(NEUROGENIC_BUILD_TESTS)
   target_link_libraries(neurogenic_solo_arm_panic_tests PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_solo_arm_panic_tests
            COMMAND neurogenic_solo_arm_panic_tests)
+  add_executable(neurogenic_note_repeat_live_erase_tests
+                 tests/note_repeat_live_erase_tests.cpp)
+  target_link_libraries(neurogenic_note_repeat_live_erase_tests
+                        PRIVATE neurogenic_engine)
+  add_test(NAME neurogenic_note_repeat_live_erase_tests
+           COMMAND neurogenic_note_repeat_live_erase_tests)
   add_executable(neurogenic_gui_smoke tests/gui_smoke.cpp)
   target_link_libraries(neurogenic_gui_smoke PRIVATE neurogenic_engine neurogenic_gui)
   add_test(NAME neurogenic_gui_smoke COMMAND neurogenic_gui_smoke)

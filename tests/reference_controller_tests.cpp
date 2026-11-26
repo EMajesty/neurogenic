@@ -666,6 +666,33 @@ int main() try {
                 engine.synth_state().active_voices == 0,
             "SHIFT + STOP did not invoke unified internal/MIDI panic");
 
+    send(input("transport.play", true, sequence++, current_generation));
+    dispatch();
+    send(input("transport.play", false, sequence++, current_generation));
+    send(input("transport.repeat", true, sequence++, current_generation));
+    send(input("pad.1", true, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->note_repeat_active &&
+                application.snapshot_shared()->note_repeat_pad_mask == 1,
+            "REPEAT + pad did not establish captured repeat ownership");
+    send(turn("data", 1.0, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->note_repeat_division == "1/32",
+            "REPEAT + DATA did not select the next division");
+    send(input("pad.1", false, sequence++, current_generation));
+    dispatch();
+    send(input("transport.repeat", false, sequence++, current_generation));
+    require(!application.snapshot_shared()->note_repeat_active,
+            "pad-first release retained note-repeat ownership");
+
+    send(input("edit.shift", true, sequence++, current_generation));
+    send(input("transport.repeat", true, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->note_repeat_triplet,
+            "SHIFT + REPEAT did not select triplet family");
+    send(input("transport.repeat", false, sequence++, current_generation));
+    send(input("edit.shift", false, sequence++, current_generation));
+
     send(input("edit.track", true, sequence++, current_generation));
     session.reconnect();
     require(session.state().interaction.held_controls.empty(),
