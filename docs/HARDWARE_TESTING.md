@@ -60,6 +60,11 @@ memory or storage specification is assumed here. On arrival:
 10. Measure supported buffer sizes, round-trip latency, XRUNs and sustained
     behavior.
 
+The command-level G10 display, input, DRM, ALSA, USB and thermal procedure is
+maintained in [os/G10_BRINGUP.md](os/G10_BRINGUP.md). It tests the desktop
+baseline before `linuxkms-software`, then `linuxkms-femtovg`; connector and
+touch identities are discovered rather than assumed.
+
 The Reference Controller V2 PCB/firmware and audio hardware are still under
 development. Every physical result remains **NOT RUN** until recorded evidence
 is attached.
@@ -156,6 +161,10 @@ calibration pulse. Callback duration is not round-trip latency.
 ./build/dev/neurogenic --fullscreen --ui-scale 1.5
 # Slint-enabled build:
 ./build/slint/neurogenic --frontend slint --fullscreen
+# Direct DRM/KMS package, on a maintenance-accessible target VT:
+nix build .#kms
+SLINT_DRM_OUTPUT=list ./result/bin/neurogenic-kms
+SLINT_DRM_MODE=list ./result/bin/neurogenic-kms
 ```
 
 The display command emits `neurogenic.display-test.v1` with native SDL metrics

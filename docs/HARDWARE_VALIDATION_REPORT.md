@@ -38,6 +38,8 @@ listed physical evidence; simulation is not physical evidence.
 | Controller electrical | Current-limited bring-up and owner-specified rail/current limits | PCB-revision-specific measured record | NOT RUN |
 | Touch 1920x1200 | Eight pages, keyboard, picker, workflows | No essential clipping; calibration/readability accepted | NOT RUN |
 | Touch 1024x600 | Repeat focused/minimum layouts | Essential actions reachable; scrolling works | NOT RUN |
+| LinuxKMS software | Direct VT/seat, discovered connector and native mode | Fullscreen UI, input and restoration; no compositor | NOT RUN |
+| LinuxKMS FemtoVG | Same plus identified EGL/GBM driver | Correct rendering/input; driver and failures recorded | NOT RUN |
 | Storage | Save/reopen, relink, preset, removable-media removal | Prior valid file survives; expected PCM after recovery | NOT RUN |
 | Low storage | Constrain a writable test volume | Explicit failure; no corruption/cleanup | NOT RUN |
 | Persistence interruption | Interrupt a disposable save/export | Prior artifact opens; diagnostics retained | NOT RUN |

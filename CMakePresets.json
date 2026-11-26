@@ -43,6 +43,16 @@
         "NEUROGENIC_ENABLE_GUI": "ON",
         "NEUROGENIC_ENABLE_SLINT": "ON"
       }
+    },
+    {
+      "name": "kms",
+      "inherits": "production",
+      "displayName": "NEUROGENIC Slint LinuxKMS appliance build",
+      "binaryDir": "${sourceDir}/build/kms",
+      "cacheVariables": {
+        "NEUROGENIC_ENABLE_GUI": "OFF",
+        "NEUROGENIC_ENABLE_SLINT_LINUXKMS": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -50,11 +60,13 @@
     { "name": "sanitize", "configurePreset": "sanitize" },
     { "name": "slint", "configurePreset": "slint" }
     ,{ "name": "production", "configurePreset": "production" }
+    ,{ "name": "kms", "configurePreset": "kms" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
     { "name": "sanitize", "configurePreset": "sanitize", "output": { "outputOnFailure": true } },
     { "name": "slint", "configurePreset": "slint", "output": { "outputOnFailure": true } }
     ,{ "name": "production", "configurePreset": "production", "output": { "outputOnFailure": true } }
+    ,{ "name": "kms", "configurePreset": "kms", "output": { "outputOnFailure": true } }
   ]
 }

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -eu
+
+# Pinned Slint 1.19 uses SLINT_BACKEND=linuxkms-<renderer>. Keep selection
+# explicit: failure to initialize DRM/KMS is surfaced by Slint and must not be
+# hidden by launching a desktop compositor backend.
+: "${SLINT_BACKEND:=linuxkms-software}"
+export SLINT_BACKEND
+
+if test -z "${SLINT_BACKEND_LINUXFB:-}"; then
+    drm_found=0
+    for drm_device in /dev/dri/card*; do
+        if test -e "$drm_device"; then
+            drm_found=1
+            break
+        fi
+    done
+    if test "$drm_found" -ne 1; then
+        echo "NEUROGENIC LinuxKMS: no DRM card found under /dev/dri; use a real KMS device or explicitly configure the LinuxFB fallback" >&2
+        exit 69
+    fi
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$script_dir/neurogenic" --frontend slint "$@"

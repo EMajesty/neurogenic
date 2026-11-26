@@ -25,7 +25,9 @@ nix run
 ```
 
 `packages.<system>.headless` is the lightweight engine/test package and
-`packages.<system>.sdl` retains the SDL-compatible package. A production source
+`packages.<system>.sdl` retains the SDL-compatible package.
+`packages.<system>.kms` adds pinned Slint LinuxKMS and installs
+`neurogenic-kms`; it is optional and does not replace `production`. A production source
 build remains available:
 
 ```sh
@@ -48,6 +50,11 @@ scoped jemalloc patch and run every production check.
 Native AArch64 exposes the same production package output. Hosted native ARM CI
 is the intended validation path; the x86_64 AArch64 check remains
 compilation-only and does not establish Raspberry Pi 5 runtime behavior.
+
+LinuxKMS details, dependency boundaries and launch commands are in
+[os/LINUXKMS.md](os/LINUXKMS.md). Minimal appliance and storage proposals are
+in [os/APPLIANCE_ARCHITECTURE.md](os/APPLIANCE_ARCHITECTURE.md). Direct KMS
+runtime remains **NOT RUN** pending G10/Raspberry Pi hardware.
 
 ## Storage and configuration
 

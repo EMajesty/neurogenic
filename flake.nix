@@ -20,7 +20,8 @@
         else if self ? dirtyRev && self.dirtyRev != null then self.dirtyRev
         else "local-path-unversioned";
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-      packageFor = pkgs: { runTests, withGuiBackend, withSlint ? false }:
+      packageFor = pkgs: { runTests, withGuiBackend, withSlint ? false,
+        withKms ? false, withKmsGpu ? withKms }:
         let
           slintSource = pkgs.applyPatches {
             name = "slint-1.19.0-neurogenic-source";
@@ -45,15 +46,21 @@
           ++ pkgs.lib.optionals withSlint [ cargo rustc ];
         buildInputs = with pkgs; [ alsa-lib ]
           ++ pkgs.lib.optional withGuiBackend pkgs.sdl3
-          ++ pkgs.lib.optionals withSlint [
-            fontconfig freetype libxkbcommon libxkbcommon.dev wayland libGL
-            libx11 libxcursor libxi
+          ++ pkgs.lib.optionals withSlint [ fontconfig freetype ]
+          ++ pkgs.lib.optionals (withSlint && !withKms) [
+            libxkbcommon libxkbcommon.dev wayland libGL libx11 libxcursor libxi
+          ] ++ pkgs.lib.optionals withKms [
+            libdrm libinput libxkbcommon libxkbcommon.dev seatd systemd
+          ] ++ pkgs.lib.optionals withKmsGpu [
+            libgbm libGL mesa
           ];
         cmakeFlags = [
           "-DNEUROGENIC_FETCH_DEPENDENCIES=ON"
           "-DNEUROGENIC_BUILD_TESTS=${if runTests then "ON" else "OFF"}"
           "-DNEUROGENIC_ENABLE_GUI=${if withGuiBackend then "ON" else "OFF"}"
           "-DNEUROGENIC_ENABLE_SLINT=${if withSlint then "ON" else "OFF"}"
+          "-DNEUROGENIC_ENABLE_SLINT_LINUXKMS=${if withKms then "ON" else "OFF"}"
+          "-DNEUROGENIC_ENABLE_SLINT_LINUXKMS_GPU=${if withKmsGpu then "ON" else "OFF"}"
           "-DNEUROGENIC_BUILD_COMMIT=${sourceRevision}"
           "-DFETCHCONTENT_FULLY_DISCONNECTED=ON"
           "-DFETCHCONTENT_SOURCE_DIR_MINIAUDIO=${miniaudio}"
@@ -86,6 +93,10 @@
           test -x "$out/bin/neurogenic-discovery"
           test -x "$out/bin/neurogenic-appliance"
           test -x "$out/bin/neurogenic-preflight"
+          if test '${if withKms then "1" else "0"}' = 1; then
+            test -x "$out/bin/neurogenic-kms"
+            grep -q 'linuxkms-software' "$out/bin/neurogenic-kms"
+          fi
           test -f "$out/share/neurogenic/appliance/neurogenic-appliance.service"
           "$out/bin/neurogenic" --headless --list-devices > device-enumeration.log
           "$out/bin/neurogenic-diagnostics" --headless --json > diagnostics.json
@@ -99,13 +110,22 @@
           export XDG_CACHE_HOME="$TMPDIR/cache"
           mkdir -p "$HOME"
           "$out/bin/neurogenic-preflight" --prepare --quiet
-          if DISPLAY= WAYLAND_DISPLAY= "$out/bin/neurogenic" --frontend slint \
-              --headless --run-for 0.05 > missing-display.log 2>&1; then
-            echo "Slint unexpectedly started without a display" >&2
-            exit 1
+          if test '${if withKms then "1" else "0"}' = 1; then
+            if SLINT_BACKEND=linuxkms-software "$out/bin/neurogenic-kms" \
+                --run-for 0.05 > missing-kms.log 2>&1; then
+              echo "LinuxKMS unexpectedly started without a DRM device" >&2
+              exit 1
+            fi
+            grep -q 'no DRM card found under /dev/dri' missing-kms.log
+          else
+            if DISPLAY= WAYLAND_DISPLAY= "$out/bin/neurogenic" --frontend slint \
+                --headless --run-for 0.05 > missing-display.log 2>&1; then
+              echo "Slint unexpectedly started without a display" >&2
+              exit 1
+            fi
+            grep -q 'Slint requires an available Wayland or X11 display' \
+              missing-display.log
           fi
-          grep -q 'Slint requires an available Wayland or X11 display' \
-            missing-display.log
         '';
       });
       nativePackages = forAllSystems (system:
@@ -113,6 +133,10 @@
         in {
           production = packageFor pkgs {
             runTests = true; withGuiBackend = true; withSlint = true;
+          };
+          kms = packageFor pkgs {
+            runTests = true; withGuiBackend = false; withSlint = true;
+            withKms = true;
           };
           headless = packageFor pkgs {
             runTests = true; withGuiBackend = false;
@@ -124,13 +148,14 @@
     in {
       packages = forAllSystems (system: {
         default = nativePackages.${system}.production;
-        inherit (nativePackages.${system}) production headless sdl;
+        inherit (nativePackages.${system}) production kms headless sdl;
       });
       checks = forAllSystems (system:
         let pkgs = import nixpkgs { inherit system; };
         in {
           build-and-test = nativePackages.${system}.headless;
           production-package = nativePackages.${system}.production;
+          kms-package = nativePackages.${system}.kms;
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Compilation-only evidence: this binary is not executed on the x86 host.
           # The renderer-independent GUI model is cross-compiled; native ARM
@@ -155,7 +180,7 @@
             packages = with pkgs; [
               gcc gdb cmake ninja pkg-config git cacert direnv cargo rustc
               fontconfig freetype libxkbcommon wayland libGL libx11 libxcursor
-              libxi
+              libxi libdrm libgbm libinput seatd mesa systemd
             ];
             shellHook = ''
               echo "NEUROGENIC (${system}): cmake --preset dev && cmake --build --preset dev && ctest --preset dev"

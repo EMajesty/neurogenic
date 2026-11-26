@@ -178,6 +178,21 @@ eight-page implementation and reusable component
 architecture are documented in [docs/SLINT_UI.md](docs/SLINT_UI.md). The SDL3
 graphical frontend is preserved; omit `--gui` for the existing CLI or headless
 application. See [docs/GUI.md](docs/GUI.md) for SDL3 controls and scaling.
+
+An additional pinned direct-display build is available without changing the
+default desktop package:
+
+```sh
+nix build .#kms
+SLINT_BACKEND=linuxkms-software ./result/bin/neurogenic-kms
+# GPU candidate, validated on the target before adoption:
+SLINT_BACKEND=linuxkms-femtovg ./result/bin/neurogenic-kms
+```
+
+It compiles Slint 1.19 LinuxKMS with libseat/libinput, software and FemtoVG.
+Building it does not establish physical DRM, touchscreen or GPU compatibility.
+See [LinuxKMS](docs/os/LINUXKMS.md) and the separate
+[OS roadmap](docs/os/ROADMAP.md).
 In the Sequencer view, click/tap a cell or select it with arrows and press
 Enter to toggle a note. Shift+arrows change page or target note; the resolution
 control cycles quarter through 32nd-note straight and triplet grids.

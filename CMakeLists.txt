@@ -20,6 +20,27 @@ option(NEUROGENIC_BUILD_TESTS "Build tests" ON)
 option(NEUROGENIC_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(NEUROGENIC_ENABLE_GUI "Build the optional SDL3 graphical frontend" ON)
 option(NEUROGENIC_ENABLE_SLINT "Build the optional Slint graphical frontend" OFF)
+option(NEUROGENIC_ENABLE_SLINT_LINUXKMS
+  "Enable Slint's LinuxKMS backend with libseat/libinput and software/FemtoVG renderers" OFF)
+option(NEUROGENIC_ENABLE_SLINT_LINUXKMS_GPU
+  "Include Slint's FemtoVG EGL/GBM renderer in the LinuxKMS build" ON)
+
+if(NEUROGENIC_ENABLE_SLINT_LINUXKMS)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(FATAL_ERROR "NEUROGENIC_ENABLE_SLINT_LINUXKMS requires Linux")
+  endif()
+  set(NEUROGENIC_ENABLE_SLINT ON CACHE BOOL "" FORCE)
+  # These are the exact public options exported by pinned Slint 1.19.0. Set
+  # them before FetchContent configures api/cpp; software is the deterministic
+  # fallback and FemtoVG is the verified OpenGL/EGL renderer candidate.
+  set(SLINT_FEATURE_BACKEND_LINUXKMS ON CACHE BOOL "" FORCE)
+  set(SLINT_FEATURE_BACKEND_LINUXKMS_LIBSEAT ON CACHE BOOL "" FORCE)
+  set(SLINT_FEATURE_BACKEND_LINUXKMS_LIBINPUT ON CACHE BOOL "" FORCE)
+  set(SLINT_FEATURE_BACKEND_WINIT OFF CACHE BOOL "" FORCE)
+  set(SLINT_FEATURE_RENDERER_SOFTWARE ON CACHE BOOL "" FORCE)
+  set(SLINT_FEATURE_RENDERER_FEMTOVG
+    ${NEUROGENIC_ENABLE_SLINT_LINUXKMS_GPU} CACHE BOOL "" FORCE)
+endif()
 
 if(NEUROGENIC_ENABLE_SANITIZERS)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -100,7 +121,8 @@ if(NEUROGENIC_ENABLE_SLINT)
   target_include_directories(neurogenic_slint_frontend PUBLIC include)
   target_link_libraries(neurogenic_slint_frontend PUBLIC
     neurogenic_slint_adapter Slint::Slint)
-  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+     NOT NEUROGENIC_ENABLE_SLINT_LINUXKMS)
     # Slint's winit backend loads this library dynamically. Retain it as an
     # ELF dependency so Nix records a clean RUNPATH; do not depend on a global
     # LD_LIBRARY_PATH in CI or the appliance.
@@ -118,6 +140,13 @@ if(NEUROGENIC_ENABLE_SLINT)
     INSTALL_RPATH "$ORIGIN/../lib64;$ORIGIN/../lib")
   install(TARGETS neurogenic_slint RUNTIME DESTINATION bin)
   message(STATUS "NEUROGENIC: Slint 1.19 frontend enabled")
+  if(NEUROGENIC_ENABLE_SLINT_LINUXKMS)
+    if(NEUROGENIC_ENABLE_SLINT_LINUXKMS_GPU)
+      message(STATUS "NEUROGENIC: Slint LinuxKMS enabled (software and FemtoVG renderers)")
+    else()
+      message(STATUS "NEUROGENIC: Slint LinuxKMS enabled (software renderer)")
+    endif()
+  endif()
 else()
   target_sources(neurogenic_slint_adapter PRIVATE src/ui/slint_stub.cpp)
 endif()
@@ -160,6 +189,9 @@ install(FILES examples/generate.lua examples/timeline_drums.lua examples/timelin
 install(DIRECTORY examples/controllers DESTINATION share/neurogenic/examples)
 install(PROGRAMS packaging/neurogenic-appliance packaging/neurogenic-preflight
   DESTINATION bin)
+if(NEUROGENIC_ENABLE_SLINT_LINUXKMS)
+  install(PROGRAMS packaging/neurogenic-kms DESTINATION bin)
+endif()
 install(FILES packaging/neurogenic-appliance.service DESTINATION share/neurogenic/appliance)
 
 if(NEUROGENIC_BUILD_TESTS)

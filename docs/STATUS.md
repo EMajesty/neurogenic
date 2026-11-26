@@ -1,5 +1,15 @@
 # Implementation status
 
+## OS-001 LinuxKMS and appliance preparation
+
+The flake now exposes an optional `kms` package using pinned Slint 1.19 with
+LinuxKMS, libseat/libinput, software and FemtoVG renderers. The desktop default,
+headless and SDL packages remain separate. `neurogenic-kms` explicitly selects
+`linuxkms-software` unless another KMS renderer is requested. The OS workstream
+documents minimal NixOS, Buildroot/Yocto feasibility, immutable storage,
+comparative measurement and G10 bring-up. Builds are software evidence only;
+all physical DRM, touch, audio and latency results remain **NOT RUN**.
+
 ## Task 097D production acceptance closure
 
 The production V2 path now proves controller-authored later-page locks through
