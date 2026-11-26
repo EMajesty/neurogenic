@@ -182,3 +182,9 @@ executable `neurogenic_client_independence_tests` verifies this contract.
 Performance launch state API version 2 exposes each track owner, pending frame
 and slot. `performance.return-arrangement.v1` returns one stable track or all
 session tracks with immediate, quarter or bar quantization.
+## Descriptor-sized argument authoring
+
+Task 097F removes the four-field presentation truncation. Setup and Performance
+consume every bounded `ArgumentDescriptor` published by discovery, including
+choice/object metadata, while `AssignmentTargetPicker` remains the parser and
+validator. Mutable parameter values are not cached as discovery metadata.

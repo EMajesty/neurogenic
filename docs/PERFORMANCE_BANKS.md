@@ -146,3 +146,10 @@ while cancel leaves the prior assignment unchanged.
 The 48 positions are not a project-format limit. They describe the Reference
 Controller V2 presentation; other clients may address any validated logical
 position supported by the bounded bank model.
+## Shared dynamic argument form
+
+Performance action authoring now uses the same descriptor-driven argument item
+model as Setup and supports up to 16 bounded typed pairs. This changes only the
+authoring transport; project-owned assignments, safety allowlists, momentary
+ownership and musical history remain unchanged and separate from appliance
+profiles.

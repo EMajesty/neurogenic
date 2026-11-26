@@ -87,6 +87,8 @@ int main() {
         setup_runtime.midi_inputs = {{"MIDI A", "MIDI A", "simulated", false, true}};
         setup_runtime.controllers = {{"surface.1", "midi", "Surface",
             "profile.1", "MIDI", "Connected", {}, "Idle", true, true, false}};
+        setup_runtime.profiles = {{"profile.1", "Main", "generic-midi",
+            "Valid", "surface.1", false, true, true, false}};
         setup_runtime.mappings = {{"surface.1", "encoder.1",
             "Port 1 / Ch 1 / 74", "Absolute CC", 0, false, false}};
         setup_runtime.mappings.front().port = 1;
@@ -98,6 +100,7 @@ int main() {
         setup_runtime.requested.audio_buffer_frames = 128;
         bool preferences_saved{}, learn_started{}, learn_cancelled{},
             mapping_removed{}, mapping_target_applied{}, manual_mapping_set{},
+            profile_action_called{},
             exit_requested{};
         SlintSetupServices setup_services;
         setup_services.snapshot = [&] { return setup_runtime; };
@@ -145,6 +148,14 @@ int main() {
                     binding.mode == MidiControlMode::cc_absolute &&
                     binding.control_id == "encoder.1";
                 return manual_mapping_set;
+            };
+        setup_services.profile_action =
+            [&](std::string_view action, std::string_view id,
+                std::string_view value, std::string_view,
+                std::string &) {
+                profile_action_called = action == "rename" &&
+                    id == "profile.1" && value == "Stage";
+                return profile_action_called;
             };
         setup_services.request_exit = [&] {
             exit_requested = true;
@@ -1072,6 +1083,10 @@ int main() {
                     learn_started && adapter.setup_midi_learn("cancel") &&
                     learn_cancelled,
                 "controller learn is delegated to the coordinator-facing service");
+        require(adapter.select_setup_profile(0) &&
+                    adapter.manage_setup_profile("rename", "Stage") &&
+                    profile_action_called,
+                "profile library operations use the appliance-owned service");
         const auto cutoff_target = std::find_if(
             adapter.state().setup.mapping_targets.begin(),
             adapter.state().setup.mapping_targets.end(),
@@ -1088,6 +1103,23 @@ int main() {
                 "manual mapping target selection");
         require(adapter.apply_setup_mapping_target() && mapping_target_applied,
                 ("manual mapping target apply: " + adapter.last_error()).c_str());
+        const auto many_arguments = std::find_if(
+            adapter.state().setup.mapping_targets.begin(),
+            adapter.state().setup.mapping_targets.end(), [](const auto &target) {
+                return target.kind == "action" && target.arguments.size() > 4;
+            });
+        require(many_arguments != adapter.state().setup.mapping_targets.end(),
+                "fixture exposes a descriptor with more than four arguments");
+        const auto many_index = static_cast<std::size_t>(many_arguments -
+            adapter.state().setup.mapping_targets.begin());
+        const auto many_argument_count = many_arguments->arguments.size();
+        require(adapter.select_setup_mapping_target(many_index) &&
+                    adapter.state().setup.mapping_arguments.size() ==
+                        many_argument_count &&
+                    adapter.state().setup.mapping_arguments.size() > 4 &&
+                    adapter.select_setup_mapping_argument(4) &&
+                    adapter.set_setup_mapping_argument(4, "1"),
+                "descriptor-driven Setup form retains and edits every argument");
         require(!adapter.author_setup_midi_mapping(
                     1, 0, 74, "cc-absolute", "encoder.1", false, false) &&
                     adapter.last_error().find("conflict") != std::string::npos &&

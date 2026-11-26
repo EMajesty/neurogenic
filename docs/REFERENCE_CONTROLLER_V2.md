@@ -514,3 +514,9 @@ Each pad descriptor carries stable target, role, press/release actions,
 availability and feedback state. SHIFT selection cannot fall through to a
 normal trigger. Missing authoritative operations remain unavailable; see
 [Task 097C validation](audit/task-088/TASK_097C_VALIDATION.md).
+## Offline profile preparation
+
+The shipped V2 definition is a recoverable read-only library entry. It can be
+duplicated and edited before the PCB is connected because descriptor
+availability is independent of endpoint availability. This software support is
+not evidence of physical USB, firmware or PCB validation.

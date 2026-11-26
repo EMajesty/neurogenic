@@ -275,3 +275,11 @@ evidence, but remain partial: no coordinator-owned profile library exists for
 create/rename/duplicate/select/remove/recovery, and detailed context/modifier
 and RGB rendering fields are not part of the current profile schema. RC2-007
 physical validation and AUD2-007 remain open.
+### Task 097F evidence
+
+RC2-006/AUD2-006 are substantially implemented in software: the missing
+coordinator-composed profile library, stable lifecycle, persistence, recovery,
+independent MIDI endpoint activation, generated lifecycle controls, learned
+source preview, mapping scope/feedback controls and arbitrary four-field UI
+limit are closed. Remaining partial rows are dedicated USB runtime switching,
+conservative mutually-exclusive source layering and physical validation.

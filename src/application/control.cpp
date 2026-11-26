@@ -245,7 +245,8 @@ ActionRegistry::ActionRegistry() {
                {"assignment", ValueType::integer}, {"position", ValueType::integer},
                {"secondary", ValueType::boolean}, {"parameter_id", ValueType::text},
                {"label", ValueType::text, false}, {"scale", ValueType::real, false}}));
-    add(action("performance.action-assign.v1", "Assign Performance action",
+    auto performance_action_assignment =
+        action("performance.action-assign.v1", "Assign Performance action",
                "Performance", {{"bank", ValueType::integer},
                {"assignment", ValueType::integer}, {"position", ValueType::integer},
                {"secondary", ValueType::boolean}, {"action_id", ValueType::text},
@@ -262,7 +263,16 @@ ActionRegistry::ActionRegistry() {
                {"argument_3_name", ValueType::text, false},
                {"argument_3_value", ValueType::text, false},
                {"argument_4_name", ValueType::text, false},
-               {"argument_4_value", ValueType::text, false}}));
+               {"argument_4_value", ValueType::text, false}});
+    for (int index = 5; index <= 16; ++index) {
+        performance_action_assignment.arguments.push_back(
+            {"argument_" + std::to_string(index) + "_name",
+             ValueType::text, false});
+        performance_action_assignment.arguments.push_back(
+            {"argument_" + std::to_string(index) + "_value",
+             ValueType::text, false});
+    }
+    add(std::move(performance_action_assignment));
     add(action("performance.bank-pad-assign.v1", "Assign Performance bank pad",
                "Performance", {{"bank", ValueType::integer},
                {"assignment", ValueType::integer}, {"position", ValueType::integer},
@@ -5910,7 +5920,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                         if (count != 1) error = "Performance argument requires exactly one typed value";
                     }
                     if (descriptor)
-                        for (int index = 1; index <= 4 && error.empty(); ++index) {
+                        for (int index = 1; index <= 16 && error.empty(); ++index) {
                             const auto prefix = "argument_" + std::to_string(index);
                             const auto name = argument<std::string>(command, prefix + "_name");
                             const auto text = argument<std::string>(command, prefix + "_value");

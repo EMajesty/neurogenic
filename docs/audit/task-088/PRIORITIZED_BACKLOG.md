@@ -40,3 +40,7 @@ permission behavior remains part of `AUD2-018` rather than an unresolved crash.
 Task 097A closes the shared modal/focus foundation. Next is 097B graphical
 assignment/profile lifecycle closure, then remaining contextual/pad coverage
 and physical bring-up.
+- Task 097F completed the software profile-library authority and dynamic
+  mapping forms. Retain only dedicated USB runtime switching, refined
+  mutually-exclusive source conflict analysis and physical navigation as
+  controller-profile follow-up; do not reopen the frontend-owned library idea.

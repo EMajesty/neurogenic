@@ -134,3 +134,11 @@ held-step cancellation/stale targets, grouped edits, stable note release,
 Performance momentary ownership, profile replacement, protocol feedback
 overflow convergence, physical-navigation simulation and generated-component
 reachability. The coordinator-owned profile library remains a separate task.
+## After Task 097F
+
+The general profile-library milestone is closed in software. Task 098 should
+now prioritize musical capability slices: (1) metronome/count-in/tap tempo,
+(2) solo/arm/panic, (3) repeat/live erase, (4) typed clipboard, (5) loop and
+recording/overdub controls, and (6) quantization/swing. Dedicated USB runtime
+profile switching and physical bring-up remain separate controller/hardware
+follow-ups.

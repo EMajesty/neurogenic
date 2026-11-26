@@ -3,10 +3,12 @@ import { Theme } from "theme.slint";
 import { ScrollView, LineEdit } from "std-widgets.slint";
 
 export struct SetupDeviceItem { name: string, detail: string, selected: bool, available: bool }
-export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, learn-status: string, connected: bool, feedback: bool, selected: bool }
+export struct SetupControllerItem { id: string, transport: string, device: string, profile: string, protocol: string, status: string, error: string, learn-status: string, connected: bool, feedback: bool, selected: bool, learn-preview: string }
+export struct SetupProfileItem { id: string, name: string, descriptor: string, status: string, associations: string, built-in: bool, available: bool, active: bool, selected: bool }
 export struct SetupMidiRouteItem { id: int, input: string, output: string, channels: string, flags: string, enabled: bool, selected: bool }
 export struct SetupMappingItem { endpoint: string, control: string, source: string, mode: string, target: string, feedback: bool, pickup: bool, invert: bool, fine-scale: float, acceleration: float, selected: bool }
 export struct SetupMappingTargetItem { kind: string, id: string, label: string, selected: bool }
+export struct SetupArgumentItem { name: string, label: string, value: string, hint: string, type: string, required: bool, selected: bool }
 
 export component SetupPage inherits Rectangle {
     background: Theme.background;
@@ -25,6 +27,7 @@ export component SetupPage inherits Rectangle {
     in property <float> callback-load: 0; in property <float> callback-peak: 0;
     in property <int> xruns: 0; in property <bool> xruns-available: false;
     in property <string> error; in property <string> learn-status: "Idle";
+    in property <string> learn-preview;
     in property <bool> conflict-visible: false;
     in property <string> conflict-existing-source; in property <string> conflict-existing-target;
     in property <string> conflict-proposed-source; in property <string> conflict-proposed-target;
@@ -32,26 +35,32 @@ export component SetupPage inherits Rectangle {
     in property <[SetupDeviceItem]> audio-inputs; in property <[SetupDeviceItem]> audio-outputs;
     in property <[SetupDeviceItem]> midi-inputs; in property <[SetupDeviceItem]> midi-outputs;
     in property <[SetupControllerItem]> controllers;
+    in property <[SetupProfileItem]> profiles;
+    in-out property <string> profile-name;
+    in-out property <string> profile-path;
     in property <[SetupMidiRouteItem]> midi-routes;
     in property <[SetupMappingItem]> mappings;
     in property <[SetupMappingTargetItem]> mapping-targets;
+    in property <[SetupArgumentItem]> mapping-arguments;
+    in-out property <string> mapping-argument-value;
+    in-out property <string> mapping-context; in-out property <string> mapping-feedback-id;
+    in-out property <bool> mapping-shift; in-out property <bool> mapping-select;
     in-out property <string> learn-control: "encoder.1"; in-out property <string> learn-mode: "cc-absolute";
     in-out property <string> manual-port: "1"; in-out property <string> manual-channel: "1";
     in-out property <string> manual-number: "0"; in-out property <string> manual-control: "encoder.1";
     in-out property <string> manual-mode: "cc-absolute"; in-out property <bool> manual-feedback: false;
-    in-out property <string> mapping-argument-1-value; in-out property <string> mapping-argument-2-value;
-    in-out property <string> mapping-argument-3-value; in-out property <string> mapping-argument-4-value;
-    in property <string> mapping-argument-1-hint; in property <string> mapping-argument-2-hint;
-    in property <string> mapping-argument-3-hint; in property <string> mapping-argument-4-hint;
     callback subview-selected(string); callback device-selected(string, int);
     callback value-adjusted(string, int); callback preference-toggled(string);
     callback preferences-action(string); callback controller-selected(int);
+    callback profile-selected(int); callback profile-action(string, string, string);
     callback midi-learn(string, string, string); callback text-requested(string, string); callback exit-requested();
     callback midi-route-selected(int); callback midi-route-action(string);
     callback mapping-selected(int); callback mapping-remove();
-    callback mapping-target-selected(int); callback mapping-target-apply(string, string, string, string);
+    callback mapping-target-selected(int); callback mapping-argument-selected(int);
+    callback mapping-argument-value-changed(string); callback mapping-target-apply();
     callback mapping-source-apply(int, int, int, string, string, bool, bool);
     callback mapping-behavior-apply(bool, bool, float, float);
+    callback mapping-scope-apply(string, bool, bool, string);
     callback mapping-conflict-action(string);
 
     VerticalLayout { padding: 6px; spacing: 5px;
@@ -115,9 +124,17 @@ export component SetupPage inherits Rectangle {
             Rectangle { horizontal-stretch: 1; background: Theme.panel; ScrollView { VerticalLayout { padding: 6px; spacing: 4px;
                 for item[i] in root.controllers: PageButton { text: item.id + " — " + item.device + " (" + item.status + ")"; selected: item.selected; clicked => { root.controller-selected(i); } }
                 if root.controllers.length == 0: EmptyState { title: "No configured controllers"; message: "Configure endpoints at startup; unknown devices are never attached automatically."; }
+                Text { text: "Profile library"; color: Theme.foreground; font-size: 18px; }
+                for profile[i] in root.profiles: PageButton { text: profile.name + " — " + profile.status; selected: profile.selected; implemented: profile.available; clicked => { root.profile-selected(i); } }
+                LineEdit { text <=> root.profile-name; placeholder-text: "Profile name / stable ID for Create"; }
+                LineEdit { text <=> root.profile-path; placeholder-text: "Import / export path"; }
+                HorizontalLayout { PageButton { text: "Create"; clicked => { root.profile-action("create", root.profile-name, root.profile-path); } } PageButton { text: "Rename"; implemented: root.profiles.length > 0; clicked => { root.profile-action("rename", root.profile-name, ""); } } PageButton { text: "Duplicate"; implemented: root.profiles.length > 0; clicked => { root.profile-action("duplicate", root.profile-name, ""); } } }
+                HorizontalLayout { PageButton { text: "Activate"; implemented: root.profiles.length > 0 && root.controllers.length > 0; clicked => { root.profile-action("activate", "", ""); } } PageButton { text: "Import"; clicked => { root.profile-action("import", root.profile-name, root.profile-path); } } PageButton { text: "Export"; implemented: root.profiles.length > 0; clicked => { root.profile-action("export", "", root.profile-path); } } }
+                HorizontalLayout { PageButton { text: "Save Library"; clicked => { root.profile-action("save", "", root.profile-path); } } PageButton { text: "Reload"; clicked => { root.profile-action("reload", "", root.profile-path); } } PageButton { text: "Recover"; implemented: root.profiles.length > 0; clicked => { root.profile-action("recover", "", root.profile-path); } } PageButton { text: "Remove"; implemented: root.profiles.length > 0; clicked => { root.profile-action("remove", "", ""); } } }
             } } }
             Rectangle { horizontal-stretch: 1; background: Theme.panel; VerticalLayout { padding: 6px; spacing: 4px;
                 ParameterDisplay { name: "MIDI learn"; value: root.learn-status; }
+                ParameterDisplay { name: "Captured source"; value: root.learn-preview == "" ? "None" : root.learn-preview; }
                 LineEdit { text <=> root.learn-control; placeholder-text: "Logical control ID"; }
                 LineEdit { text <=> root.learn-mode; placeholder-text: "cc-absolute / relative / note"; }
                 HorizontalLayout { PageButton { text: "Start Learn"; implemented: root.controllers.length > 0; clicked => { root.midi-learn("start", root.learn-control, root.learn-mode); } } PageButton { text: "Confirm"; implemented: root.learn-status == "Learned — confirm mapping"; clicked => { root.midi-learn("confirm", "", ""); } } PageButton { text: "Cancel"; clicked => { root.midi-learn("cancel", "", ""); } } }
@@ -150,11 +167,11 @@ export component SetupPage inherits Rectangle {
                 ScrollView { height: 100px; VerticalLayout { spacing: 2px;
                     for target[i] in root.mapping-targets: PageButton { text: target.label + " (" + target.kind + ")"; selected: target.selected; clicked => { root.mapping-target-selected(i); } }
                 } }
-                LineEdit { text <=> root.mapping-argument-1-value; placeholder-text: root.mapping-argument-1-hint; }
-                LineEdit { text <=> root.mapping-argument-2-value; placeholder-text: root.mapping-argument-2-hint; }
-                LineEdit { text <=> root.mapping-argument-3-value; placeholder-text: root.mapping-argument-3-hint; }
-                LineEdit { text <=> root.mapping-argument-4-value; placeholder-text: root.mapping-argument-4-hint; }
-                PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-target-apply(root.mapping-argument-1-value, root.mapping-argument-2-value, root.mapping-argument-3-value, root.mapping-argument-4-value); } }
+                ScrollView { height: min(128px, root.mapping-arguments.length * 32px); VerticalLayout { spacing: 2px;
+                    for argument[i] in root.mapping-arguments: PageButton { text: argument.label + (argument.required ? " *" : ""); selected: argument.selected; clicked => { root.mapping-argument-selected(i); } }
+                } }
+                LineEdit { text <=> root.mapping-argument-value; placeholder-text: root.mapping-arguments.length > 0 ? root.mapping-arguments[0].hint : "No typed arguments"; }
+                PageButton { text: "Apply selected target"; implemented: root.mappings.length > 0 && root.mapping-targets.length > 0; clicked => { root.mapping-argument-value-changed(root.mapping-argument-value); root.mapping-target-apply(); } }
                 for mapping[i] in root.mappings: HorizontalLayout { visible: mapping.selected; height: mapping.selected ? 34px : 0px;
                     PageButton { text: mapping.pickup ? "Pickup On" : "Pickup Off"; clicked => { root.mapping-behavior-apply(!mapping.pickup, mapping.invert, mapping.fine-scale, mapping.acceleration); } }
                     PageButton { text: mapping.invert ? "Inverted" : "Normal"; clicked => { root.mapping-behavior-apply(mapping.pickup, !mapping.invert, mapping.fine-scale, mapping.acceleration); } }
@@ -162,6 +179,13 @@ export component SetupPage inherits Rectangle {
                     PageButton { text: "Fine +"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, min(1, mapping.fine-scale + 0.01), mapping.acceleration); } }
                     PageButton { text: "Accel −"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, mapping.fine-scale, max(0, mapping.acceleration - 0.25)); } }
                     PageButton { text: "Accel +"; clicked => { root.mapping-behavior-apply(mapping.pickup, mapping.invert, mapping.fine-scale, min(8, mapping.acceleration + 0.25)); } }
+                }
+                LineEdit { text <=> root.mapping-context; placeholder-text: "Global (empty) or stable destination/context"; }
+                LineEdit { text <=> root.mapping-feedback-id; placeholder-text: "Descriptor-compatible feedback destination"; }
+                HorizontalLayout {
+                    PageButton { text: root.mapping-shift ? "Secondary layer" : "Primary layer"; clicked => { root.mapping-shift = !root.mapping-shift; } }
+                    PageButton { text: root.mapping-select ? "SELECT required" : "No SELECT"; clicked => { root.mapping-select = !root.mapping-select; } }
+                    PageButton { text: "Apply scope + feedback"; implemented: root.mappings.length > 0; clicked => { root.mapping-scope-apply(root.mapping-context, root.mapping-shift, root.mapping-select, root.mapping-feedback-id); } }
                 }
                 PageButton { text: "Remove selected mapping"; implemented: root.mappings.length > 0; clicked => { root.mapping-remove(); } }
                 PageButton { text: "Save Profile As…"; implemented: root.controllers.length > 0; clicked => { root.text-requested("profile-save", "controller.ngc"); } }

@@ -938,12 +938,9 @@ bool SlintFrontendAdapter::refresh() {
     next.performance.editor_pad = state_.performance.editor_pad;
     next.performance.editor_label = state_.performance.editor_label;
     next.performance.editor_behavior = state_.performance.editor_behavior;
-    next.performance.editor_argument_names =
-        state_.performance.editor_argument_names;
-    next.performance.editor_argument_values =
-        state_.performance.editor_argument_values;
-    next.performance.editor_argument_hints =
-        state_.performance.editor_argument_hints;
+    next.performance.editor_arguments = state_.performance.editor_arguments;
+    next.performance.selected_editor_argument =
+        state_.performance.selected_editor_argument;
     next.performance.selected_assignment_target =
         state_.performance.selected_assignment_target;
     next.performance.assignment_targets = next.performance.editor_action
@@ -1860,6 +1857,7 @@ bool SlintFrontendAdapter::refresh() {
         next.setup.midi_inputs = runtime.midi_inputs;
         next.setup.midi_outputs = runtime.midi_outputs;
         next.setup.controllers = runtime.controllers;
+        next.setup.profiles = runtime.profiles;
         next.setup.mappings = runtime.mappings;
         next.setup.warnings = runtime.lifecycle_warnings;
         next.setup.system = runtime.system;
@@ -1869,6 +1867,10 @@ bool SlintFrontendAdapter::refresh() {
         next.setup.selected_controller = 0;
     for (std::size_t i = 0; i < next.setup.controllers.size(); ++i)
         next.setup.controllers[i].selected = i == next.setup.selected_controller;
+    if (next.setup.selected_profile >= next.setup.profiles.size())
+        next.setup.selected_profile = 0;
+    for (std::size_t i = 0; i < next.setup.profiles.size(); ++i)
+        next.setup.profiles[i].selected = i == next.setup.selected_profile;
     if (next.setup.selected_mapping >= next.setup.mappings.size())
         next.setup.selected_mapping = 0;
     for (std::size_t i = 0; i < next.setup.mappings.size(); ++i)
@@ -1881,6 +1883,9 @@ bool SlintFrontendAdapter::refresh() {
     if (!next.setup.controllers.empty())
         next.setup.controller_learn_status =
             next.setup.controllers[next.setup.selected_controller].learn_status;
+    if (!next.setup.controllers.empty())
+        next.setup.controller_learn_preview =
+            next.setup.controllers[next.setup.selected_controller].learn_preview;
     next.setup.requested_audio_input = staged_preferences_.audio_input;
     next.setup.requested_audio_output = staged_preferences_.audio_output;
     next.setup.requested_buffer_size = staged_preferences_.audio_buffer_frames;
@@ -2300,33 +2305,49 @@ bool SlintFrontendAdapter::open_performance_assignment_editor(
 bool SlintFrontendAdapter::select_performance_assignment_target(std::size_t index) {
     if (index >= state_.performance.assignment_targets.size()) return false;
     state_.performance.selected_assignment_target = index;
-    state_.performance.editor_argument_names.fill({});
-    state_.performance.editor_argument_values.fill({});
-    state_.performance.editor_argument_hints.fill({});
+    state_.performance.editor_arguments.clear();
+    state_.performance.selected_editor_argument = 0;
     const auto &arguments = state_.performance.assignment_targets[index].arguments;
-    for (std::size_t field = 0;
-         field < std::min(arguments.size(),
-                          state_.performance.editor_argument_names.size()); ++field) {
+    for (std::size_t field = 0; field < arguments.size(); ++field) {
         const auto &argument = arguments[field];
-        state_.performance.editor_argument_names[field] = argument.name;
         auto type = std::string("text");
         if (argument.type == ValueType::boolean) type = "boolean";
         else if (argument.type == ValueType::integer) type = "integer";
         else if (argument.type == ValueType::real) type = "real";
-        state_.performance.editor_argument_hints[field] =
+        auto hint =
             argument.label + " · " + type +
             (argument.required ? " · required" : " · optional");
         if (!argument.choices.empty()) {
-            state_.performance.editor_argument_hints[field] += " · ";
+            hint += " · ";
             for (std::size_t choice = 0; choice < argument.choices.size(); ++choice) {
-                if (choice) state_.performance.editor_argument_hints[field] += " | ";
-                state_.performance.editor_argument_hints[field] +=
-                    argument.choices[choice].label;
+                if (choice) hint += " | ";
+                hint += argument.choices[choice].label;
             }
         }
+        state_.performance.editor_arguments.push_back({argument.name,
+            argument.label, {}, std::move(hint), std::move(type),
+            argument.required, field == 0});
     }
     ++local_revision_;
     return refresh();
+}
+
+bool SlintFrontendAdapter::select_performance_assignment_argument(
+    std::size_t index) {
+    if (index >= state_.performance.editor_arguments.size()) return false;
+    state_.performance.selected_editor_argument = index;
+    for (std::size_t i = 0; i < state_.performance.editor_arguments.size(); ++i)
+        state_.performance.editor_arguments[i].selected = i == index;
+    ++local_revision_;
+    return true;
+}
+
+bool SlintFrontendAdapter::set_performance_assignment_argument(
+    std::size_t index, std::string value) {
+    if (index >= state_.performance.editor_arguments.size()) return false;
+    state_.performance.editor_arguments[index].value = std::move(value);
+    ++local_revision_;
+    return true;
 }
 
 bool SlintFrontendAdapter::confirm_performance_assignment(
@@ -2363,6 +2384,14 @@ bool SlintFrontendAdapter::confirm_performance_assignment(
         if (accepted) cancel_performance_assignment_editor();
         return accepted;
     }
+    for (std::size_t i = 0;
+         i < argument_names.size() && i < state_.performance.editor_arguments.size();
+         ++i) {
+        if (!argument_names[i].empty())
+            state_.performance.editor_arguments[i].name = argument_names[i];
+        if (!argument_values[i].empty())
+            state_.performance.editor_arguments[i].value = argument_values[i];
+    }
     AssignmentTargetPicker picker(application_);
     AssignmentProposal proposal{AssignmentTargetKind::action, target.id, {}};
     const auto targets = picker.targets([](const auto &action) {
@@ -2374,21 +2403,22 @@ bool SlintFrontendAdapter::confirm_performance_assignment(
                    candidate.id == target.id;
         });
     if (descriptor == targets.end()) return false;
-    for (std::size_t i = 0; i < argument_names.size(); ++i) {
-        if (argument_names[i].empty() && argument_values[i].empty()) continue;
+    for (const auto &argument : state_.performance.editor_arguments) {
+        if (argument.name.empty() && argument.value.empty()) continue;
         const auto field = std::find_if(descriptor->arguments.begin(),
             descriptor->arguments.end(), [&](const auto &value) {
-                return value.name == argument_names[i];
+                return value.name == argument.name;
             });
         if (field == descriptor->arguments.end()) {
-            last_error_ = "Unknown action argument: " + argument_names[i];
+            last_error_ = "Unknown action argument: " + argument.name;
             return false;
         }
         ApplicationValue value;
         if (!AssignmentTargetPicker::parse_argument(
-                *field, argument_values[i], value, last_error_))
+                *field, argument.value, value, last_error_))
             return false;
-        proposal.arguments.emplace(argument_names[i], std::move(value));
+        if (!std::holds_alternative<std::monostate>(value))
+            proposal.arguments.emplace(argument.name, std::move(value));
     }
     if (behavior == "momentary") proposal.arguments["active"] = true;
     if (!picker.validate(proposal, last_error_, [](const auto &action) {
@@ -2415,11 +2445,13 @@ bool SlintFrontendAdapter::confirm_performance_assignment(
          {"position", static_cast<std::int64_t>(state_.performance.editor_position)},
          {"secondary", state_.performance.editor_secondary},
          {"action_id", target.id}, {"behavior", behavior}, {"label", label}}, {}, 0};
-    for (std::size_t i = 0; i < argument_names.size(); ++i)
-        if (!argument_names[i].empty()) {
+    for (std::size_t i = 0; i < state_.performance.editor_arguments.size(); ++i)
+        if (!state_.performance.editor_arguments[i].name.empty()) {
             const auto prefix = "argument_" + std::to_string(i + 1);
-            command.arguments[prefix + "_name"] = argument_names[i];
-            command.arguments[prefix + "_value"] = argument_values[i];
+            command.arguments[prefix + "_name"] =
+                state_.performance.editor_arguments[i].name;
+            command.arguments[prefix + "_value"] =
+                state_.performance.editor_arguments[i].value;
         }
     const auto accepted = execute(std::move(command));
     if (accepted) cancel_performance_assignment_editor();
@@ -2430,9 +2462,7 @@ void SlintFrontendAdapter::cancel_performance_assignment_editor() noexcept {
     state_.performance.editor_visible = false;
     state_.performance.editor_pad = false;
     state_.performance.editor_label.clear();
-    state_.performance.editor_argument_names.fill({});
-    state_.performance.editor_argument_values.fill({});
-    state_.performance.editor_argument_hints.fill({});
+    state_.performance.editor_arguments.clear();
     ++local_revision_;
 }
 
@@ -4769,6 +4799,35 @@ bool SlintFrontendAdapter::select_setup_controller(std::size_t index) {
     return refresh();
 }
 
+bool SlintFrontendAdapter::select_setup_profile(std::size_t index) {
+    if (index >= state_.setup.profiles.size()) return false;
+    state_.setup.selected_profile = index;
+    ++local_revision_;
+    return refresh();
+}
+
+bool SlintFrontendAdapter::manage_setup_profile(std::string action,
+                                                std::string value,
+                                                std::string path) {
+    if (!setup_services_.profile_action) {
+        last_error_ = "Controller profile library is unavailable";
+        return false;
+    }
+    std::string id;
+    if (state_.setup.selected_profile < state_.setup.profiles.size())
+        id = state_.setup.profiles[state_.setup.selected_profile].id;
+    std::string error;
+    if (action == "activate" &&
+        state_.setup.selected_controller < state_.setup.controllers.size())
+        value = state_.setup.controllers[state_.setup.selected_controller].id;
+    const auto accepted = setup_services_.profile_action(
+        action, id, value, path, error);
+    last_error_ = accepted ? std::string{} : std::move(error);
+    ++local_revision_;
+    (void)refresh();
+    return accepted;
+}
+
 bool SlintFrontendAdapter::select_setup_midi_route(std::size_t index) {
     if (index >= state_.setup.midi_routes.size()) return false;
     state_.setup.selected_midi_route = index;
@@ -4981,6 +5040,10 @@ bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
     binding.invert = invert;
     binding.fine_scale = fine_scale;
     binding.acceleration = acceleration;
+    binding.context = mapping.context;
+    binding.feedback_id = mapping.feedback_id;
+    binding.shift = mapping.shift;
+    binding.select = mapping.select;
     if (target_id == mapping.target_id)
         binding.arguments = mapping.arguments;
     if (target_kind == "action")
@@ -5029,28 +5092,88 @@ bool SlintFrontendAdapter::edit_setup_mapping(std::string target_kind,
     return result;
 }
 
+bool SlintFrontendAdapter::configure_setup_mapping_scope(
+    std::string context, bool shift, bool select, std::string feedback_id) {
+    if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
+        !setup_services_.set_controller_binding) {
+        last_error_ = "Select an editable MIDI mapping first";
+        return false;
+    }
+    const auto &mapping = state_.setup.mappings[state_.setup.selected_mapping];
+    ControlBinding binding;
+    binding.control_id = mapping.control_id;
+    binding.action_id = mapping.target_kind == "action" ? mapping.target_id : "";
+    binding.parameter_id = mapping.target_kind == "parameter" ? mapping.target_id : "";
+    binding.context = std::move(context);
+    binding.feedback_id = std::move(feedback_id);
+    binding.shift = shift;
+    binding.select = select;
+    binding.pickup = mapping.pickup;
+    binding.invert = mapping.invert;
+    binding.fine_scale = mapping.fine_scale;
+    binding.acceleration = mapping.acceleration;
+    binding.arguments = mapping.arguments;
+    if (mapping.target_kind == "contextual-role" ||
+        mapping.target_kind == "performance-role") {
+        const auto separator = mapping.target_id.rfind('.');
+        if (separator == std::string::npos) binding.semantic = "focus-data";
+        else {
+            const auto prefix = mapping.target_id.substr(0, separator);
+            std::from_chars(mapping.target_id.data() + separator + 1,
+                mapping.target_id.data() + mapping.target_id.size(), binding.index);
+            binding.semantic = prefix.ends_with("encoder") ||
+                prefix.ends_with("parameter") ? "context-encoder" :
+                prefix.ends_with("pad") ? "performance-pad" : "context-button";
+        }
+    }
+    std::string error;
+    const auto accepted = setup_services_.set_controller_binding(
+        mapping.endpoint_id, mapping.controller_binding_index,
+        std::move(binding), error);
+    last_error_ = accepted ? std::string{} : std::move(error);
+    ++local_revision_;
+    (void)refresh();
+    return accepted;
+}
+
 bool SlintFrontendAdapter::select_setup_mapping_target(std::size_t index) {
     if (index >= state_.setup.mapping_targets.size()) return false;
     state_.setup.selected_mapping_target = index;
-    state_.setup.mapping_argument_names.fill({});
-    state_.setup.mapping_argument_values.fill({});
-    state_.setup.mapping_argument_hints.fill({});
+    state_.setup.mapping_arguments.clear();
+    state_.setup.selected_mapping_argument = 0;
     const auto &arguments = state_.setup.mapping_targets[index].arguments;
-    for (std::size_t field = 0;
-         field < std::min(arguments.size(),
-                          state_.setup.mapping_argument_names.size()); ++field) {
-        state_.setup.mapping_argument_names[field] = arguments[field].name;
-        state_.setup.mapping_argument_hints[field] = arguments[field].label +
+    for (std::size_t field = 0; field < arguments.size(); ++field) {
+        std::string hint = arguments[field].label +
             (arguments[field].required ? " · required" : " · optional");
         for (const auto &choice : arguments[field].choices)
-            state_.setup.mapping_argument_hints[field] += " · " + choice.label;
+            hint += " · " + choice.label;
+        state_.setup.mapping_arguments.push_back({
+            arguments[field].name, arguments[field].label, {}, std::move(hint),
+            std::to_string(static_cast<int>(arguments[field].type)),
+            arguments[field].required, field == 0});
     }
     ++local_revision_;
     return refresh();
 }
 
-bool SlintFrontendAdapter::apply_setup_mapping_target(
-    std::array<std::string, 4> argument_values) {
+bool SlintFrontendAdapter::select_setup_mapping_argument(std::size_t index) {
+    if (index >= state_.setup.mapping_arguments.size()) return false;
+    state_.setup.selected_mapping_argument = index;
+    for (std::size_t i = 0; i < state_.setup.mapping_arguments.size(); ++i)
+        state_.setup.mapping_arguments[i].selected = i == index;
+    ++local_revision_;
+    return true;
+}
+
+bool SlintFrontendAdapter::set_setup_mapping_argument(std::size_t index,
+                                                       std::string value) {
+    if (index >= state_.setup.mapping_arguments.size()) return false;
+    state_.setup.mapping_arguments[index].value = std::move(value);
+    ++local_revision_;
+    return true;
+}
+
+bool SlintFrontendAdapter::apply_setup_mapping_target() {
     if (state_.setup.selected_mapping >= state_.setup.mappings.size() ||
         state_.setup.selected_mapping_target >=
             state_.setup.mapping_targets.size()) {
@@ -5063,16 +5186,11 @@ bool SlintFrontendAdapter::apply_setup_mapping_target(
     if (target.kind == "action") {
         AssignmentProposal proposal{AssignmentTargetKind::action, target.id, {}};
         for (std::size_t field = 0; field < target.arguments.size(); ++field) {
-            if (field >= argument_values.size()) {
-                if (target.arguments[field].required) {
-                    last_error_ = "The action has more arguments than this profile format supports";
-                    return false;
-                }
-                break;
-            }
+            const auto value = field < state_.setup.mapping_arguments.size()
+                ? state_.setup.mapping_arguments[field].value : std::string{};
             ApplicationValue parsed;
             if (!AssignmentTargetPicker::parse_argument(
-                    target.arguments[field], argument_values[field], parsed,
+                    target.arguments[field], value, parsed,
                     last_error_)) return false;
             if (!std::holds_alternative<std::monostate>(parsed))
                 proposal.arguments.emplace(target.arguments[field].name,
@@ -5099,6 +5217,14 @@ bool SlintFrontendAdapter::apply_setup_mapping_target(
     }
     return edit_setup_mapping(target.kind, target.id, mapping.pickup,
         mapping.invert, mapping.fine_scale, mapping.acceleration);
+}
+
+bool SlintFrontendAdapter::apply_setup_mapping_target(
+    std::array<std::string, 4> argument_values) {
+    for (std::size_t i = 0;
+         i < argument_values.size() && i < state_.setup.mapping_arguments.size(); ++i)
+        state_.setup.mapping_arguments[i].value = std::move(argument_values[i]);
+    return apply_setup_mapping_target();
 }
 
 bool SlintFrontendAdapter::save_setup_controller_profile(std::string path) {

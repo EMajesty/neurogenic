@@ -1,4 +1,5 @@
 #pragma once
+#include "neurogenic/application/controller_profile_library.hpp"
 #include "neurogenic/application/controller_protocol.hpp"
 #include "neurogenic/midi/mapping.hpp"
 #include <functional>
@@ -44,11 +45,21 @@ class ControllerCoordinator {
                                 ControlBinding, std::string &error);
     bool remove_midi_binding(std::string_view id, std::size_t index,
                              std::string &error);
+    [[nodiscard]] ControllerProfileLibrary &profile_library() noexcept {
+        return profile_library_;
+    }
+    [[nodiscard]] const ControllerProfileLibrary &profile_library() const noexcept {
+        return profile_library_;
+    }
+    bool activate_midi_profile(std::string_view endpoint_id,
+                               std::string_view profile_id,
+                               std::string &error);
     void shutdown() noexcept;
   private:
     struct SerialEndpoint;
     struct MidiEndpoint;
     ApplicationService *application_{};
+    ControllerProfileLibrary profile_library_;
     std::vector<std::shared_ptr<SerialEndpoint>> serial_;
     std::vector<std::shared_ptr<MidiEndpoint>> midi_;
     mutable std::mutex mutex_;

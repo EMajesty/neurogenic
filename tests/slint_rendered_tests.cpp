@@ -54,6 +54,9 @@ int main(int argc, char **argv) {
         setup.controllers.push_back({"rendered.surface", "midi",
             "Rendered disconnected surface", "rendered.profile", "MIDI",
             "Disconnected", {}, "Editable offline", false, true, false});
+        setup.profiles.push_back({"rendered.profile", "Rendered profile",
+            "generic-midi", "Valid", "rendered.surface", false, true,
+            true, false});
         SlintSetupMappingItem mapping{"rendered.surface", "encoder.1",
             "Port 1 / Ch 1 / 74", "Absolute CC", 0, false, false};
         mapping.port = 1;
@@ -63,6 +66,18 @@ int main(int argc, char **argv) {
         mapping.target_label = "Synth cutoff";
         setup.mappings.push_back(mapping);
         options.setup.snapshot = [&] { return setup; };
+        options.setup.profile_action =
+            [&](std::string_view action, std::string_view id,
+                std::string_view value, std::string_view, std::string &error) {
+                if (action != "rename" || id != "rendered.profile" ||
+                    value != "Generated profile") {
+                    error = "unexpected generated profile operation";
+                    return false;
+                }
+                setup.profiles.front().name = std::string(value);
+                ++setup.revision;
+                return true;
+            };
         options.setup.set_midi_binding = [&](std::string_view endpoint,
                                               std::size_t index,
                                               MidiControlBinding binding,

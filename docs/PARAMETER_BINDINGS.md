@@ -109,3 +109,10 @@ UI Studio editor is included.
 The deterministic host test also reports control-side read cost. This measures
 discovery/resolution overhead on the current machine and is not an audio-thread
 or Raspberry Pi 5 performance claim.
+## Profile-library bindings
+
+Library candidates reuse `ParameterBindingService`; a profile stores stable
+parameter identity and behavior metadata, never a copied authoritative value.
+Explicit activation validates descriptor compatibility before the binding can
+receive input. Bank changes affect logical Performance-role bindings but never
+redirect direct parameter bindings.

@@ -50,3 +50,4 @@ G10, display/touchscreen, controller PCB/MCU, USB CDC reliability, electrical
 RGB limits, debounce/rollover/ghosting, encoder quality, audio-interface latency
 and sustained load are **NOT RUN**. Simulator and software-render evidence do
 not close these rows.
+| 097F | Appliance profile library and mapping configuration | RC2-006 / AUD2-006 | `ControllerProfileLibrary`, coordinator MIDI activation, dynamic Setup/Performance argument forms | `neurogenic_controller_profile_library_tests`, Slint adapter/rendered tests | production service + generated callback | PASS (software); dedicated USB switch and physical input NOT RUN | conservative layered-source conflict analysis |

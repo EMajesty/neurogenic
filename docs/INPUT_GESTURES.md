@@ -146,3 +146,9 @@ opening cancels inappropriate context ownership; page controls are blocked while
 navigation and explicitly safe global controls remain available. Repeatable
 navigation dispatches immediately and then at a bounded rate. Disconnect and
 protocol reconciliation invalidate stale releases without synthesizing ENTER.
+## Profile activation
+
+Explicit runtime profile activation cancels the removed endpoint adapter's
+held and momentary ownership before it is detached. The replacement session is
+advanced beyond the prior local generation, so queued input cannot acquire new
+ownership. Other endpoints and their gesture states are independent.

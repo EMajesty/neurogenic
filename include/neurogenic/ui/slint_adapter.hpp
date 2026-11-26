@@ -72,6 +72,11 @@ struct SlintContextState {
     std::array<SlintPadItem, 16> pads;
 };
 
+struct SlintArgumentItem {
+    std::string name, label, value, hint, type;
+    bool required{}, selected{};
+};
+
 struct SlintPerformancePageState {
     std::string selected_track{"Unavailable"}, active_content{"Unavailable"},
         track_owner{"Arrangement"}, launch_quantization{"Bar"};
@@ -102,8 +107,8 @@ struct SlintPerformancePageState {
     std::uint32_t editor_position{};
     bool editor_secondary{}, editor_action{}, editor_pad{}, editor_visible{};
     std::string editor_label, editor_behavior{"one-shot"};
-    std::array<std::string, 4> editor_argument_names,
-        editor_argument_values, editor_argument_hints;
+    std::vector<SlintArgumentItem> editor_arguments;
+    std::size_t selected_editor_argument{};
 };
 
 struct SlintStepItem {
@@ -398,6 +403,11 @@ struct SlintSetupControllerItem {
     std::string id, transport, device, profile, protocol, status, error,
         learn_status{"Idle"};
     bool connected{}, feedback{}, selected{};
+    std::string learn_preview;
+};
+struct SlintSetupProfileItem {
+    std::string id, name, descriptor, status, associations;
+    bool built_in{}, available{}, active{}, selected{};
 };
 struct SlintSetupMidiRouteItem {
     std::uint32_t id{};
@@ -411,7 +421,8 @@ struct SlintSetupMappingItem {
     bool feedback{}, selected{};
     std::size_t controller_binding_index{};
     std::string target_kind, target_id, target_label;
-    bool pickup{}, invert{};
+    std::string context, feedback_id;
+    bool pickup{}, invert{}, shift{}, select{};
     double fine_scale{0.1}, acceleration{2.0};
     std::map<std::string, ApplicationValue> arguments;
     std::uint32_t port{1};
@@ -439,6 +450,7 @@ struct SlintSetupRuntimeSnapshot {
     std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
         midi_inputs, midi_outputs;
     std::vector<SlintSetupControllerItem> controllers;
+    std::vector<SlintSetupProfileItem> profiles;
     std::vector<SlintSetupMappingItem> mappings;
     std::vector<std::string> lifecycle_warnings;
 };
@@ -458,6 +470,8 @@ struct SlintSetupServices {
                        std::string &)> set_controller_binding;
     std::function<bool(std::string_view, std::string_view, std::string &)>
         save_controller_profile;
+    std::function<bool(std::string_view, std::string_view, std::string_view,
+                       std::string_view, std::string &)> profile_action;
     std::function<bool()> request_exit;
 };
 
@@ -466,7 +480,8 @@ struct SlintSetupPageState {
         audio_status{"Unavailable"}, active_audio_input{"Unavailable"},
         active_audio_output{"Unavailable"}, requested_audio_input,
         requested_audio_output, midi_clock{"Internal"}, system{"Unknown"},
-        version{"Unknown"}, error, controller_learn_status{"Idle"};
+        version{"Unknown"}, error, controller_learn_status{"Idle"},
+        controller_learn_preview;
     std::uint32_t active_sample_rate{48000}, active_buffer_size{},
         requested_buffer_size{256};
     std::uint16_t active_input_channels{}, active_output_channels{},
@@ -477,19 +492,20 @@ struct SlintSetupPageState {
         fullscreen{}, reopen_last_project{};
     float ui_scale{1.0F};
     std::string startup_project;
-    std::size_t selected_controller{};
+    std::size_t selected_controller{}, selected_profile{};
     std::size_t selected_mapping{};
     std::size_t selected_mapping_target{};
     std::size_t selected_midi_route{};
     std::vector<SlintSetupDeviceItem> audio_inputs, audio_outputs,
         midi_inputs, midi_outputs;
     std::vector<SlintSetupControllerItem> controllers;
+    std::vector<SlintSetupProfileItem> profiles;
     std::vector<SlintSetupMappingItem> mappings;
     std::vector<SlintSetupMappingTargetItem> mapping_targets;
     std::vector<SlintSetupMidiRouteItem> midi_routes;
     std::vector<std::string> warnings;
-    std::array<std::string, 4> mapping_argument_names,
-        mapping_argument_values, mapping_argument_hints;
+    std::vector<SlintArgumentItem> mapping_arguments;
+    std::size_t selected_mapping_argument{};
     bool conflict_visible{};
     std::string conflict_existing_source, conflict_existing_target,
         conflict_proposed_source, conflict_proposed_target, conflict_reason;
@@ -558,6 +574,9 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool open_performance_assignment_editor(
         std::size_t position, bool secondary, bool action);
     [[nodiscard]] bool select_performance_assignment_target(std::size_t index);
+    [[nodiscard]] bool select_performance_assignment_argument(std::size_t index);
+    [[nodiscard]] bool set_performance_assignment_argument(std::size_t index,
+                                                           std::string value);
     [[nodiscard]] bool confirm_performance_assignment(
         std::string label, std::string behavior,
         std::array<std::string, 4> argument_names = {},
@@ -693,6 +712,10 @@ class SlintFrontendAdapter {
     [[nodiscard]] bool toggle_setup_preference(std::string property);
     [[nodiscard]] bool setup_preferences_action(std::string action);
     [[nodiscard]] bool select_setup_controller(std::size_t index);
+    [[nodiscard]] bool select_setup_profile(std::size_t index);
+    [[nodiscard]] bool manage_setup_profile(std::string action,
+                                            std::string value = {},
+                                            std::string path = {});
     [[nodiscard]] bool select_setup_midi_route(std::size_t index);
     [[nodiscard]] bool edit_setup_midi_route(std::string operation);
     [[nodiscard]] bool setup_midi_learn(std::string operation,
@@ -711,9 +734,16 @@ class SlintFrontendAdapter {
                                           bool pickup, bool invert,
                                           double fine_scale,
                                           double acceleration);
+    [[nodiscard]] bool configure_setup_mapping_scope(
+        std::string context, bool shift, bool select,
+        std::string feedback_id);
     [[nodiscard]] bool select_setup_mapping_target(std::size_t index);
+    [[nodiscard]] bool select_setup_mapping_argument(std::size_t index);
+    [[nodiscard]] bool set_setup_mapping_argument(std::size_t index,
+                                                   std::string value);
+    [[nodiscard]] bool apply_setup_mapping_target();
     [[nodiscard]] bool apply_setup_mapping_target(
-        std::array<std::string, 4> argument_values = {});
+        std::array<std::string, 4> argument_values);
     [[nodiscard]] bool save_setup_controller_profile(std::string path);
     [[nodiscard]] bool request_application_exit();
     void dismiss_notification() noexcept;

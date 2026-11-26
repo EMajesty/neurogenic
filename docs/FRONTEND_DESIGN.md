@@ -201,3 +201,10 @@ destination/focus roles and consuming `ApplicationState::interaction` request
 revisions once. Modal open captures a target; the frontend validates and
 dispatches it, then closes the exact generation. Toolkit focus, geometry,
 scrolling and text entry remain local. Direct semantic clients need not opt in.
+## Setup profile library
+
+Setup consumes copied profile-library entries and delegates every mutation to
+the appliance service. Its scrollable library, dynamic typed arguments,
+scope/modifier fields, feedback destination, learned-source preview and
+structured conflict view use the shared interaction contract. The frontend is
+not a persistence or activation authority.

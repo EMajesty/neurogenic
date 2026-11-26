@@ -459,3 +459,10 @@ The shell now publishes distinct focus, navigation scope, DATA role and active
 shared modal state. Browser scrolling and representative Sequencer destructive
 confirmation consume physical requests. Generated tests verify publication and
 focus restoration; complete assignment/profile traversal remains Task 097B.
+## Task 097F generated authoring
+
+The generated Setup page exposes profile lifecycle and recovery callbacks plus
+a descriptor-sized typed-argument model. Performance uses the same dynamic
+argument representation. Generated acceptance checks that more than four
+fields are not truncated; essential forms remain scrollable at both reference
+resolutions. Coordinate-driven touch and physical hardware remain NOT RUN.

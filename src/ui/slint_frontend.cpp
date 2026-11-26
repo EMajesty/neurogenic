@@ -47,13 +47,16 @@ struct PublicationModels {
     std::shared_ptr<slint::VectorModel<SetupDeviceItem>> audio_inputs,
         audio_outputs, midi_inputs, midi_outputs;
     std::shared_ptr<slint::VectorModel<SetupControllerItem>> controllers;
+    std::shared_ptr<slint::VectorModel<SetupProfileItem>> profiles;
     std::shared_ptr<slint::VectorModel<SetupMidiRouteItem>> midi_routes;
     std::shared_ptr<slint::VectorModel<SetupMappingItem>> mappings;
     std::shared_ptr<slint::VectorModel<SetupMappingTargetItem>> mapping_targets;
+    std::shared_ptr<slint::VectorModel<SetupArgumentItem>> mapping_arguments;
     std::shared_ptr<slint::VectorModel<LiveLoopItem>> live_loops;
     std::shared_ptr<slint::VectorModel<PerformanceBankItem>> performance_banks;
     std::shared_ptr<slint::VectorModel<PerformanceAssignmentTargetItem>>
         performance_assignment_targets;
+    std::shared_ptr<slint::VectorModel<SetupArgumentItem>> performance_arguments;
     std::shared_ptr<slint::VectorModel<PerformancePositionItem>>
         performance_assignment_positions;
 };
@@ -340,6 +343,13 @@ void publish(const SlintUiState &state,
                   std::move(performance_targets), [&](auto value) {
                       window->set_performance_assignment_targets(value);
                   });
+    std::vector<SetupArgumentItem> performance_arguments;
+    for (const auto &argument : state.performance.editor_arguments)
+        performance_arguments.push_back({text(argument.name), text(argument.label),
+            text(argument.value), text(argument.hint), text(argument.type),
+            argument.required, argument.selected});
+    publish_model(models.performance_arguments, std::move(performance_arguments),
+        [&](auto value) { window->set_performance_assignment_arguments(value); });
     std::vector<PerformancePositionItem> performance_positions;
     for (const auto &position : state.performance.assignment_positions)
         performance_positions.push_back({static_cast<int>(position.position),
@@ -359,30 +369,11 @@ void publish(const SlintUiState &state,
         state.performance.editor_action);
     window->set_performance_assignment_editor_pad(
         state.performance.editor_pad);
-    window->set_performance_assignment_argument_1_name(
-        text(state.performance.editor_argument_names[0]));
-    window->set_performance_assignment_argument_1_value(
-        text(state.performance.editor_argument_values[0]));
-    window->set_performance_assignment_argument_2_name(
-        text(state.performance.editor_argument_names[1]));
-    window->set_performance_assignment_argument_2_value(
-        text(state.performance.editor_argument_values[1]));
-    window->set_performance_assignment_argument_3_name(
-        text(state.performance.editor_argument_names[2]));
-    window->set_performance_assignment_argument_3_value(
-        text(state.performance.editor_argument_values[2]));
-    window->set_performance_assignment_argument_4_name(
-        text(state.performance.editor_argument_names[3]));
-    window->set_performance_assignment_argument_4_value(
-        text(state.performance.editor_argument_values[3]));
-    window->set_performance_assignment_argument_1_hint(
-        text(state.performance.editor_argument_hints[0]));
-    window->set_performance_assignment_argument_2_hint(
-        text(state.performance.editor_argument_hints[1]));
-    window->set_performance_assignment_argument_3_hint(
-        text(state.performance.editor_argument_hints[2]));
-    window->set_performance_assignment_argument_4_hint(
-        text(state.performance.editor_argument_hints[3]));
+    if (state.performance.selected_editor_argument <
+        state.performance.editor_arguments.size())
+        window->set_performance_assignment_argument_value(text(
+            state.performance.editor_arguments[
+                state.performance.selected_editor_argument].value));
     std::vector<StepItem> steps;
     for (const auto &step : state.sequencer.steps)
         steps.push_back({text(step.label), text(step.status), step.active,
@@ -641,14 +632,16 @@ void publish(const SlintUiState &state,
     window->set_setup_xruns_available(state.setup.xruns_available);
     window->set_setup_error(text(state.setup.error));
     window->set_setup_learn_status(text(state.setup.controller_learn_status));
-    window->set_setup_mapping_argument_1_value(text(state.setup.mapping_argument_values[0]));
-    window->set_setup_mapping_argument_2_value(text(state.setup.mapping_argument_values[1]));
-    window->set_setup_mapping_argument_3_value(text(state.setup.mapping_argument_values[2]));
-    window->set_setup_mapping_argument_4_value(text(state.setup.mapping_argument_values[3]));
-    window->set_setup_mapping_argument_1_hint(text(state.setup.mapping_argument_hints[0]));
-    window->set_setup_mapping_argument_2_hint(text(state.setup.mapping_argument_hints[1]));
-    window->set_setup_mapping_argument_3_hint(text(state.setup.mapping_argument_hints[2]));
-    window->set_setup_mapping_argument_4_hint(text(state.setup.mapping_argument_hints[3]));
+    if (state.setup.selected_mapping_argument < state.setup.mapping_arguments.size())
+        window->set_setup_mapping_argument_value(text(
+            state.setup.mapping_arguments[state.setup.selected_mapping_argument].value));
+    if (state.setup.selected_mapping < state.setup.mappings.size()) {
+        const auto &mapping = state.setup.mappings[state.setup.selected_mapping];
+        window->set_setup_mapping_context(text(mapping.context));
+        window->set_setup_mapping_feedback_id(text(mapping.feedback_id));
+        window->set_setup_mapping_shift(mapping.shift);
+        window->set_setup_mapping_select(mapping.select);
+    }
     window->set_setup_conflict_visible(state.setup.conflict_visible);
     window->set_setup_conflict_existing_source(text(state.setup.conflict_existing_source));
     window->set_setup_conflict_existing_target(text(state.setup.conflict_existing_target));
@@ -673,8 +666,18 @@ void publish(const SlintUiState &state,
     for (const auto &item : state.setup.controllers)
         controllers.push_back({text(item.id), text(item.transport), text(item.device),
             text(item.profile), text(item.protocol), text(item.status), text(item.error),
-            text(item.learn_status), item.connected, item.feedback, item.selected});
+            text(item.learn_status), item.connected, item.feedback, item.selected,
+            text(item.learn_preview)});
     publish_model(models.controllers, std::move(controllers), [&](auto value) { window->set_setup_controllers(value); });
+    window->set_setup_learn_preview(text(state.setup.controller_learn_preview));
+    std::vector<SetupProfileItem> profiles;
+    for (const auto &profile : state.setup.profiles)
+        profiles.push_back({text(profile.id), text(profile.name),
+            text(profile.descriptor), text(profile.status),
+            text(profile.associations), profile.built_in, profile.available,
+            profile.active, profile.selected});
+    publish_model(models.profiles, std::move(profiles),
+        [&](auto value) { window->set_setup_profiles(value); });
     std::vector<SetupMidiRouteItem> midi_routes;
     for (const auto &route : state.setup.midi_routes) {
         std::string flags;
@@ -708,6 +711,13 @@ void publish(const SlintUiState &state,
                                    text(target.label), target.selected});
     publish_model(models.mapping_targets, std::move(mapping_targets),
         [&](auto value) { window->set_setup_mapping_targets(value); });
+    std::vector<SetupArgumentItem> mapping_arguments;
+    for (const auto &argument : state.setup.mapping_arguments)
+        mapping_arguments.push_back({text(argument.name), text(argument.label),
+            text(argument.value), text(argument.hint), text(argument.type),
+            argument.required, argument.selected});
+    publish_model(models.mapping_arguments, std::move(mapping_arguments),
+        [&](auto value) { window->set_setup_mapping_arguments(value); });
 }
 } // namespace
 
@@ -801,16 +811,22 @@ int run_slint_frontend(ApplicationService &application,
                 static_cast<std::size_t>(std::max(index, 0)));
             publish(adapter.state(), window);
         });
+        window->on_performance_assignment_argument_selected([&](int index) {
+            (void)adapter.select_performance_assignment_argument(
+                static_cast<std::size_t>(std::max(index, 0)));
+            publish(adapter.state(), window);
+        });
+        window->on_performance_assignment_argument_value_changed(
+            [&](slint::SharedString value) {
+                (void)adapter.set_performance_assignment_argument(
+                    adapter.state().performance.selected_editor_argument,
+                    value.data());
+                publish(adapter.state(), window);
+            });
         window->on_performance_assignment_confirm(
-            [&](slint::SharedString label, slint::SharedString behavior,
-                slint::SharedString n1, slint::SharedString v1,
-                slint::SharedString n2, slint::SharedString v2,
-                slint::SharedString n3, slint::SharedString v3,
-                slint::SharedString n4, slint::SharedString v4) {
-                (void)adapter.confirm_performance_assignment(
-                    label.data(), behavior.data(),
-                    {n1.data(), n2.data(), n3.data(), n4.data()},
-                    {v1.data(), v2.data(), v3.data(), v4.data()});
+            [&](slint::SharedString label, slint::SharedString behavior) {
+                (void)adapter.confirm_performance_assignment(label.data(),
+                                                             behavior.data());
                 publish(adapter.state(), window);
             });
         window->on_performance_assignment_cancel([&] {
@@ -1279,6 +1295,18 @@ int run_slint_frontend(ApplicationService &application,
         window->on_setup_controller_selected([&](int index) {
             (void)adapter.select_setup_controller(static_cast<std::size_t>(index)); publish(adapter.state(), window);
         });
+        window->on_setup_profile_selected([&](int index) {
+            (void)adapter.select_setup_profile(static_cast<std::size_t>(
+                std::max(index, 0)));
+            publish(adapter.state(), window);
+        });
+        window->on_setup_profile_action(
+            [&](slint::SharedString action, slint::SharedString value,
+                slint::SharedString path) {
+            (void)adapter.manage_setup_profile(action.data(), value.data(),
+                                               path.data());
+            publish(adapter.state(), window);
+        });
         window->on_setup_midi_learn([&](slint::SharedString operation,
                                         slint::SharedString control,
                                         slint::SharedString mode) {
@@ -1301,11 +1329,19 @@ int run_slint_frontend(ApplicationService &application,
                 static_cast<std::size_t>(index));
             publish(adapter.state(), window);
         });
-        window->on_setup_mapping_target_apply(
-            [&](slint::SharedString v1, slint::SharedString v2,
-                slint::SharedString v3, slint::SharedString v4) {
-            (void)adapter.apply_setup_mapping_target(
-                {v1.data(), v2.data(), v3.data(), v4.data()});
+        window->on_setup_mapping_argument_selected([&](int index) {
+            (void)adapter.select_setup_mapping_argument(
+                static_cast<std::size_t>(std::max(index, 0)));
+            publish(adapter.state(), window);
+        });
+        window->on_setup_mapping_argument_value_changed(
+            [&](slint::SharedString value) {
+            const auto index = adapter.state().setup.selected_mapping_argument;
+            (void)adapter.set_setup_mapping_argument(index, value.data());
+            publish(adapter.state(), window);
+        });
+        window->on_setup_mapping_target_apply([&] {
+            (void)adapter.apply_setup_mapping_target();
             publish(adapter.state(), window);
         });
         window->on_setup_mapping_source_apply(
@@ -1338,6 +1374,13 @@ int run_slint_frontend(ApplicationService &application,
             (void)adapter.refresh();
             publish(adapter.state(), window);
         });
+        window->on_setup_mapping_scope_apply(
+            [&](slint::SharedString context, bool shift, bool select,
+                slint::SharedString feedback) {
+                (void)adapter.configure_setup_mapping_scope(
+                    context.data(), shift, select, feedback.data());
+                publish(adapter.state(), window);
+            });
         window->on_setup_profile_save([&](slint::SharedString path) {
             (void)adapter.save_setup_controller_profile(path.data()); publish(adapter.state(), window);
         });
@@ -1482,8 +1525,7 @@ int run_slint_frontend(ApplicationService &application,
                             "generated Performance assignment editor did not publish");
                     window->invoke_performance_assignment_target_selected(0);
                     window->invoke_performance_assignment_confirm(
-                        "Generated P1", "one-shot", "", "", "", "",
-                        "", "", "", "");
+                        "Generated P1", "one-shot");
                     if (application.snapshot().performance_banks.banks.empty() ||
                         application.snapshot().performance_banks.banks.front()
                             .parameters.empty())
@@ -1496,8 +1538,7 @@ int run_slint_frontend(ApplicationService &application,
                             position, secondary, false);
                         window->invoke_performance_assignment_target_selected(0);
                         window->invoke_performance_assignment_confirm(
-                            "Generated parameter", "one-shot", "", "", "", "",
-                            "", "", "", "");
+                            "Generated parameter", "one-shot");
                     }
                     const auto assign_fill = [&](int position, bool secondary,
                                                  std::string_view behavior) {
@@ -1516,10 +1557,12 @@ int run_slint_frontend(ApplicationService &application,
                             throw std::runtime_error(
                                 "generated safe action picker omitted Fill");
                         window->invoke_performance_assignment_target_selected(fill_index);
+                        window->invoke_performance_assignment_argument_selected(0);
+                        window->invoke_performance_assignment_argument_value_changed(
+                            "true");
                         window->invoke_performance_assignment_confirm(
                             "Generated Fill",
-                            behavior == "momentary" ? "momentary" : "one-shot",
-                            "active", "true", "", "", "", "", "", "");
+                            behavior == "momentary" ? "momentary" : "one-shot");
                     };
                     assign_fill(0, false, "momentary");
                     assign_fill(7, false, "one-shot");
@@ -1533,8 +1576,7 @@ int run_slint_frontend(ApplicationService &application,
                                 "generated pad assignment form omitted launch targets");
                         window->invoke_performance_assignment_target_selected(0);
                         window->invoke_performance_assignment_confirm(
-                            "Generated pad", "one-shot", "", "", "", "",
-                            "", "", "", "");
+                            "Generated pad", "one-shot");
                     }
                     window->invoke_performance_assignment_open(1, false, false);
                     window->invoke_performance_assignment_cancel();
@@ -1654,7 +1696,30 @@ int run_slint_frontend(ApplicationService &application,
                         window->get_setup_mapping_targets()->row_count() > 0) {
                         window->invoke_setup_mapping_selected(0);
                         window->invoke_setup_mapping_target_selected(0);
-                        window->invoke_setup_mapping_target_apply("", "", "", "");
+                        window->invoke_setup_mapping_target_apply();
+                    }
+                    const auto dynamic_target = std::find_if(
+                        adapter.state().setup.mapping_targets.begin(),
+                        adapter.state().setup.mapping_targets.end(),
+                        [](const auto &target) {
+                            return target.arguments.size() > 4;
+                        });
+                    if (dynamic_target !=
+                        adapter.state().setup.mapping_targets.end()) {
+                        window->invoke_setup_mapping_target_selected(
+                            static_cast<int>(dynamic_target -
+                                adapter.state().setup.mapping_targets.begin()));
+                        if (!window->get_setup_mapping_arguments() ||
+                            window->get_setup_mapping_arguments()->row_count() !=
+                                dynamic_target->arguments.size())
+                            throw std::runtime_error(
+                                "generated typed-argument form truncated fields");
+                    }
+                    if (window->get_setup_profiles() &&
+                        window->get_setup_profiles()->row_count() > 0) {
+                        window->invoke_setup_profile_selected(0);
+                        window->invoke_setup_profile_action(
+                            "rename", "Generated profile", "");
                     }
                     window->invoke_setup_mapping_source_apply(
                         1, 0, 74, "cc-absolute", "knob.1", false, false);

@@ -199,3 +199,10 @@ update behavior are outside this task. Current limitations: no HID adapter,
 calibration is configured through the host API rather than persisted, hotplug
 uses bounded path polling rather than udev notifications, and physical USB
 latency/reliability is unmeasured.
+## Profile activation boundary
+
+The appliance profile library does not alter protocol 1.3 negotiation.
+Dedicated USB descriptors are still selected only after identity/inventory
+validation. Task 097F's live profile activation operation applies to MIDI
+endpoints; dedicated USB runtime switching remains an explicit follow-up and
+must preserve connection epochs and full-state synchronization.

@@ -512,3 +512,10 @@ The coordinator still has no profile-library authority for graphical
 create/rename/duplicate/select/remove/recovery. Save As for an active endpoint
 is supported, but presenting a fake frontend-only library would violate profile
 ownership. This remains an explicit RC2-006 blocker.
+## Profile library ownership
+
+Task 097F composes a bounded `ControllerProfileLibrary` beside the coordinator.
+Profiles are appliance definitions with stable IDs; endpoints and sessions are
+separate, and activation is explicit per endpoint. Built-ins are read-only but
+duplicable. See [Controller profile library](CONTROLLER_PROFILE_LIBRARY.md) for
+lifecycle, persistence, recovery and mapping-field details.

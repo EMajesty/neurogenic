@@ -210,3 +210,11 @@ Hardware-first frontends map controls to registered `navigation.*` actions.
 Participating frontends publish stable focus roles and consume each interaction
 request once; widget pointers and transient row indices are not persistent
 identities. Direct musical mappings do not require this contract.
+## Appliance profile lifecycle
+
+The coordinator now composes the production profile library rather than asking
+Setup to own a file list. Candidate definitions are fully validated before an
+active MIDI adapter is replaced. Replacement cancels ownership, advances the
+session revision, rejects input queued for the removed adapter and refreshes
+feedback. Editing a definition shared by two endpoints does not implicitly
+replace either session; activation is explicit and independent.

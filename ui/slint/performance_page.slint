@@ -1,6 +1,7 @@
 import { PageButton, TransportControls, TrackSelector, PerformanceSlot } from "components.slint";
 import { Theme } from "theme.slint";
 import { ScrollView, LineEdit } from "std-widgets.slint";
+import { SetupArgumentItem } from "setup_page.slint";
 
 export struct PadItem { label: string, status: string, active: bool, queued: bool, selected: bool, available: bool }
 export struct SceneItem { label: string, queued: bool }
@@ -23,18 +24,15 @@ export component PerformancePage inherits VerticalLayout {
     in property <bool> assignment-editor-visible: false;
     in-out property <string> assignment-label;
     in-out property <string> assignment-behavior: "one-shot";
-    in-out property <string> argument-1-name; in-out property <string> argument-1-value;
-    in-out property <string> argument-2-name; in-out property <string> argument-2-value;
-    in-out property <string> argument-3-name; in-out property <string> argument-3-value;
-    in-out property <string> argument-4-name; in-out property <string> argument-4-value;
-    in property <string> argument-1-hint; in property <string> argument-2-hint;
-    in property <string> argument-3-hint; in property <string> argument-4-hint;
+    in property <[SetupArgumentItem]> arguments;
+    in-out property <string> argument-value;
     callback transport-invoked(string); callback track-selected(int);
     callback return-arrangement(); callback quantization-invoked();
     callback scene-invoked(int); callback pad-invoked(int, bool);
     callback bank-selected(int); callback bank-action(string);
     callback assignment-open(int, bool, bool); callback assignment-target-selected(int);
-    callback assignment-confirm(string, string, string, string, string, string, string, string, string, string);
+    callback argument-selected(int); callback argument-value-changed(string);
+    callback assignment-confirm(string, string);
     callback assignment-cancel();
     callback assignment-clear(); callback pad-assignment-edit(int);
     spacing: 6px;
@@ -76,16 +74,12 @@ export component PerformancePage inherits VerticalLayout {
             VerticalLayout { horizontal-stretch: 1; spacing: 4px;
                 LineEdit { text <=> root.assignment-label; placeholder-text: "Optional user label"; }
                 LineEdit { text <=> root.assignment-behavior; placeholder-text: "one-shot / toggle / momentary"; }
-                HorizontalLayout { LineEdit { text <=> root.argument-1-name; placeholder-text: "Argument 1"; } LineEdit { text <=> root.argument-1-value; placeholder-text: "Value"; } }
-                Text { text: root.argument-1-hint; color: Theme.muted; overflow: elide; }
-                HorizontalLayout { LineEdit { text <=> root.argument-2-name; placeholder-text: "Argument 2"; } LineEdit { text <=> root.argument-2-value; placeholder-text: "Value"; } }
-                Text { text: root.argument-2-hint; color: Theme.muted; overflow: elide; }
-                HorizontalLayout { LineEdit { text <=> root.argument-3-name; placeholder-text: "Argument 3"; } LineEdit { text <=> root.argument-3-value; placeholder-text: "Value"; } }
-                Text { text: root.argument-3-hint; color: Theme.muted; overflow: elide; }
-                HorizontalLayout { LineEdit { text <=> root.argument-4-name; placeholder-text: "Argument 4"; } LineEdit { text <=> root.argument-4-value; placeholder-text: "Value"; } }
-                Text { text: root.argument-4-hint; color: Theme.muted; overflow: elide; }
+                ScrollView { height: min(100px, root.arguments.length * 30px); VerticalLayout { spacing: 2px;
+                    for argument[i] in root.arguments: PageButton { text: argument.label + (argument.required ? " *" : ""); selected: argument.selected; clicked => { root.argument-selected(i); } }
+                } }
+                LineEdit { text <=> root.argument-value; placeholder-text: root.arguments.length > 0 ? root.arguments[0].hint : "No typed arguments"; }
                 HorizontalLayout {
-                    PageButton { text: "Validate + Confirm"; implemented: root.assignment-targets.length > 0; clicked => { root.assignment-confirm(root.assignment-label, root.assignment-behavior, root.argument-1-name, root.argument-1-value, root.argument-2-name, root.argument-2-value, root.argument-3-name, root.argument-3-value, root.argument-4-name, root.argument-4-value); } }
+                    PageButton { text: "Validate + Confirm"; implemented: root.assignment-targets.length > 0; clicked => { root.argument-value-changed(root.argument-value); root.assignment-confirm(root.assignment-label, root.assignment-behavior); } }
                     PageButton { text: "Clear"; clicked => { root.assignment-clear(); } }
                     PageButton { text: "Cancel"; clicked => { root.assignment-cancel(); } }
                 }

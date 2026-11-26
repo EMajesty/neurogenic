@@ -52,7 +52,7 @@ struct ControllerCoordinator::MidiEndpoint {
     }
 };
 ControllerCoordinator::ControllerCoordinator(ApplicationService &application)
-    : application_(&application) {}
+    : application_(&application), profile_library_(application) {}
 ControllerCoordinator::~ControllerCoordinator() { shutdown(); }
 bool ControllerCoordinator::add_serial(std::string endpoint_id,
                                        std::filesystem::path path,
@@ -130,6 +130,73 @@ bool ControllerCoordinator::add_midi(std::string endpoint_id,
         error = "MIDI controller endpoint identity is empty or duplicate";
         return false;
     }
+    error.clear();
+    return true;
+}
+
+bool ControllerCoordinator::activate_midi_profile(std::string_view endpoint_id,
+                                                  std::string_view profile_id,
+                                                  std::string &error) {
+    const auto entry = profile_library_.find(profile_id);
+    if (!entry || !entry->valid) {
+        error = "controller profile is unavailable or invalid";
+        return false;
+    }
+    std::shared_ptr<MidiEndpoint> current;
+    {
+        const std::lock_guard lock(mutex_);
+        const auto found = std::find_if(midi_.begin(), midi_.end(),
+            [&](const auto &value) { return value->id == endpoint_id; });
+        if (found != midi_.end()) current = *found;
+    }
+    if (!current || !current->mapper || current->mapper_lifetime.expired()) {
+        error = "MIDI controller endpoint is unavailable";
+        return false;
+    }
+    if (entry->profile.controller.device_id != current->profile.controller.device_id ||
+        entry->profile.controller.capabilities.controller_id !=
+            current->profile.controller.capabilities.controller_id) {
+        error = "controller profile is incompatible with the endpoint descriptor";
+        return false;
+    }
+    auto replacement = std::make_shared<MidiEndpoint>(
+        *application_, current->id, entry->profile, current->descriptor);
+    if (!replacement->session.valid()) {
+        error = replacement->session.state().error;
+        return false;
+    }
+    for (const auto &binding : replacement->profile.midi)
+        if (!replacement->adapter->add(binding, error)) return false;
+    // Advance the new session beyond its construction generation before it can
+    // accept input; queued input owned by the old adapter cannot reach it.
+    replacement->adapter->disconnect();
+    const auto previous_generation = current->session.state().local_revision;
+    do {
+        replacement->adapter->reconnect();
+    } while (replacement->adapter->session_state().local_revision <=
+             previous_generation);
+    if (!current->mapper->add_control_surface(replacement->adapter)) {
+        error = "replacement MIDI controller adapter is already registered";
+        return false;
+    }
+    replacement->mapper = current->mapper;
+    replacement->mapper_lifetime = current->mapper_lifetime;
+    {
+        const std::lock_guard lock(mutex_);
+        const auto found = std::find(midi_.begin(), midi_.end(), current);
+        if (found == midi_.end()) {
+            current->mapper->remove_control_surface(replacement->adapter);
+            error = "controller endpoint changed during activation";
+            return false;
+        }
+        *found = replacement;
+    }
+    current->adapter->disconnect();
+    current->mapper->remove_control_surface(current->adapter);
+    current->mapper = nullptr;
+    if (!profile_library_.associate(std::string(endpoint_id),
+                                    std::string(profile_id), error))
+        return false;
     error.clear();
     return true;
 }

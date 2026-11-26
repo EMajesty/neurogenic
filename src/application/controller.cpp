@@ -630,6 +630,18 @@ bool validate_controller_configuration(
                     binding.control_id;
             return false;
         }
+        if (!binding.feedback_id.empty() &&
+            !binding.feedback_id.starts_with("parameter.display.")) {
+            const auto feedback = std::find_if(
+                descriptor.controls.begin(), descriptor.controls.end(),
+                [&](const auto &value) { return value.id == binding.feedback_id; });
+            if (feedback == descriptor.controls.end() ||
+                feedback->feedback.empty()) {
+                error = "profile feedback destination is absent or has no "
+                        "supported feedback capability: " + binding.feedback_id;
+                return false;
+            }
+        }
         if (!binding.parameter_id.empty() &&
             std::none_of(snapshot.parameters.begin(), snapshot.parameters.end(),
                          [&](const auto &value) {

@@ -1,4 +1,5 @@
 #include "neurogenic/application/controller_coordinator.hpp"
+#include "neurogenic/application/reference_controller.hpp"
 #include "neurogenic/application/lifecycle.hpp"
 #include "neurogenic/audio/device.hpp"
 #include "neurogenic/audio/engine.hpp"
@@ -453,6 +454,43 @@ int main(int argc, char **argv) {
         neurogenic::ApplicationService application(engine, timeline_service,
                                                    samples);
         neurogenic::ControllerCoordinator controllers(application);
+        const auto profile_library_path =
+            preference_path.parent_path() / "controller-profiles";
+        {
+            std::string library_error;
+            auto reference_descriptor =
+                neurogenic::reference_controller_v2_descriptor();
+            if (!controllers.profile_library().register_descriptor(
+                    reference_descriptor, library_error))
+                throw std::runtime_error(library_error);
+            neurogenic::MidiControllerProfile reference_profile;
+            reference_profile.controller =
+                neurogenic::reference_controller_v2_profile();
+            if (!controllers.profile_library().create(
+                    "reference-v2-default", "Reference Controller V2 default",
+                    reference_descriptor.descriptor_id,
+                    std::move(reference_profile), true, library_error))
+                throw std::runtime_error(library_error);
+            auto generic = neurogenic::generic_midi_profile();
+            generic.device_id = generic.capabilities.controller_id;
+            neurogenic::ControllerDeviceDescriptor generic_descriptor;
+            generic_descriptor.descriptor_id = "generic-midi";
+            generic_descriptor.device_id = generic.device_id;
+            generic_descriptor.display_name = "Generic MIDI controller";
+            generic_descriptor.transport = neurogenic::ControllerTransport::midi;
+            generic_descriptor.controls = generic.capabilities.controls;
+            if (!controllers.profile_library().register_descriptor(
+                    generic_descriptor, library_error))
+                throw std::runtime_error(library_error);
+            neurogenic::MidiControllerProfile generic_profile;
+            generic_profile.controller = generic;
+            generic_profile.controller.profile_id = "generic-midi-default";
+            if (!controllers.profile_library().create(
+                    "generic-midi-default", "Generic MIDI default",
+                    generic_descriptor.descriptor_id,
+                    std::move(generic_profile), true, library_error))
+                throw std::runtime_error(library_error);
+        }
         std::vector<std::pair<neurogenic::MidiPortId, std::string>>
             controller_midi_inputs;
         std::vector<std::pair<neurogenic::MidiPortId, std::string>>
@@ -497,10 +535,37 @@ int main(int argc, char **argv) {
                     throw std::runtime_error("MIDI controller profile: " +
                                              profile_error);
             }
+            neurogenic::ControllerDeviceDescriptor profile_descriptor;
+            profile_descriptor.descriptor_id = "midi.profile." + endpoint_id;
+            profile_descriptor.device_id = profile.controller.device_id.empty()
+                ? profile.controller.capabilities.controller_id
+                : profile.controller.device_id;
+            profile_descriptor.display_name = profile.controller.capabilities.name;
+            profile_descriptor.transport = neurogenic::ControllerTransport::midi;
+            profile_descriptor.controls = profile.controller.capabilities.controls;
+            if (!controllers.profile_library().register_descriptor(
+                    profile_descriptor, profile_error))
+                throw std::runtime_error("MIDI controller descriptor: " +
+                                         profile_error);
+            const auto library_id = endpoint_id + "-imported";
+            if (!controllers.profile_library().find(library_id) &&
+                !controllers.profile_library().create(
+                    library_id, endpoint_id, profile_descriptor.descriptor_id,
+                    profile, false, profile_error))
+                throw std::runtime_error("MIDI controller library: " +
+                                         profile_error);
             if (!controllers.add_midi(endpoint_id, std::move(profile), mapper,
                                       profile_error))
                 throw std::runtime_error("MIDI controller profile: " +
                                          profile_error);
+        }
+        if (std::filesystem::exists(profile_library_path / "library.ngcl")) {
+            std::string library_error;
+            if (!controllers.profile_library().load(profile_library_path,
+                                                     library_error))
+                lifecycle.issue(neurogenic::StartupStage::configuration,
+                                "controller profile library: " + library_error,
+                                true);
         }
         for (const auto &[port, selector] : controller_midi_inputs)
             if (port <= midi_inputs.size() && !midi_inputs[port - 1].empty() &&
@@ -818,6 +883,16 @@ int main(int argc, char **argv) {
                             endpoint.connected ? "Connected" : "Disconnected",
                             endpoint.error, learn_status, endpoint.connected,
                             endpoint.session.feedback_revision != 0, false});
+                        if (const auto learn = controllers.midi_learn_status(endpoint.id);
+                            learn && learn->learned) {
+                            const auto &captured = *learn->learned;
+                            result.controllers.back().learn_preview =
+                                "Port " + std::to_string(captured.port) +
+                                " · Ch " + std::to_string(captured.channel + 1) +
+                                " · " + std::to_string(captured.number) +
+                                " · mode " + std::to_string(
+                                    static_cast<int>(captured.mode));
+                        }
                         if (const auto profile = controllers.midi_profile(endpoint.id)) {
                             for (std::size_t i = 0; i < profile->midi.size(); ++i) {
                                 const auto &binding = profile->midi[i];
@@ -855,9 +930,30 @@ int main(int argc, char **argv) {
                                     presented.fine_scale = target->fine_scale;
                                     presented.acceleration = target->acceleration;
                                     presented.arguments = target->arguments;
+                                    presented.context = target->context;
+                                    presented.feedback_id = target->feedback_id;
+                                    presented.shift = target->shift;
+                                    presented.select = target->select;
                                 }
                             }
                         }
+                    }
+                    const auto associations =
+                        controllers.profile_library().associations();
+                    for (const auto &entry :
+                         controllers.profile_library().entries()) {
+                        std::string associated;
+                        for (const auto &association : associations)
+                            if (association.profile_id == entry.id) {
+                                if (!associated.empty()) associated += ", ";
+                                associated += association.endpoint_id;
+                            }
+                        result.profiles.push_back({entry.id, entry.name,
+                            entry.descriptor_id,
+                            entry.valid ? (entry.available ? "Valid" : "Unavailable")
+                                        : "Invalid: " + entry.error,
+                            associated, entry.built_in, entry.available,
+                            !associated.empty(), false});
                     }
                     for (const auto &issue : lifecycle.snapshot().issues)
                         result.lifecycle_warnings.push_back(issue.message);
@@ -939,6 +1035,52 @@ int main(int argc, char **argv) {
                         return controllers.save_midi_profile(
                             endpoint, std::filesystem::path(path), save_error);
                     };
+                slint_options.setup.profile_action =
+                    [&](std::string_view action, std::string_view selected,
+                        std::string_view value, std::string_view path,
+                        std::string &profile_error) {
+                    auto &library = controllers.profile_library();
+                    const auto directory = path.empty()
+                        ? profile_library_path : std::filesystem::path(path);
+                    if (action == "rename")
+                        return library.rename(selected, std::string(value),
+                                              profile_error);
+                    if (action == "duplicate")
+                        return library.duplicate(selected, std::string(value),
+                            std::string(value), profile_error);
+                    if (action == "activate") {
+                        if (value.empty()) {
+                            profile_error = "Select a connected endpoint first";
+                            return false;
+                        }
+                        return controllers.activate_midi_profile(
+                            value, selected, profile_error);
+                    }
+                    if (action == "save") return library.save(directory, profile_error);
+                    if (action == "reload") return library.load(directory, profile_error);
+                    if (action == "recover")
+                        return library.restore_known_valid(selected, directory,
+                                                           profile_error);
+                    if (action == "remove")
+                        return library.remove(selected, false, profile_error);
+                    if (action == "export")
+                        return library.export_profile(selected, directory,
+                                                      profile_error);
+                    if (action == "import")
+                        return library.import_profile(directory,
+                            std::string(value), std::string(value),
+                            "generic-midi", profile_error);
+                    if (action == "create") {
+                        auto profile = neurogenic::MidiControllerProfile{};
+                        profile.controller = neurogenic::generic_midi_profile();
+                        profile.controller.profile_id = std::string(value);
+                        return library.create(std::string(value),
+                            std::string(value), "generic-midi",
+                            std::move(profile), false, profile_error);
+                    }
+                    profile_error = "Unknown profile-library operation";
+                    return false;
+                };
                 slint_options.setup.request_exit = [&] {
                     if (!approve_shutdown()) return false;
                     running = false;

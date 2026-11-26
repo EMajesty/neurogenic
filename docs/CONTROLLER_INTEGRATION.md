@@ -121,3 +121,10 @@ reconnect, page, modifiers, pickup, feedback and diagnostics while sharing
 Text-display feedback has a generic representation but CDC 1.2 has only its
 existing contextual-label encoding. RP2040 firmware and physical electrical,
 timing, LED, reconnect and multi-device tests remain unimplemented.
+## Library persistence and recovery
+
+`.ngc` remains the profile format. `library.ngcl` schema 1 adds only appliance
+metadata: stable profile identity/name, descriptor identity, built-in state and
+endpoint associations. Atomic temporary-file replacement and known-valid
+copies preserve the last usable configuration after malformed input or a failed
+candidate. Imports never rewrite their source files.

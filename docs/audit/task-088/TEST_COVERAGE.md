@@ -182,3 +182,11 @@ V2 input, session arbitration, shared modal/focus state and the Slint adapter.
 Generated testing publishes focus, DATA role, safe modal ownership and restored
 focus. See [`TASK_097A_VALIDATION.md`](TASK_097A_VALIDATION.md). Coordinate touch
 and physical validation remain NOT RUN.
+## Task 097F profile-library coverage
+
+`neurogenic_controller_profile_library_tests` covers stable identity,
+independent duplication, disconnected definition validation, two endpoints,
+independent dispatch, explicit activation, generation advancement, persistence,
+fresh restoration, corrupt-file recovery and active removal. Slint adapter and
+rendered tests cover library callbacks and descriptor forms beyond four fields.
+Physical devices remain NOT RUN.

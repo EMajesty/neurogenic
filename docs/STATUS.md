@@ -1007,3 +1007,12 @@ partial at an exact service boundary: the coordinator does not yet own a
 multi-profile create/rename/duplicate/select/remove/recovery library, and the
 current profile schema has no detailed context/modifier or temporal RGB
 feedback authoring records. Physical validation remains **NOT RUN**.
+## Task 097F controller profile library (2026-11-26)
+
+Appliance-owned controller profiles now have stable library identities,
+bounded lifecycle operations, explicit per-endpoint activation, atomic `.ngc`
+and manifest persistence, known-valid recovery, offline authoring and generated
+Setup presentation. Setup and Performance typed-argument forms are descriptor
+driven rather than limited to four fields. RC2-006/AUD2-006 are substantially
+implemented in software; dedicated USB runtime switching, conservative layered
+source conflicts and physical validation remain explicit limitations.

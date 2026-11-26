@@ -737,3 +737,10 @@ one generation-owned modal. It contains no widgets, geometry or engine pointers.
 Frontends interpret requests locally; semantic operations remain in
 `ApplicationService`. Destructive modals capture a stable target and restore
 prior focus only after an exact-generation close.
+## Controller configuration authority
+
+`ControllerProfileLibrary` owns appliance definitions and associations;
+`ControllerCoordinator` owns endpoint activation; `ControllerSession` owns
+live input/feedback; `ApplicationService` owns semantics; projects own
+Performance assignments. This boundary prevents profile lifecycle operations
+from entering musical history or replacing project data.
