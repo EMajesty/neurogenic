@@ -1,5 +1,9 @@
 # Task 088 prioritized backlog
 
+Task 098A closes base metronome, recording count-in and tap tempo. Dedicated
+cue routing, live-loop count-in, preference persistence and external-clock
+hardware validation remain. Task 098B covers solo/arm and unified panic.
+
 Severity and release relevance are independent. “First” means required for the
 first usable standalone-instrument claim.
 

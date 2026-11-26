@@ -1029,6 +1029,54 @@ bool AudioEngine::set_fill(bool active) noexcept {
     }
     return true;
 }
+bool AudioEngine::publish_metronome(
+    const MetronomeConfiguration &configuration) noexcept {
+    if (!std::isfinite(configuration.level) || configuration.level < 0.0F ||
+        configuration.level > 1.0F ||
+        configuration.microseconds_per_quarter == 0 ||
+        configuration.meter_numerator == 0 ||
+        configuration.meter_denominator == 0)
+        return false;
+    MetronomeCommand command;
+    command.type = MetronomeCommand::Type::configure;
+    command.configuration = configuration;
+    return metronome_commands_.push(command);
+}
+bool AudioEngine::begin_count_in(std::uint64_t start_frame,
+                                 std::uint64_t end_frame) noexcept {
+    if (end_frame <= start_frame)
+        return false;
+    MetronomeCommand command;
+    command.type = MetronomeCommand::Type::begin_count_in;
+    command.count_in_start = start_frame;
+    command.count_in_end = end_frame;
+    return metronome_commands_.push(command);
+}
+void AudioEngine::cancel_count_in() noexcept {
+    MetronomeCommand command;
+    command.type = MetronomeCommand::Type::cancel_count_in;
+    (void)metronome_commands_.push(command);
+}
+MetronomeState AudioEngine::metronome_state() const noexcept {
+    MetronomeState result;
+    result.configuration.enabled =
+        published_metronome_enabled_.load(std::memory_order_acquire);
+    result.configuration.level =
+        published_metronome_level_.load(std::memory_order_acquire);
+    result.count_in_active =
+        published_count_in_active_.load(std::memory_order_acquire);
+    result.beat_active =
+        published_metronome_beat_.load(std::memory_order_acquire);
+    result.downbeat =
+        published_metronome_downbeat_.load(std::memory_order_acquire);
+    result.click_count =
+        published_metronome_click_count_.load(std::memory_order_acquire);
+    result.count_in_start_frame =
+        published_count_in_start_.load(std::memory_order_acquire);
+    result.count_in_end_frame =
+        published_count_in_end_.load(std::memory_order_acquire);
+    return result;
+}
 
 void AudioEngine::start_voice(std::uint8_t note, float velocity, TrackId track,
                               EventId event, std::uint64_t occurrence,
@@ -1330,6 +1378,21 @@ void AudioEngine::process(std::span<float> left,
                                     : std::chrono::steady_clock::time_point{};
     processing_started_.store(true, std::memory_order_release);
     const auto frames = std::min(left.size(), right.size());
+    MetronomeCommand metronome_command;
+    while (metronome_commands_.pop(metronome_command)) {
+        if (metronome_command.type == MetronomeCommand::Type::configure) {
+            metronome_configuration_ = metronome_command.configuration;
+            metronome_next_beat_ = 0;
+        } else if (metronome_command.type ==
+                   MetronomeCommand::Type::begin_count_in) {
+            metronome_count_in_start_ = metronome_command.count_in_start;
+            metronome_count_in_end_ = metronome_command.count_in_end;
+            metronome_next_beat_ = 0;
+        } else {
+            metronome_count_in_start_ = metronome_count_in_end_ = 0;
+            metronome_voice_active_ = false;
+        }
+    }
     std::fill(left.begin(), left.end(), 0);
     std::fill(right.begin(), right.end(), 0);
     mixer_.apply_pending_publications();
@@ -1603,6 +1666,8 @@ void AudioEngine::process(std::span<float> left,
             published_fill_.store(fill, std::memory_order_release);
         }
     }
+    const auto metronome_transport_start =
+        accept_external_clock_ ? external_start_frame : transport_frame_;
 
     Trigger incoming;
     while (pending_trigger_count_ < pending_triggers_.size() &&
@@ -2453,6 +2518,94 @@ void AudioEngine::process(std::span<float> left,
         recorder->capture_internal(RecordingSource::master_post_effects,
                                    left.first(frames), right.first(frames),
                                    callback_frame);
+    // The click is a monitor signal, not musical project material. Rendering
+    // after every recorder tap prevents it entering resampling, stems, loops,
+    // or track recordings while the normal master route still reaches the
+    // configured physical outputs.
+    const auto count_in_active =
+        metronome_count_in_end_ > metronome_count_in_start_ &&
+        callback_frame < metronome_count_in_end_ &&
+        callback_frame + frames > metronome_count_in_start_;
+    const auto click_enabled =
+        (metronome_configuration_.enabled && transport_playing_) ||
+        count_in_active;
+    const auto block_clock_start = count_in_active
+                                       ? callback_frame -
+                                             metronome_count_in_start_
+                                       : metronome_transport_start;
+    const auto numerator = static_cast<__uint128_t>(rate_) *
+                           metronome_configuration_.microseconds_per_quarter *
+                           4U;
+    const auto denominator = static_cast<__uint128_t>(1'000'000U) *
+                             std::max<std::uint16_t>(
+                                 1, metronome_configuration_.meter_denominator);
+    const auto boundary = [&](std::uint64_t beat) noexcept {
+        const auto value = static_cast<__uint128_t>(beat) * numerator;
+        return static_cast<std::uint64_t>((value + denominator - 1) /
+                                          denominator);
+    };
+    auto beat = numerator ? static_cast<std::uint64_t>(
+                                (static_cast<__uint128_t>(block_clock_start) *
+                                 denominator) /
+                                numerator)
+                          : 0;
+    while (boundary(beat) < block_clock_start)
+        ++beat;
+    bool clicked{}, downbeat{};
+    for (std::size_t frame = 0; frame < frames; ++frame) {
+        const auto absolute = block_clock_start + frame;
+        if (click_enabled && boundary(beat) == absolute &&
+            (!count_in_active || callback_frame + frame >=
+                                     metronome_count_in_start_)) {
+            metronome_voice_frame_ = 0;
+            metronome_voice_active_ = true;
+            metronome_voice_downbeat_ =
+                beat % std::max<std::uint16_t>(
+                           1, metronome_configuration_.meter_numerator) ==
+                0;
+            clicked = true;
+            downbeat = metronome_voice_downbeat_;
+            published_metronome_click_count_.fetch_add(
+                1, std::memory_order_relaxed);
+            ++beat;
+        }
+        if (!metronome_voice_active_)
+            continue;
+        const auto duration = std::max<std::uint32_t>(1, rate_ / 80U);
+        if (metronome_voice_frame_ >= duration) {
+            metronome_voice_active_ = false;
+            continue;
+        }
+        const auto frequency = metronome_voice_downbeat_ ? 1760.0 : 1320.0;
+        const auto phase = 6.2831853071795864769 * frequency *
+                           metronome_voice_frame_ / rate_;
+        const auto envelope =
+            1.0F - static_cast<float>(metronome_voice_frame_) / duration;
+        const auto sample = static_cast<float>(std::sin(phase)) * envelope *
+                            envelope *
+                            std::clamp(metronome_configuration_.level, 0.0F,
+                                       1.0F) *
+                            (metronome_voice_downbeat_ ? 0.9F : 0.65F);
+        left[frame] += sample;
+        right[frame] += sample;
+        ++metronome_voice_frame_;
+    }
+    published_metronome_enabled_.store(metronome_configuration_.enabled,
+                                       std::memory_order_release);
+    published_metronome_level_.store(metronome_configuration_.level,
+                                     std::memory_order_release);
+    published_count_in_active_.store(count_in_active,
+                                     std::memory_order_release);
+    published_metronome_beat_.store(clicked, std::memory_order_release);
+    published_metronome_downbeat_.store(clicked && downbeat,
+                                        std::memory_order_release);
+    published_count_in_start_.store(metronome_count_in_start_,
+                                    std::memory_order_release);
+    published_count_in_end_.store(metronome_count_in_end_,
+                                  std::memory_order_release);
+    if (metronome_count_in_end_ &&
+        callback_frame + frames >= metronome_count_in_end_)
+        metronome_count_in_start_ = metronome_count_in_end_ = 0;
     mixer_.route_master_output(
         left.first(frames), right.first(frames),
         physical_output_

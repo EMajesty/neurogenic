@@ -1,5 +1,9 @@
 # Audio recording and internal resampling
 
+Recording count-in schedules the existing recorder start boundary rather than
+acting as a display countdown. See
+[`METRONOME_AND_COUNT_IN.md`](METRONOME_AND_COUNT_IN.md).
+
 Reference Controller V2 Task 096C binds REC to the existing configured
 recording coordinator only. It does not infer or switch recording families,
 sources or destinations. SHIFT+REC and REC MODE remain unavailable until a

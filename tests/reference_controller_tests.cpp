@@ -295,6 +295,21 @@ int main() try {
     require(!application.snapshot_shared()->fill_active,
             "momentary Fill release did not restore state");
 
+    send(input("transport.click", true, sequence++, current_generation));
+    dispatch();
+    send(input("transport.click", false, sequence++, current_generation));
+    require(application.snapshot_shared()->metronome_enabled,
+            "CLICK did not toggle authoritative metronome state");
+
+    const auto taps_before =
+        application.snapshot_shared()->tap_tempo_observations;
+    send(input("transport.tap", true, sequence++, current_generation));
+    send(input("transport.tap", false, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->tap_tempo_observations ==
+                taps_before + 1,
+            "plain TAP did not submit exactly one observation");
+
     const auto tempo = application.snapshot_shared()->tempo_bpm;
     send(input("transport.tap", true, sequence++, current_generation));
     send(turn("data", 2.0, sequence++, current_generation));

@@ -1,5 +1,8 @@
 # Next development roadmap
 
+Task 098A begins musical capability work. Task 098B should implement per-track
+solo/record arm and unified voice/MIDI panic; OS-002 remains independent.
+
 ## Post-097D bounded workstreams
 
 1. **Task 097F — controller profile library:** coordinator-owned stable profile

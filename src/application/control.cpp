@@ -150,6 +150,15 @@ ActionRegistry::ActionRegistry() {
     add(action("transport.play.v1", "Play", "Transport"));
     add(action("transport.stop.v1", "Stop", "Transport"));
     add(action("transport.restart.v1", "Restart", "Transport"));
+    add(action("transport.metronome-toggle.v1", "Toggle metronome", "Transport"));
+    add(action("transport.metronome-enabled-set.v1", "Set metronome", "Transport",
+               {{"enabled", ValueType::boolean}}));
+    add(action("transport.count-in-set.v1", "Set recording count-in", "Recording",
+               {{"bars", ValueType::integer}}));
+    add(action("transport.count-in-configure.v1", "Configure recording count-in",
+               "Recording"));
+    add(action("transport.tap-tempo.v1", "Tap tempo", "Transport",
+               {{"timestamp_ns", ValueType::integer, false}}));
     add(action("arrangement.seek.v1", "Seek arrangement", "Arrangement",
                {{"tick", ValueType::integer}}));
     add(action("track.select.v1", "Select track", "Tracks",
@@ -1467,6 +1476,10 @@ ApplicationService::ApplicationService(AudioEngine &engine,
                                     false,
                                     {}},
                                    error);
+    parameters_.register_parameter({"transport.metronome-level",
+                                    "Click level", "", ParameterType::real,
+                                    0.0, 1.0, 0.35, 0.35, 0.01, true, false,
+                                    false, {}}, error);
     parameters_.register_parameter({"performance.xy.x",
                                     "X axis",
                                     "",
@@ -2056,6 +2069,15 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                    timeline_.commit(std::move(transaction),
                                     TimelineCommitPolicy::next_audio_callback,
                                     tempo_error);
+        }
+        if (id == "transport.metronome-level") {
+            const auto descriptor = parameters_.get(id);
+            if (!descriptor ||
+                !std::holds_alternative<double>(descriptor->current_value))
+                return false;
+            metronome_configuration_.level = static_cast<float>(
+                std::get<double>(descriptor->current_value));
+            return engine_.publish_metronome(metronome_configuration_);
         }
         if (id.rfind("mixer.", 0) != 0) {
             if (!publish_dsp_parameter(engine_, parameters_, id))
@@ -2725,14 +2747,14 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             auto start_tick = before.transport_tick;
             if (recording_configuration_.quantization !=
                 RecordingQuantization::immediate) {
-                if (!before.playing)
+                if (!before.playing && count_in_bars_ == 0)
                     error = "quantized recording requires a running transport";
-                const auto quantum =
-                    recording_configuration_.quantization ==
-                            RecordingQuantization::beat
-                        ? static_cast<MusicalTick>(ticks_per_quarter)
-                        : bar_ticks;
-                if (error.empty())
+                const auto quantum = recording_configuration_.quantization ==
+                                             RecordingQuantization::beat
+                                         ? static_cast<MusicalTick>(
+                                               ticks_per_quarter)
+                                         : bar_ticks;
+                if (error.empty() && before.playing)
                     start_tick = ((start_tick / quantum) + 1) * quantum;
             }
             const auto frames_for_ticks = [&](MusicalTick ticks) {
@@ -2744,9 +2766,11 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                      1'000'000.0L)));
             };
             if (error.empty()) {
+                const auto count_in_ticks = bar_ticks * count_in_bars_;
                 recording_configuration_.start_frame =
                     engine_.callback_frame_position() +
-                    frames_for_ticks(start_tick - before.transport_tick);
+                    frames_for_ticks(start_tick - before.transport_tick) +
+                    frames_for_ticks(count_in_ticks);
                 recording_configuration_.fixed_frames =
                     recording_fixed_bars_
                         ? frames_for_ticks(bar_ticks * recording_fixed_bars_)
@@ -2754,7 +2778,16 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 recording_.arm(recording_configuration_, error);
             }
         } else if (command.action_id == "recording.start.v1") {
-            recording_.start(engine_.callback_frame_position(), error);
+            if (count_in_bars_ == 0)
+                recording_.start(engine_.callback_frame_position(), error);
+            else {
+                const auto now = engine_.callback_frame_position();
+                if (!engine_.begin_count_in(
+                        now, recording_configuration_.start_frame))
+                    error = "count-in command queue is full";
+                else if (!recording_.start_scheduled(error))
+                    engine_.cancel_count_in();
+            }
         } else if (command.action_id == "recording.stop.v1") {
             if (recording_configuration_.quantization ==
                 RecordingQuantization::immediate)
@@ -2786,6 +2819,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             }
         } else if (command.action_id == "recording.cancel.v1") {
             recording_.cancel();
+            engine_.cancel_count_in();
         } else if (command.action_id == "recording.save.v1") {
             const auto format_found = command.arguments.find("format");
             auto format = RecordingWavFormat::pcm16;
@@ -5397,7 +5431,66 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         return execute_locked(lock, sequence);
     }
     bool changed = false;
-    if (command.action_id == "transport.play.v1") {
+    if (command.action_id == "transport.metronome-toggle.v1" ||
+        command.action_id == "transport.metronome-enabled-set.v1") {
+        metronome_configuration_.enabled =
+            command.action_id == "transport.metronome-toggle.v1"
+                ? !metronome_configuration_.enabled
+                : *argument<bool>(command, "enabled");
+        if (!engine_.publish_metronome(metronome_configuration_))
+            error = "metronome command queue is full";
+        else
+            changed = true;
+    } else if (command.action_id == "transport.count-in-set.v1") {
+        const auto bars = *argument<std::int64_t>(command, "bars");
+        if (bars != 0 && bars != 1 && bars != 2 && bars != 4)
+            error = "count-in bars must be 0, 1, 2, or 4";
+        else {
+            count_in_bars_ = static_cast<std::uint8_t>(bars);
+            changed = true;
+        }
+    } else if (command.action_id == "transport.count-in-configure.v1") {
+        count_in_bars_ = count_in_bars_ == 0 ? 1
+                         : count_in_bars_ == 1 ? 2
+                         : count_in_bars_ == 2 ? 4
+                                               : 0;
+        state_.interaction.focus_identity = "transport.count-in";
+        state_.interaction.navigation_scope = "recording";
+        state_.interaction.data_role = "Count-in bars";
+        ++state_.interaction.revision;
+        changed = true;
+    } else if (command.action_id == "transport.tap-tempo.v1") {
+        if (before.midi.clock_source != MidiClockSource::internal)
+            error = "tap tempo is unavailable while external clock is authoritative";
+        else {
+            const auto supplied = argument<std::int64_t>(command, "timestamp_ns");
+            const auto now = supplied && *supplied > 0
+                                 ? static_cast<std::uint64_t>(*supplied)
+                                 : static_cast<std::uint64_t>(
+                                       std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                           std::chrono::steady_clock::now().time_since_epoch())
+                                           .count());
+            ++tap_tempo_observations_;
+            if (const auto bpm = tap_tempo_.observe(now)) {
+                auto transaction = timeline_.edit();
+                if (!transaction.set_tempo_bpm(*bpm, error) ||
+                    !timeline_.commit(std::move(transaction),
+                                      TimelineCommitPolicy::next_audio_callback,
+                                      error)) {
+                } else {
+                    std::string ignored;
+                    parameters_.set("transport.tempo", *bpm, ignored);
+                    metronome_configuration_.microseconds_per_quarter =
+                        static_cast<std::uint32_t>(
+                            std::llround(60'000'000.0 / *bpm));
+                    (void)engine_.publish_metronome(
+                        metronome_configuration_);
+                    changed = true;
+                }
+            } else
+                changed = true;
+        }
+    } else if (command.action_id == "transport.play.v1") {
         engine_.play();
         changed = true;
     } else if (command.action_id == "transport.stop.v1") {
@@ -5405,6 +5498,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             ArrangementRecordPhase::recording)
             arrangement_recording_.stop(state_.transport_tick, error);
         engine_.stop();
+        engine_.cancel_count_in();
+        if (recording_.state() == RecordingState::armed)
+            recording_.cancel();
         changed = true;
     } else if (command.action_id == "transport.restart.v1") {
         if (arrangement_recording_.status().phase ==
@@ -5436,7 +5532,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         }
     } else if (command.action_id == "transport.tempo-set.v1") {
         auto transaction = timeline_.edit();
-        if (!transaction.set_tempo_bpm(*argument<double>(command, "bpm"),
+        if (before.midi.clock_source != MidiClockSource::internal)
+            error = "manual tempo is unavailable while external clock is authoritative";
+        else if (!transaction.set_tempo_bpm(*argument<double>(command, "bpm"),
                                        error) ||
             !timeline_.commit(std::move(transaction),
                               TimelineCommitPolicy::next_audio_callback,
@@ -5445,6 +5543,10 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             std::string ignored;
             parameters_.set("transport.tempo",
                             *argument<double>(command, "bpm"), ignored);
+            metronome_configuration_.microseconds_per_quarter =
+                static_cast<std::uint32_t>(std::llround(
+                    60'000'000.0 / *argument<double>(command, "bpm")));
+            (void)engine_.publish_metronome(metronome_configuration_);
             changed = true;
         }
     } else if (command.action_id == "sample.load.v1" ||
@@ -8864,7 +8966,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 }
             } else if (state_.focused_element == "transport") {
                 const auto previous = parameters_.get("transport.tempo");
-                if (parameters_.adjust("transport.tempo", delta, error)) {
+                if (before.midi.clock_source != MidiClockSource::internal)
+                    error = "manual tempo is unavailable while external clock is authoritative";
+                else if (parameters_.adjust("transport.tempo", delta, error)) {
                     if (!publish_parameter("transport.tempo")) {
                         std::string ignored;
                         if (previous)
@@ -10534,6 +10638,36 @@ void ApplicationService::synchronize_locked() const {
         timeline.timeline.transport.time_signature_numerator;
     state_.time_signature_denominator =
         timeline.timeline.transport.time_signature_denominator;
+    const auto timeline_tempo =
+        timeline.timeline.transport.microseconds_per_quarter;
+    const auto timeline_numerator =
+        timeline.timeline.transport.time_signature_numerator;
+    const auto timeline_denominator =
+        timeline.timeline.transport.time_signature_denominator;
+    if (metronome_configuration_.microseconds_per_quarter != timeline_tempo ||
+        metronome_configuration_.meter_numerator != timeline_numerator ||
+        metronome_configuration_.meter_denominator != timeline_denominator) {
+        metronome_configuration_.microseconds_per_quarter = timeline_tempo;
+        metronome_configuration_.meter_numerator = timeline_numerator;
+        metronome_configuration_.meter_denominator = timeline_denominator;
+        (void)engine_.publish_metronome(metronome_configuration_);
+    }
+    const auto metronome = engine_.metronome_state();
+    state_.metronome_enabled = metronome_configuration_.enabled;
+    state_.metronome_level = metronome_configuration_.level;
+    state_.metronome_beat = metronome.beat_active;
+    state_.metronome_downbeat = metronome.downbeat;
+    state_.count_in_bars = count_in_bars_;
+    state_.count_in_active = metronome.count_in_active;
+    const auto callback_frame = engine_.callback_frame_position();
+    state_.count_in_remaining_frames =
+        metronome.count_in_active && metronome.count_in_end_frame > callback_frame
+            ? metronome.count_in_end_frame - callback_frame
+            : 0;
+    state_.tap_tempo_observations = tap_tempo_observations_;
+    state_.tempo_authority = state_.midi.clock_source == MidiClockSource::internal
+                                 ? "internal"
+                                 : "external-midi";
     const auto &arrangement = timeline.timeline.arrangement;
     state_.playback_mode = arrangement.playback_mode;
     state_.active_pattern = arrangement.active_pattern;

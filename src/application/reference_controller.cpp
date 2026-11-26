@@ -45,6 +45,12 @@ ControlBinding action_binding(std::string id, std::string action,
     result.shift = shifted;
     return result;
 }
+ControlBinding feedback_action_binding(std::string id, std::string action,
+                                       bool shifted = false) {
+    auto result = action_binding(id, std::move(action), shifted);
+    result.feedback_id = result.control_id;
+    return result;
+}
 GestureChord chord(std::string owner, std::string input, std::string action,
                    std::vector<std::string> contexts = {}) {
     GestureChord result;
@@ -160,6 +166,12 @@ ControllerProfile reference_controller_v2_profile() {
         action_binding("transport.stop", "transport.stop.v1"));
     result.bindings.push_back(
         action_binding("transport.stop", "midi.panic.v1", true));
+    result.bindings.push_back(feedback_action_binding(
+        "transport.click", "transport.metronome-toggle.v1"));
+    result.bindings.push_back(action_binding(
+        "transport.click", "transport.count-in-configure.v1", true));
+    result.bindings.push_back(feedback_action_binding(
+        "transport.tap", "transport.tap-tempo.v1"));
     result.bindings.push_back(binding("transport.record", "recording-toggle"));
     for (int i = 1; i <= 16; ++i)
         result.bindings.push_back(
@@ -197,10 +209,12 @@ GestureConfiguration reference_controller_v2_gestures() {
         } else if (control.id == "edit.track" ||
                    control.id == "edit.page" ||
                    control.id == "edit.mute" ||
-                   control.id == "edit.erase" ||
-                   control.id == "transport.tap") {
+                   control.id == "edit.erase") {
             policy.modifier = control.id;
             policy.policy = GestureDispatchPolicy::modifier_only;
+        } else if (control.id == "transport.tap") {
+            policy.modifier = control.id;
+            policy.policy = GestureDispatchPolicy::deferred_tap;
         } else if (control.id == "transport.fill") {
             policy.policy = GestureDispatchPolicy::momentary;
             policy.press_target.action_id = "performance.fill-set.v1";

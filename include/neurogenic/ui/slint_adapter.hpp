@@ -49,8 +49,10 @@ struct SlintSceneItem {
 struct SlintShellState {
     std::uint64_t revision{};
     bool playing{}, record_armed{}, recording{}, project_dirty{};
+    bool metronome_enabled{}, count_in_active{}, tap_tempo_available{true};
     bool history_pending{}, can_undo{}, can_redo{};
-    double tempo_bpm{120.0};
+    double tempo_bpm{120.0}, metronome_level{0.35};
+    std::uint8_t count_in_bars{};
     std::string project_name{"Untitled"}, transport{"Stopped"},
         time_signature{"4/4"}, position{"1.1.1"},
         selected_track{"Unavailable"}, active_content{"Unavailable"},

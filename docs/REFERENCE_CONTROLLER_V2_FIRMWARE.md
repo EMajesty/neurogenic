@@ -1,5 +1,9 @@
 # Reference Controller V2 firmware implementation guide
 
+Host semantic color policy is documented in
+[`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md). Firmware renders bounded RGB
+instructions and does not infer musical meaning from literal RGB.
+
 This is the normative firmware-facing contract for the provisional locked
 Reference Controller V2 panel. It specifies logical behavior, not PCB wiring.
 GPIOs, switch matrix geometry, encoder pins, LED topology and electrical limits

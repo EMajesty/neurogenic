@@ -161,6 +161,15 @@ bool RecordingService::start(std::uint64_t callback_frame,
     error.clear();
     return true;
 }
+bool RecordingService::start_scheduled(std::string &error) noexcept {
+    if (state_.load(std::memory_order_acquire) != RecordingState::armed) {
+        error = "recording is not armed";
+        return false;
+    }
+    start_enabled_.store(true, std::memory_order_release);
+    error.clear();
+    return true;
+}
 
 bool RecordingService::stop(std::string &error) noexcept {
     const auto current = state_.load(std::memory_order_acquire);

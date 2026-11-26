@@ -1,5 +1,9 @@
 # Architecture
 
+The metronome consumes the existing timeline transport frame and renders a
+bounded click after recorder taps. Count-in prepares `RecordingService`'s
+existing start frame. No second clock, scheduler or recorder is introduced.
+
 ## Task 097D acceptance instrumentation
 
 Scheduled parameter-lock acceptance is observable through two relaxed atomic

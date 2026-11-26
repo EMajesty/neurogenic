@@ -55,7 +55,7 @@ include(cmake/Dependencies.cmake)
 find_package(Threads REQUIRED)
 
 add_library(neurogenic_engine STATIC
-  src/application/control.cpp src/application/assignment_picker.cpp src/application/controller.cpp src/application/controller_coordinator.cpp src/application/controller_profile_library.cpp src/application/controller_protocol.cpp src/application/controller_v2_protocol.cpp src/application/controller_session.cpp src/application/discovery.cpp src/application/input_gesture.cpp src/application/reference_controller.cpp src/application/parameter_binding.cpp src/application/lifecycle.cpp src/application/performance_macros.cpp src/application/recording_workflow.cpp
+  src/application/control.cpp src/application/assignment_picker.cpp src/application/controller.cpp src/application/controller_coordinator.cpp src/application/controller_profile_library.cpp src/application/controller_protocol.cpp src/application/controller_v2_protocol.cpp src/application/controller_session.cpp src/application/discovery.cpp src/application/input_gesture.cpp src/application/reference_controller.cpp src/application/parameter_binding.cpp src/application/lifecycle.cpp src/application/performance_macros.cpp src/application/recording_workflow.cpp src/application/tap_tempo.cpp
   src/audio/engine.cpp src/audio/live_loop.cpp src/audio/mixer.cpp src/audio/recording.cpp src/audio/sample.cpp src/audio/sample_analysis.cpp src/audio/sample_manager.cpp src/audio/sample_processing.cpp src/audio/slicing.cpp src/core/command.cpp src/core/control_dispatcher.cpp
   src/dsp/effect_chain.cpp src/dsp/modulation.cpp src/dsp/voice_modulation.cpp src/dsp/purest_gain.cpp src/dsp/processor.cpp src/dsp/parameter_destination.cpp src/dsp/time_stretch.cpp src/instrument/subtractive_synth.cpp src/midi/mapping.cpp src/midi/routing.cpp src/project/project.cpp src/project/preset.cpp
   src/diagnostics/hardware.cpp
@@ -200,6 +200,9 @@ if(NEUROGENIC_BUILD_TESTS)
   target_link_libraries(neurogenic_tests PRIVATE neurogenic_engine neurogenic_gui)
   target_compile_definitions(neurogenic_tests PRIVATE NEUROGENIC_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME neurogenic_tests COMMAND neurogenic_tests)
+  add_executable(neurogenic_metronome_tests tests/metronome_tests.cpp)
+  target_link_libraries(neurogenic_metronome_tests PRIVATE neurogenic_engine)
+  add_test(NAME neurogenic_metronome_tests COMMAND neurogenic_metronome_tests)
   add_executable(neurogenic_gui_smoke tests/gui_smoke.cpp)
   target_link_libraries(neurogenic_gui_smoke PRIVATE neurogenic_engine neurogenic_gui)
   add_test(NAME neurogenic_gui_smoke COMMAND neurogenic_gui_smoke)

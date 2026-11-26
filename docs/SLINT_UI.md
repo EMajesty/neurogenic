@@ -1,5 +1,8 @@
 # Slint UI foundation
 
+The shell exposes click enablement/level, count-in configuration/activity and
+external tempo authority without changing reference shell geometry.
+
 ## Task 097D evidence boundary
 
 Existing generated assignment, Setup, modal and sixteen-destination fixtures

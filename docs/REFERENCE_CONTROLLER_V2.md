@@ -1,5 +1,10 @@
 # Reference Controller V2 interaction design
 
+Functional color and operational precedence are specified in
+[`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md). CLICK toggles the authoritative
+metronome, SHIFT+CLICK cycles/focuses count-in configuration, TAP submits a deferred
+tempo observation, and TAP+DATA consumes the tap while adjusting tempo.
+
 ### Task 097D acceptance closure
 
 Sound pads now dispatch captured `instrument.note-on.v1` /

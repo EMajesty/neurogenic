@@ -1,5 +1,9 @@
 # Designing a controller for NEUROGENIC
 
+Controller feedback uses the functional categories and operational precedence
+in [`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md). Literal RGB remains rendering
+policy, not musical state.
+
 ## Destination-specific contextual resolution
 
 Context identity is `(destination, bank, layer)`, not the reused visual page.

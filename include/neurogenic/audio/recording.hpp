@@ -69,6 +69,7 @@ class RecordingService {
 
     bool arm(RecordingConfiguration, std::string &error) noexcept;
     bool start(std::uint64_t callback_frame, std::string &error) noexcept;
+    bool start_scheduled(std::string &error) noexcept;
     bool stop(std::string &error) noexcept;
     bool stop_at(std::uint64_t callback_frame, std::string &error) noexcept;
     void cancel() noexcept;

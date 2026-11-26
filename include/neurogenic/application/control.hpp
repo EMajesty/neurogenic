@@ -1,5 +1,6 @@
 #pragma once
 #include "neurogenic/application/performance_macros.hpp"
+#include "neurogenic/application/tap_tempo.hpp"
 #include "neurogenic/audio/recording.hpp"
 #include "neurogenic/audio/live_loop.hpp"
 #include "neurogenic/audio/sample_analysis.hpp"
@@ -214,6 +215,13 @@ struct ApplicationState {
     std::uint64_t transport_frame{};
     MusicalTick transport_tick{};
     double tempo_bpm{120};
+    bool metronome_enabled{}, metronome_beat{}, metronome_downbeat{};
+    double metronome_level{0.35};
+    std::string metronome_route{"master-monitor"};
+    std::uint8_t count_in_bars{};
+    bool count_in_active{};
+    std::uint64_t count_in_remaining_frames{}, tap_tempo_observations{};
+    std::string tempo_authority{"internal"};
     std::uint16_t time_signature_numerator{4}, time_signature_denominator{4};
     TrackId selected_track{};
     SampleSlotId selected_sample_slot{};
@@ -486,6 +494,10 @@ class ApplicationService {
     mutable PerformanceMacroService performance_macros_;
     RecordingConfiguration recording_configuration_;
     std::uint64_t recording_fixed_bars_{};
+    mutable MetronomeConfiguration metronome_configuration_;
+    std::uint8_t count_in_bars_{};
+    TapTempoEstimator tap_tempo_;
+    std::uint64_t tap_tempo_observations_{};
     mutable MixerConfiguration mixer_configuration_;
     mutable ModulationConfiguration modulation_configuration_;
     MidiOutputScheduler midi_output_;

@@ -1,5 +1,9 @@
 # Designing a frontend for NEUROGENIC
 
+The provisional functional palette and redundant state cues are specified in
+[`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md); Task 098A does not broadly recolor
+the frontend.
+
 ## Context descriptor agreement
 
 Slint publication is keyed by semantic destination, not a reused page component.

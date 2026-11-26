@@ -13,6 +13,9 @@ The mixer supports bounded native track, group, aux and master effect chains. Se
 
 # NEUROGENIC
 
+See [metronome/count-in behavior](docs/METRONOME_AND_COUNT_IN.md) and the
+[shared functional visual language](docs/VISUAL_LANGUAGE.md).
+
 ## Build your own instrument
 
 NEUROGENIC is designed to be independent of any particular hardware layout,

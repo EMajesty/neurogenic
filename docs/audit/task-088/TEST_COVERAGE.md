@@ -1,5 +1,8 @@
 # Test and validation audit
 
+`neurogenic_metronome_tests` adds deterministic PCM, rational boundary,
+recording isolation, count-in cancellation and monotonic tap coverage.
+
 ## Task 097D additions
 
 - `neurogenic_reference_controller_tests`: controller-authored later-page lock,

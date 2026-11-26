@@ -32,6 +32,11 @@ export component PerformanceWindow inherits Window {
     in property <string> redo-label: "";
     in property <string> transport-state: "Stopped";
     in property <string> tempo: "120 BPM";
+    in property <bool> metronome-enabled: false;
+    in property <bool> count-in-active: false;
+    in property <int> count-in-bars: 0;
+    in property <string> click-level: "35%";
+    in property <bool> tap-tempo-available: true;
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
@@ -295,7 +300,12 @@ export component PerformanceWindow inherits Window {
         status-strip := GlobalStatus { height: 48px; project: root.project-name; dirty: root.project-dirty; transport: root.transport-state; tempo: root.tempo; signature: root.time-signature; position: root.position; page-title: root.page-title; }
         Rectangle { height: 24px; background: Theme.panel; border-radius: Theme.radius;
             Text { x: 8px; width: parent.width - 16px; height: parent.height;
-                text: "Focus: " + root.focus-identity + "  ·  DATA: " + root.data-role + "  ·  Scope: " + root.navigation-scope;
+                text: "Focus: " + root.focus-identity + "  ·  DATA: " + root.data-role + "  ·  Scope: " + root.navigation-scope
+                    + "  ·  Click " + (root.metronome-enabled ? "On" : "Off")
+                    + "  ·  Count-in " + (root.count-in-bars == 0 ? "Off" : root.count-in-bars + " bar")
+                    + (root.count-in-active ? " (active)" : "")
+                    + "  ·  Level " + root.click-level
+                    + (root.tap-tempo-available ? "" : "  ·  External clock");
                 color: root.interaction-modal-active ? Theme.warning : Theme.muted;
                 vertical-alignment: center; overflow: elide;
             }

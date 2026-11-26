@@ -871,6 +871,10 @@ void ControllerSession::observe(const ApplicationState &snapshot,
         bool enabled{};
         if (mapping.action_id == "transport.play.v1") enabled = snapshot.playing;
         else if (mapping.action_id == "transport.stop.v1") enabled = !snapshot.playing;
+        else if (mapping.action_id == "transport.metronome-toggle.v1")
+            enabled = snapshot.metronome_enabled || snapshot.count_in_active;
+        else if (mapping.action_id == "transport.tap-tempo.v1")
+            enabled = snapshot.tempo_authority == "internal";
         else if (mapping.semantic == "recording-toggle")
             enabled = snapshot.recording.state == RecordingState::recording;
         else if (mapping.semantic == "modifier-shift")

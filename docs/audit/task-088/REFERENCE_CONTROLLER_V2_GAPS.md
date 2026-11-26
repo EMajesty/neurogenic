@@ -1,5 +1,9 @@
 # Reference Controller V2 implementation gaps
 
+Task 098A binds CLICK, SHIFT+CLICK, TAP and TAP+DATA to shared authoritative
+capabilities. Physical button/RGB/audio validation is NOT RUN; note repeat,
+live erase and other Task 098 capabilities remain open.
+
 Task 097D closes the highest-risk software acceptance gaps: scheduled and
 persisted controller-authored locks, transactional held-step cancellation,
 stable synth-note release, explicit-target audition, non-mutating Macro/Scene

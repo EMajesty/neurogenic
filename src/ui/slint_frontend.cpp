@@ -133,6 +133,12 @@ void publish(const SlintUiState &state,
     if (kind == SlintRefreshKind::telemetry) {
         window->set_transport_state(text(state.shell.transport));
         window->set_position(text(state.shell.position));
+        window->set_metronome_enabled(state.shell.metronome_enabled);
+        window->set_count_in_active(state.shell.count_in_active);
+        window->set_count_in_bars(state.shell.count_in_bars);
+        window->set_click_level(text(std::to_string(static_cast<int>(
+            std::lround(state.shell.metronome_level * 100.0))) + "%"));
+        window->set_tap_tempo_available(state.shell.tap_tempo_available);
         window->set_history_pending(state.shell.history_pending);
         window->set_can_undo(state.shell.can_undo);
         window->set_can_redo(state.shell.can_redo);
@@ -207,6 +213,12 @@ void publish(const SlintUiState &state,
     }
     window->set_transport_state(text(state.shell.transport));
     window->set_tempo(text(std::to_string(state.shell.tempo_bpm) + " BPM"));
+    window->set_metronome_enabled(state.shell.metronome_enabled);
+    window->set_count_in_active(state.shell.count_in_active);
+    window->set_count_in_bars(state.shell.count_in_bars);
+    window->set_click_level(text(std::to_string(
+        static_cast<int>(std::lround(state.shell.metronome_level * 100.0))) + "%"));
+    window->set_tap_tempo_available(state.shell.tap_tempo_available);
     window->set_project_name(text(state.shell.project_name));
     window->set_project_dirty(state.shell.project_dirty);
     window->set_history_pending(state.shell.history_pending);

@@ -1,5 +1,9 @@
 # Input gesture ownership
 
+TAP is a deferred owner. A plain tap invokes tap tempo; TAP+DATA captures direct
+tempo adjustment and consumes the pending tap. CLICK is immediate and
+SHIFT+CLICK resolves only the shared count-in configuration cycle.
+
 ## Task 097D reliability closure
 
 Any non-modifier input between two SHIFT taps interrupts the double-tap latch

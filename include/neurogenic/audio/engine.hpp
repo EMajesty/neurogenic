@@ -23,6 +23,19 @@
 #include <vector>
 namespace neurogenic {
 class RecordingService;
+enum class MetronomeRoute : std::uint8_t { master_monitor };
+struct MetronomeConfiguration {
+    bool enabled{};
+    float level{0.35F};
+    std::uint16_t meter_numerator{4}, meter_denominator{4};
+    std::uint32_t microseconds_per_quarter{500000};
+    MetronomeRoute route{MetronomeRoute::master_monitor};
+};
+struct MetronomeState {
+    MetronomeConfiguration configuration;
+    bool count_in_active{}, beat_active{}, downbeat{};
+    std::uint64_t click_count{}, count_in_start_frame{}, count_in_end_frame{};
+};
 enum class SamplePlaybackMode : std::uint8_t { one_shot, gate, toggle };
 enum class RegionFadeCurve : std::uint8_t { linear, equal_power };
 struct SampleRegionPlayback {
@@ -246,6 +259,12 @@ class AudioEngine {
     [[nodiscard]] bool seek_frame(std::uint64_t frame) noexcept;
     void midi_panic() noexcept;
     [[nodiscard]] bool set_fill(bool active) noexcept;
+    [[nodiscard]] bool
+    publish_metronome(const MetronomeConfiguration &configuration) noexcept;
+    [[nodiscard]] bool begin_count_in(std::uint64_t start_frame,
+                                      std::uint64_t end_frame) noexcept;
+    void cancel_count_in() noexcept;
+    [[nodiscard]] MetronomeState metronome_state() const noexcept;
     void process(std::span<float> left, std::span<float> right) noexcept;
     void process_duplex(std::span<float> left, std::span<float> right,
                         std::span<const float> interleaved_input,
@@ -722,6 +741,24 @@ class AudioEngine {
     std::atomic<double> external_clock_phase_error_{};
     std::atomic<std::uint16_t> external_song_position_{};
     std::atomic<std::uint64_t> callback_frame_{};
+    struct MetronomeCommand {
+        MetronomeConfiguration configuration;
+        std::uint64_t count_in_start{}, count_in_end{};
+        enum class Type : std::uint8_t { configure, begin_count_in, cancel_count_in }
+            type{Type::configure};
+    };
+    SpscQueue<MetronomeCommand, 9> metronome_commands_;
+    MetronomeConfiguration metronome_configuration_;
+    std::uint64_t metronome_count_in_start_{}, metronome_count_in_end_{};
+    std::uint64_t metronome_next_beat_{};
+    std::uint32_t metronome_voice_frame_{};
+    bool metronome_voice_active_{}, metronome_voice_downbeat_{};
+    std::atomic<bool> published_metronome_enabled_{},
+        published_count_in_active_{}, published_metronome_beat_{},
+        published_metronome_downbeat_{};
+    std::atomic<float> published_metronome_level_{0.35F};
+    std::atomic<std::uint64_t> published_metronome_click_count_{},
+        published_count_in_start_{}, published_count_in_end_{};
     std::array<std::unique_ptr<SubtractiveSynth>, maximum_instrument_instances>
         synths_{};
     std::array<bool, maximum_instrument_instances> synth_active_{};

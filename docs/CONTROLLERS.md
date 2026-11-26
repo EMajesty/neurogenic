@@ -1,5 +1,8 @@
 # Application control and controller API
 
+Reference V2 CLICK and TAP bind the same metronome/count-in/tap-tempo semantic
+surface available to generic MIDI and independent clients.
+
 ## Contextual controls
 
 Reference V2 sessions consume the same destination-specific encoder, function

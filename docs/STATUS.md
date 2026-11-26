@@ -1,5 +1,10 @@
 # Implementation status
 
+Task 098A adds the transport metronome, scheduled recording count-in, bounded
+tap-tempo estimator, V2 CLICK/TAP bindings, Slint state projection, and the
+functional visual-language specification. Dedicated cue routing, live-loop
+count-in, preference persistence and physical validation remain open.
+
 ## OS-001 LinuxKMS and appliance preparation
 
 The flake now exposes an optional `kms` package using pinned Slint 1.19 with
