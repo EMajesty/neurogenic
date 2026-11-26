@@ -167,6 +167,21 @@ ActionRegistry::ActionRegistry() {
     add(action("track.previous.v1", "Previous track", "Tracks"));
     add(action("track.mute-toggle.v1", "Toggle track mute", "Tracks",
                {{"track_id", ValueType::integer, false}}));
+    add(action("track.solo-set.v1", "Set track solo", "Tracks",
+               {{"track_id", ValueType::integer},
+                {"enabled", ValueType::boolean}}));
+    add(action("track.solo-toggle.v1", "Toggle track solo", "Tracks",
+               {{"track_id", ValueType::integer, false}}));
+    add(action("track.solo-clear.v1", "Clear all track solo", "Tracks"));
+    add(action("track.record-arm-set.v1", "Set track recording arm", "Recording",
+               {{"track_id", ValueType::integer},
+                {"enabled", ValueType::boolean}}));
+    add(action("track.record-arm-toggle.v1", "Toggle track recording arm",
+               "Recording", {{"track_id", ValueType::integer, false}}));
+    add(action("track.record-arm-clear.v1", "Clear track recording arms",
+               "Recording"));
+    add(action("transport.panic.v1", "Silence internal and MIDI sound",
+               "Transport"));
     add(action("track.create.v1", "Create track", "Tracks",
                {{"track_id", ValueType::integer, false},
                 {"name", ValueType::text, false},
@@ -1838,7 +1853,9 @@ CommandResult ApplicationService::execute_with_history(
          command.action_id != "macro.scene-recall.v1");
     const auto timeline_edit =
         command.action_id.rfind("step.", 0) == 0 ||
-        command.action_id.rfind("track.", 0) == 0 ||
+        (command.action_id.rfind("track.", 0) == 0 &&
+         command.action_id.rfind("track.solo", 0) != 0 &&
+         command.action_id.rfind("track.record-arm", 0) != 0) ||
         command.action_id.rfind("pattern.", 0) == 0 ||
         command.action_id.rfind("arrangement.", 0) == 0 ||
         command.action_id.rfind("timeline.", 0) == 0 ||
@@ -2605,6 +2622,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         }
     } else if (command.action_id.rfind("recording.", 0) == 0) {
         const auto previous_recording_configuration = recording_configuration_;
+        const auto previous_recording_owner = recording_owner_track_;
         const auto text = [&](std::string_view name) {
             return *argument<std::string>(command, name);
         };
@@ -2739,6 +2757,14 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             else
                 error = "unknown recording monitoring mode";
         } else if (command.action_id == "recording.arm.v1") {
+            if (armed_tracks_.size() > 1)
+                error = "recording requires exactly one armed track";
+            else if (armed_tracks_.size() == 1) {
+                recording_owner_track_ = *armed_tracks_.begin();
+                recording_configuration_.source = RecordingSource::track_channel;
+                recording_configuration_.source_id = *recording_owner_track_;
+            } else
+                recording_owner_track_.reset();
             const auto timeline = timeline_.snapshot().timeline;
             const auto bar_ticks = static_cast<MusicalTick>(
                 ticks_per_quarter * 4ULL *
@@ -2874,6 +2900,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             std::lock_guard lock(mutex_);
             if (!error.empty())
                 recording_configuration_ = previous_recording_configuration;
+            if (!error.empty())
+                recording_owner_track_ = previous_recording_owner;
             if (error.empty() &&
                 (command.action_id == "recording.save.v1" ||
                  command.action_id == "recording.assign-pad.v1"))
@@ -3291,6 +3319,7 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     std::move(error)};
         }
         const auto previous_configuration = mixer_configuration_;
+        bool transient_performance_edit{};
         const auto previous_selected_group = state_.selected_group;
         auto changed = false;
         const auto find_group = [&](MixerBusId id) {
@@ -3759,6 +3788,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 changed = true;
             } else if (command.action_id == "mixer.solo-toggle.v1") {
                 channel.solo = !channel.solo;
+                if (channel.solo) solo_tracks_.insert(channel.track);
+                else solo_tracks_.erase(channel.track);
+                transient_performance_edit = true;
                 changed = true;
             } else if (command.action_id == "mixer.aux-send-set.v1") {
                 const auto aux = *argument<std::int64_t>(command, "aux");
@@ -3794,10 +3826,23 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             if (!engine_.publish_mixer(mixer_configuration_, error)) {
                 mixer_configuration_ = previous_configuration;
                 state_.selected_group = previous_selected_group;
+                if (transient_performance_edit) {
+                    solo_tracks_.clear();
+                    for (std::size_t i = 0;
+                         i < previous_configuration.track_count; ++i)
+                        if (previous_configuration.tracks[i].solo)
+                            solo_tracks_.insert(
+                                previous_configuration.tracks[i].track);
+                }
             } else {
-                project_.active_routing_scene = 0;
-                state_.active_routing_scene = 0;
-                state_.project_dirty = true;
+                if (!transient_performance_edit) {
+                    project_.active_routing_scene = 0;
+                    state_.active_routing_scene = 0;
+                }
+                if (!transient_performance_edit)
+                    state_.project_dirty = true;
+                else
+                    engine_.midi_panic();
                 std::string ignored;
                 if (command.action_id == "mixer.master-gain-set.v1")
                     parameters_.set(
@@ -4680,6 +4725,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                     saving.name = std::get<std::string>(found->second);
                 saving.timeline = timeline_.snapshot().timeline;
                 saving.mixer = mixer_configuration_;
+                for (std::size_t i = 0; i < saving.mixer.track_count; ++i)
+                    saving.mixer.tracks[i].solo = false;
                 saving.routing_scenes = project_.routing_scenes;
                 saving.active_routing_scene = project_.active_routing_scene;
                 saving.modulation = modulation_configuration_;
@@ -4941,6 +4988,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 {
                     std::lock_guard lock(mutex_);
                     project_ = std::move(loaded);
+                    solo_tracks_.clear();
+                    armed_tracks_.clear();
+                    recording_owner_track_.reset();
                     std::string midi_error;
                     if (!midi_router_.configure({project_.midi.routes.data(),
                                                  project_.midi.route_count},
@@ -5229,6 +5279,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 {
                     std::lock_guard lock(mutex_);
                     project_ = std::move(replacement);
+                    solo_tracks_.clear();
+                    armed_tracks_.clear();
+                    recording_owner_track_.reset();
                     state_.project_name = project_.name;
                     state_.project_path.clear();
                     state_.project_dirty =
@@ -5502,6 +5555,21 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         if (recording_.state() == RecordingState::armed)
             recording_.cancel();
         changed = true;
+    } else if (command.action_id == "transport.panic.v1") {
+        if (arrangement_recording_.status().phase ==
+            ArrangementRecordPhase::recording)
+            arrangement_recording_.stop(state_.transport_tick, error);
+        if (recording_.state() == RecordingState::armed)
+            recording_.cancel();
+        else if (recording_.state() == RecordingState::recording) {
+            std::string recording_error;
+            if (!recording_.stop(recording_error) && error.empty())
+                error = std::move(recording_error);
+        }
+        engine_.cancel_count_in();
+        engine_.panic();
+        fill_momentary_ = false;
+        changed = true;
     } else if (command.action_id == "transport.restart.v1") {
         if (arrangement_recording_.status().phase ==
             ArrangementRecordPhase::recording)
@@ -5718,6 +5786,81 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 state_.selected_track = timeline.timeline.tracks[index].id;
                 changed_locked();
             }
+        } else if (command.action_id == "track.solo-set.v1" ||
+                   command.action_id == "track.solo-toggle.v1" ||
+                   command.action_id == "track.solo-clear.v1") {
+            const auto previous_solos = solo_tracks_;
+            const auto timeline = timeline_.snapshot().timeline;
+            if (command.action_id == "track.solo-clear.v1")
+                solo_tracks_.clear();
+            else {
+                const auto requested = argument<std::int64_t>(command, "track_id");
+                const auto track_id = requested ? static_cast<TrackId>(*requested)
+                                                : state_.selected_track;
+                if (std::none_of(timeline.tracks.begin(), timeline.tracks.end(),
+                                 [track_id](const auto &track) {
+                                     return track.id == track_id;
+                                 }))
+                    error = "selected track does not exist";
+                else {
+                    const auto enabled = command.action_id == "track.solo-set.v1"
+                                             ? *argument<bool>(command, "enabled")
+                                             : !solo_tracks_.contains(track_id);
+                    if (enabled) solo_tracks_.insert(track_id);
+                    else solo_tracks_.erase(track_id);
+                }
+            }
+            if (error.empty()) {
+                auto next = mixer_configuration_;
+                for (std::size_t i = 0; i < next.track_count; ++i)
+                    next.tracks[i].solo = solo_tracks_.contains(next.tracks[i].track);
+                ++next.revision;
+                if (!engine_.publish_mixer(next, error)) {
+                    solo_tracks_ = previous_solos;
+                } else {
+                    mixer_configuration_ = next;
+                    engine_.midi_panic();
+                    changed_locked();
+                }
+            }
+        } else if (command.action_id == "track.record-arm-set.v1" ||
+                   command.action_id == "track.record-arm-toggle.v1" ||
+                   command.action_id == "track.record-arm-clear.v1") {
+            const auto timeline = timeline_.snapshot().timeline;
+            if (command.action_id == "track.record-arm-clear.v1") {
+                armed_tracks_.clear();
+                if (recording_.state() == RecordingState::armed) {
+                    recording_.cancel();
+                    engine_.cancel_count_in();
+                    recording_owner_track_.reset();
+                }
+            } else {
+                const auto requested = argument<std::int64_t>(command, "track_id");
+                const auto track_id = requested ? static_cast<TrackId>(*requested)
+                                                : state_.selected_track;
+                const auto owner = std::find_if(
+                    timeline.tracks.begin(), timeline.tracks.end(),
+                    [track_id](const auto &track) { return track.id == track_id; });
+                if (owner == timeline.tracks.end())
+                    error = "selected track does not exist";
+                else if (owner->instrument_id == external_midi_instrument_id)
+                    error = "external MIDI track has no capturable audio channel";
+                else {
+                    const auto enabled =
+                        command.action_id == "track.record-arm-set.v1"
+                            ? *argument<bool>(command, "enabled")
+                            : !armed_tracks_.contains(track_id);
+                    if (enabled) armed_tracks_.insert(track_id);
+                    else armed_tracks_.erase(track_id);
+                    if (!enabled && recording_owner_track_ == track_id &&
+                        recording_.state() == RecordingState::armed) {
+                        recording_.cancel();
+                        engine_.cancel_count_in();
+                        recording_owner_track_.reset();
+                    }
+                }
+            }
+            if (error.empty()) changed_locked();
         } else if (command.action_id == "track.mute-toggle.v1") {
             auto transaction = timeline_.edit();
             const auto requested = argument<std::int64_t>(command, "track_id");
@@ -10056,6 +10199,9 @@ void ApplicationService::synchronize_locked() const {
         if (slices_.adopt_activated_project(pending->project.samples,
                                             recovery_error)) {
             project_ = std::move(pending->project);
+            solo_tracks_.clear();
+            armed_tracks_.clear();
+            recording_owner_track_.reset();
             state_.missing_assets = project_.missing_assets;
             state_.project_dirty = true;
             state_.project_error.clear();
@@ -10215,6 +10361,10 @@ void ApplicationService::synchronize_locked() const {
             now > state_.external_midi_clock.last_timestamp_ns + 500'000'000ULL;
     }
     auto recording = recording_.status();
+    if (recording.state != RecordingState::armed &&
+        recording.state != RecordingState::recording)
+        recording_owner_track_.reset();
+    state_.recording_owner_track = recording_owner_track_.value_or(0);
     if (recording.state != RecordingState::armed &&
         recording.state != RecordingState::recording &&
         recording.state != RecordingState::completed)
@@ -10774,6 +10924,21 @@ void ApplicationService::synchronize_locked() const {
         state_.selected_track = timeline.timeline.tracks.front().id;
     state_.tracks.clear();
     state_.generation_seed = timeline.generation_seed;
+    const auto track_exists = [&](TrackId id) {
+        return std::any_of(timeline.timeline.tracks.begin(),
+                           timeline.timeline.tracks.end(),
+                           [id](const auto &track) { return track.id == id; });
+    };
+    std::erase_if(solo_tracks_, [&](TrackId id) { return !track_exists(id); });
+    std::erase_if(armed_tracks_, [&](TrackId id) { return !track_exists(id); });
+    if (recording_owner_track_ && !track_exists(*recording_owner_track_)) {
+        if (recording_.state() == RecordingState::armed) {
+            recording_.cancel();
+            engine_.cancel_count_in();
+        }
+        recording_owner_track_.reset();
+    }
+    const auto any_solo = !solo_tracks_.empty();
     std::size_t index{};
     for (const auto &track : timeline.timeline.tracks) {
         const auto fallback =
@@ -10790,7 +10955,9 @@ void ApplicationService::synchronize_locked() const {
              edited_length > 0 ? edited_length : track.pattern.length, target,
              track.instrument_id,
              edited ? edited->events : std::vector<MusicalEvent>{},
-             track.instrument_instance_id});
+             track.instrument_instance_id, solo_tracks_.contains(track.id),
+             armed_tracks_.contains(track.id),
+             !track.muted && (!any_solo || solo_tracks_.contains(track.id))});
     }
     std::erase_if(state_.selected_steps, [&](const auto &selection) {
         const auto *pattern = edit_pattern(timeline.timeline,

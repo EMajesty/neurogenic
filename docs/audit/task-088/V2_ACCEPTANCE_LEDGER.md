@@ -1,5 +1,7 @@
 # Reference Controller V2 acceptance ledger
 
+| 098B / RC2-001, RC2-003, AUD2-007 | SOLO/ARM stable pad modes and SHIFT+STOP unified panic | transient ApplicationService track state, prepared mixer/engine audibility, atomic panic acknowledgement | `neurogenic_solo_arm_panic_tests`, `neurogenic_reference_controller_tests`, generated Slint fixture | production PCM + semantic + generated callback | PASS in software; physical controls/LEDs NOT RUN |
+
 Date: 2026-11-26. Baseline: Task 097C
 `91c7bb66f748d0373b674ab5c54a6095fdebc4a5`.
 

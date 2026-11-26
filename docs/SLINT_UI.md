@@ -469,3 +469,7 @@ a descriptor-sized typed-argument model. Performance uses the same dynamic
 argument representation. Generated acceptance checks that more than four
 fields are not truncated; essential forms remain scrollable at both reference
 resolutions. Coordinate-driven touch and physical hardware remain NOT RUN.
+
+Track rows receive explicit solo, recording-arm, and effective-audibility
+fields in addition to mute. Generated callbacks and rendered structure remain
+separate evidence from simulated protocol input and physical validation.

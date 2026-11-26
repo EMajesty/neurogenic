@@ -206,3 +206,8 @@ Dedicated USB descriptors are still selected only after identity/inventory
 validation. Task 097F's live profile activation operation applies to MIDI
 endpoints; dedicated USB runtime switching remains an explicit follow-up and
 must preserve connection epochs and full-state synchronization.
+
+Task 098B does not change protocol 1.3 or its 67-control fingerprint. Eight
+optional contextual encoder pushes and encoder-RGB destinations require a
+future capability-negotiated inventory/fingerprint extension; legacy firmware
+must continue to omit them and existing wire IDs must never be repurposed.

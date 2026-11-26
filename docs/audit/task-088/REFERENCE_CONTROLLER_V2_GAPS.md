@@ -1,5 +1,11 @@
 # Reference Controller V2 implementation gaps
 
+Task 098B closes the supported SOLO/ARM pad-mode semantics and replaces the
+external-only SHIFT+STOP mapping with acknowledged unified internal/MIDI
+panic. Optional encoder pushes and encoder-RGB destinations are explicitly a
+future negotiated protocol extension; the normative 67-control fingerprint is
+unchanged. Physical validation remains NOT RUN.
+
 Task 098A binds CLICK, SHIFT+CLICK, TAP and TAP+DATA to shared authoritative
 capabilities. Physical button/RGB/audio validation is NOT RUN; note repeat,
 live erase and other Task 098 capabilities remain open.
@@ -166,12 +172,13 @@ fire taps.
 **Task 096C status: Partially implemented with the supported semantic set.**
 Focus-aware DATA, repeated linear focus navigation, BACK/ENTER, TRACK/PAGE/
 MUTE/ERASE pad chords, Undo/Redo, momentary/latched Fill, configured recording
-toggle, play/stop/restart, MIDI panic and TAP+DATA are production bindings.
+toggle, play/stop/restart, unified panic and TAP+DATA are production bindings.
 Stable track/pattern/step arguments prevent selection redirection. The complete
 matrix and evidence are in `TASK_096C_VALIDATION.md`. RC2-003 remains open for
-shared visual-modal ENTER/BACK ownership, per-track solo/arm semantics, typed
-clipboard, contextual loop/record configuration, unified voice+MIDI panic and
-the intentionally absent optional musical capabilities.
+typed clipboard, contextual loop/record configuration and intentionally absent
+optional musical capabilities. Task 098B supplies additive SOLO/ARM stable-pad
+semantics, SHIFT clear operations and acknowledged internal/MIDI SHIFT+STOP;
+physical button and feedback validation remains NOT RUN.
 
 ### RC2-004 — Descriptor-driven page banks and held-step locks (P1)
 

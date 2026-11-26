@@ -290,7 +290,14 @@ std::vector<GestureEvent> InputGestureArbiter::process(
                                {}, {}, ownership.policy.release_target));
     }
     if (!ownership.policy.modifier.empty()) {
-        if (ownership.policy.latchable && !ownership.consumed) {
+        if (ownership.policy.latchable && ownership.policy.latch_on_tap &&
+            !ownership.consumed) {
+            if (latched_.contains(ownership.policy.modifier))
+                latched_.erase(ownership.policy.modifier);
+            else
+                latched_.insert(ownership.policy.modifier);
+            last_tap_[ownership.policy.modifier] = 0;
+        } else if (ownership.policy.latchable && !ownership.consumed) {
             const auto previous = last_tap_[ownership.policy.modifier];
             if (previous != 0 && now >= previous &&
                 now - previous <= ownership.policy.timing.double_tap_ms) {

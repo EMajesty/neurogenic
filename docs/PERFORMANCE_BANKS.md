@@ -153,3 +153,8 @@ model as Setup and supports up to 16 bounded typed pairs. This changes only the
 authoring transport; project-owned assignments, safety allowlists, momentary
 ownership and musical history remain unchanged and separate from appliance
 profiles.
+
+Unified panic cancels controller-owned sounding gestures at the audio/MIDI
+authorities without changing Performance bank definitions or assignments.
+Solo and recording arm are transient track state, not Performance assignment
+values and not automatic bank-capture targets.

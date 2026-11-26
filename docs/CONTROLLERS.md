@@ -522,3 +522,7 @@ Profiles are appliance definitions with stable IDs; endpoints and sessions are
 separate, and activation is explicit per endpoint. Built-ins are read-only but
 duplicable. See [Controller profile library](CONTROLLER_PROFILE_LIBRARY.md) for
 lifecycle, persistence, recovery and mapping-field details.
+
+Stable semantic actions now expose track solo, track arm, and unified panic to
+generic MIDI and alternative profiles. The reference controller's SOLO/ARM
+pad chords and SHIFT+STOP use the same application authority.

@@ -1021,6 +1021,11 @@ void AudioEngine::midi_panic() noexcept {
     if (!transport_commands_.push(TransportCommand::midi_panic))
         dropped_transport_commands_.fetch_add(1, std::memory_order_relaxed);
 }
+void AudioEngine::panic() noexcept {
+    // Safety delivery is level-triggered rather than dependent on queue space.
+    // Repeated requests coalesce and are acknowledged by the next callback.
+    panic_requested_.store(true, std::memory_order_release);
+}
 bool AudioEngine::set_fill(bool active) noexcept {
     if (!transport_commands_.push(active ? TransportCommand::fill_on
                                          : TransportCommand::fill_off)) {
@@ -1396,6 +1401,25 @@ void AudioEngine::process(std::span<float> left,
     std::fill(left.begin(), left.end(), 0);
     std::fill(right.begin(), right.end(), 0);
     mixer_.apply_pending_publications();
+    if (panic_requested_.exchange(false, std::memory_order_acq_rel)) {
+        transport_playing_ = false;
+        cleanup_timeline_voices(VoiceTransitionPolicy::stop_outgoing,
+                                callback_frame);
+        stop_voices();
+        modulation_.clear_automation();
+        timeline_scheduler_.set_fill(false);
+        published_fill_.store(false, std::memory_order_release);
+        metronome_count_in_start_ = metronome_count_in_end_ = 0;
+        metronome_voice_active_ = false;
+        delay_.reset();
+        mixer_.reset_effect_state();
+        Trigger discarded;
+        while (triggers_.pop(discarded)) {}
+        pending_trigger_count_ = 0;
+        if (auto *output = midi_output_.load(std::memory_order_acquire))
+            output->panic();
+        panic_acknowledgements_.fetch_add(1, std::memory_order_release);
+    }
     ModulationConfiguration modulation_configuration;
     while (modulation_configurations_.pop(modulation_configuration)) {
         if (modulation_.configure(modulation_configuration)) {
@@ -1894,6 +1918,14 @@ void AudioEngine::process(std::span<float> left,
         while (timeline_index < timeline_count &&
                timeline_events_[timeline_index].frame == frame) {
             const auto &event = timeline_events_[timeline_index++];
+            const auto audible = mixer_.track_effectively_audible(event.track);
+            if (!audible &&
+                (event.type == MusicalEventType::note_on ||
+                 event.type == MusicalEventType::audio_clip_on ||
+                 event.type == MusicalEventType::control_change ||
+                 event.type == MusicalEventType::program_change ||
+                 event.type == MusicalEventType::pitch_bend))
+                continue;
             if (event.type == MusicalEventType::parameter) {
                 last_timeline_parameter_value_.store(
                     event.value, std::memory_order_relaxed);

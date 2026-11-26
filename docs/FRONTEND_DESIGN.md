@@ -212,3 +212,8 @@ the appliance service. Its scrollable library, dynamic typed arguments,
 scope/modifier fields, feedback destination, learned-source preview and
 structured conflict view use the shared interaction contract. The frontend is
 not a persistence or activation authority.
+
+Track presentation distinguishes mute, solo, effective audibility, arm, and
+captured recording owner from frontend-local selection. The visual direction
+is documented in [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md); Task 098B does not
+perform a palette or typography migration.

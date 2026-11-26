@@ -156,3 +156,8 @@ Explicit runtime profile activation cancels the removed endpoint adapter's
 held and momentary ownership before it is detached. The replacement session is
 advanced beyond the prior local generation, so queued input cannot acquire new
 ownership. Other endpoints and their gesture states are independent.
+
+SOLO+pad and ARM+pad are consumed stable-target chords and suppress ordinary
+pad behavior. SHIFT+SOLO and SHIFT+ARM clear their transient sets.
+SHIFT+STOP invokes modal-safe unified panic. Overlapping SOLO, ARM, MUTE, and
+TRACK ownership never falls through to an unrelated pad operation.

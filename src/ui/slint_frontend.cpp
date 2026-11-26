@@ -394,7 +394,8 @@ void publish(const SlintUiState &state,
     std::vector<TrackItem> sequencer_tracks;
     for (const auto &track : state.sequencer.tracks)
         sequencer_tracks.push_back({static_cast<int>(track.id), text(track.name),
-            text(track.instrument), track.selected, track.muted});
+            text(track.instrument), track.selected, track.muted, track.solo,
+            track.record_armed, track.effectively_audible});
     publish_model(models.sequencer_tracks, std::move(sequencer_tracks),
         [&](auto value) { window->set_sequencer_tracks(value); });
     std::vector<PatternItem> patterns;
@@ -1454,6 +1455,21 @@ int run_slint_frontend(ApplicationService &application,
             if (application.snapshot().selected_track == initial_track)
                 throw std::runtime_error(
                     "generated track-navigation callback did not change the stable target");
+            window->invoke_track_manage("solo");
+            if (std::none_of(application.snapshot().tracks.begin(),
+                             application.snapshot().tracks.end(),
+                             [](const auto &track) { return track.solo; }))
+                throw std::runtime_error(
+                    "generated solo callback did not round-trip authoritative state");
+            window->invoke_track_manage("arm");
+            if (std::none_of(application.snapshot().tracks.begin(),
+                             application.snapshot().tracks.end(),
+                             [](const auto &track) { return track.record_armed; }))
+                throw std::runtime_error(
+                    "generated arm callback did not round-trip authoritative state");
+            window->invoke_track_manage("clear-solo");
+            window->invoke_track_manage("clear-arm");
+            window->invoke_track_manage("panic");
             window->show();
             const auto capture_headless = [&](const std::string &path) {
                 if (path.empty() || !options.interaction_test_backend ||

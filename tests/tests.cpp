@@ -2070,8 +2070,8 @@ void test_midi_routing_and_clock() {
           "MIDI input congestion is bounded and observable");
     MidiOutputScheduler panic;
     panic.panic(1);
-    check(panic.queued() == 32,
-          "MIDI panic queues All Notes and All Sound Off");
+    check(panic.queued() == 48,
+          "MIDI panic queues sustain release, All Notes and All Sound Off");
 
     MidiMapper mapper;
     std::vector<MidiMessage> raw;

@@ -1,5 +1,11 @@
 # Next development roadmap
 
+Task 098B completes solo/arm/unified panic. Task 098C should implement bounded
+note and triplet repeat through the existing scheduler, captured held-note
+ownership, cancellation, quantized recorded-event generation, and live erase.
+A separate controller hardware/protocol task owns optional encoder push inputs
+and encoder illumination negotiation.
+
 Task 098A begins musical capability work. Task 098B should implement per-track
 solo/record arm and unified voice/MIDI panic; OS-002 remains independent.
 

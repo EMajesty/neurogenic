@@ -60,8 +60,11 @@ bool MidiOutputScheduler::enqueue(const MidiPacket &packet) noexcept {
                           (status & 0xF0U) == 0x80 ||
                           ((status & 0xF0U) == 0xB0 && packet.size >= 2 &&
                            (packet.bytes[1] == 120 || packet.bytes[1] == 123));
+    const auto safety = (status & 0xF0U) == 0xB0 && packet.size >= 2 &&
+                        packet.bytes[1] == 64;
     if (!packet.port || !packet.size || packet.size > packet.bytes.size() ||
-        !(critical ? priority_queue_.push(packet) : queue_.push(packet))) {
+        !((critical || safety) ? priority_queue_.push(packet)
+                               : queue_.push(packet))) {
         dropped_.fetch_add(1, std::memory_order_relaxed);
         return false;
     }
@@ -94,6 +97,9 @@ void MidiOutputScheduler::panic(MidiPortId port) noexcept {
                last = port ? port : static_cast<MidiPortId>(maximum_midi_ports);
     for (auto output = first; output <= last; ++output)
         for (std::uint8_t channel = 0; channel < 16; ++channel) {
+            (void)enqueue({output,
+                           {static_cast<std::uint8_t>(0xB0U | channel), 64, 0},
+                           3});
             (void)enqueue({output,
                            {static_cast<std::uint8_t>(0xB0U | channel), 123, 0},
                            3});

@@ -748,3 +748,11 @@ prior focus only after an exact-generation close.
 live input/feedback; `ApplicationService` owns semantics; projects own
 Performance assignments. This boundary prevents profile lifecycle operations
 from entering musical history or replacing project data.
+
+## Task 098B transient performance authority
+
+Track solo and arm are transient `ApplicationService` sets keyed by stable
+track IDs. Solo projects into the existing mixer and timeline dispatch.
+Unified panic uses an atomic coalescing next-callback request and performs no
+allocation, locking, discovery, logging, or filesystem work in audio context.
+See [TRACK_SOLO_AND_ARM.md](TRACK_SOLO_AND_ARM.md) and [PANIC.md](PANIC.md).

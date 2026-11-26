@@ -85,3 +85,7 @@ currently transient performance/application configuration with deterministic
 defaults (off, 0.35, master-monitor, off). They do not enter musical Undo/Redo.
 Project persistence of these preferences is intentionally deferred until the
 project-versus-appliance preference policy is expanded.
+
+Clearing a captured track arm during count-in cancels the pending recording.
+Unified panic cancels count-in and stops active capture through the normal
+recorder so already captured content is not silently discarded.

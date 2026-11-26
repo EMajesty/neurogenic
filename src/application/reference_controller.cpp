@@ -165,7 +165,7 @@ ControllerProfile reference_controller_v2_profile() {
     result.bindings.push_back(
         action_binding("transport.stop", "transport.stop.v1"));
     result.bindings.push_back(
-        action_binding("transport.stop", "midi.panic.v1", true));
+        action_binding("transport.stop", "transport.panic.v1", true));
     result.bindings.push_back(feedback_action_binding(
         "transport.click", "transport.metronome-toggle.v1"));
     result.bindings.push_back(action_binding(
@@ -209,9 +209,15 @@ GestureConfiguration reference_controller_v2_gestures() {
         } else if (control.id == "edit.track" ||
                    control.id == "edit.page" ||
                    control.id == "edit.mute" ||
+                   control.id == "edit.solo" ||
+                   control.id == "edit.arm" ||
                    control.id == "edit.erase") {
             policy.modifier = control.id;
             policy.policy = GestureDispatchPolicy::modifier_only;
+            if (control.id == "edit.solo" || control.id == "edit.arm") {
+                policy.latchable = true;
+                policy.latch_on_tap = true;
+            }
         } else if (control.id == "transport.tap") {
             policy.modifier = control.id;
             policy.policy = GestureDispatchPolicy::deferred_tap;
@@ -244,6 +250,10 @@ GestureConfiguration reference_controller_v2_gestures() {
         result.chords.push_back(
             chord("edit.mute", pad, "reference.mute-pad.v1"));
         result.chords.push_back(
+            chord("edit.solo", pad, "reference.solo-pad.v1"));
+        result.chords.push_back(
+            chord("edit.arm", pad, "reference.arm-pad.v1"));
+        result.chords.push_back(
             chord("edit.erase", pad, "reference.erase-pad.v1"));
         result.chords.push_back(
             chord("edit.shift", pad, "reference.select-step.v1",
@@ -255,6 +265,14 @@ GestureConfiguration reference_controller_v2_gestures() {
             chord(pad, "parameter.*", "reference.step-encoder.v1",
                   {"sequencer"}));
     }
+    result.chords.push_back(
+        chord("edit.shift", "edit.solo", "track.solo-clear.v1"));
+    result.chords.push_back(
+        chord("edit.solo", "edit.shift", "track.solo-clear.v1"));
+    result.chords.push_back(
+        chord("edit.shift", "edit.arm", "track.record-arm-clear.v1"));
+    result.chords.push_back(
+        chord("edit.arm", "edit.shift", "track.record-arm-clear.v1"));
     result.chords.push_back(
         chord("transport.tap", "data", "reference.tempo-data.v1"));
     result.chords.push_back(

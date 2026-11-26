@@ -349,6 +349,29 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         return submit({"navigation.adjust.v1", {{"steps", steps}},
                        state_.session_id, input.sequence}, error);
     }
+    if (mapping->semantic == "performance-pad" && input.pressed &&
+        (state_.interaction.latched_modifiers.contains("edit.solo") ||
+         state_.interaction.latched_modifiers.contains("edit.arm"))) {
+        if (mapping->index < 0 ||
+            static_cast<std::size_t>(mapping->index) >= snapshot.tracks.size()) {
+            error.clear();
+            return true;
+        }
+        const auto solo = state_.interaction.latched_modifiers.contains(
+            "edit.solo");
+        const auto arm = state_.interaction.latched_modifiers.contains(
+            "edit.arm");
+        if (solo && arm) {
+            error = "SOLO and ARM modes overlap ambiguously";
+            return false;
+        }
+        return submit({solo ? "track.solo-toggle.v1"
+                            : "track.record-arm-toggle.v1",
+                       {{"track_id", static_cast<std::int64_t>(
+                                         snapshot.tracks[static_cast<std::size_t>(
+                                             mapping->index)].id)}},
+                       state_.session_id, input.sequence}, error);
+    }
     if (mapping->semantic == "performance-pad") {
         if (profile_.profile_id !=
                 "neurogenic.reference-controller-v2.default.v1" &&
@@ -571,7 +594,9 @@ bool ControllerSession::dispatch_gesture(const GestureEvent &event,
         event.kind == GestureEventKind::repeat) {
         if (event.kind == GestureEventKind::tap &&
             event.control_id.starts_with("pad.") &&
-            state_.context.starts_with("sequencer")) {
+            state_.context.starts_with("sequencer") &&
+            !state_.interaction.latched_modifiers.contains("edit.solo") &&
+            !state_.interaction.latched_modifiers.contains("edit.arm")) {
             const auto held = held_steps_.find(event.control_id);
             if (held == held_steps_.end()) {
                 error = "sequencer pad has no stable gesture target";
@@ -619,6 +644,11 @@ bool ControllerSession::dispatch_reference_gesture(
                         {"steps", steps}},
                        state_.session_id, original.sequence}, error);
     }
+    if (event.target.action_id == "track.solo-clear.v1" ||
+        event.target.action_id == "track.record-arm-clear.v1" ||
+        event.target.action_id == "transport.panic.v1")
+        return submit({event.target.action_id, {}, state_.session_id,
+                       original.sequence}, error);
     if (!pad_index &&
         event.target.action_id != "reference.step-encoder.v1") {
         error = "reference gesture has an invalid logical pad identity";
@@ -697,16 +727,30 @@ bool ControllerSession::dispatch_reference_gesture(
                                          snapshot.selected_track)}},
                        state_.session_id, original.sequence}, error);
     if (event.target.action_id == "reference.track-pad.v1" ||
-        event.target.action_id == "reference.mute-pad.v1") {
+        event.target.action_id == "reference.mute-pad.v1" ||
+        event.target.action_id == "reference.solo-pad.v1" ||
+        event.target.action_id == "reference.arm-pad.v1") {
+        if ((event.target.action_id == "reference.solo-pad.v1" ||
+             event.target.action_id == "reference.arm-pad.v1") &&
+            state_.interaction.effective_modifiers.contains("edit.solo") &&
+            state_.interaction.effective_modifiers.contains("edit.arm")) {
+            error = "SOLO and ARM modifiers overlap ambiguously";
+            return false;
+        }
         if (*pad_index >= snapshot.tracks.size()) {
             error.clear();
             return true;
         }
         const auto track_id = static_cast<std::int64_t>(
             snapshot.tracks[*pad_index].id);
-        return submit({event.target.action_id == "reference.track-pad.v1"
-                           ? "track.select.v1"
-                           : "track.mute-toggle.v1",
+        const auto action = event.target.action_id == "reference.track-pad.v1"
+                                ? "track.select.v1"
+                            : event.target.action_id == "reference.mute-pad.v1"
+                                ? "track.mute-toggle.v1"
+                            : event.target.action_id == "reference.solo-pad.v1"
+                                ? "track.solo-toggle.v1"
+                                : "track.record-arm-toggle.v1";
+        return submit({action,
                        {{"track_id", track_id}}, state_.session_id,
                        original.sequence}, error);
     }
@@ -822,10 +866,25 @@ void ControllerSession::observe(const ApplicationState &snapshot,
                                         return item.id == snapshot.selected_track;
                                     });
     constexpr std::uint32_t off = 0x080808, active = 0x0060b0,
-                            selected = 0xff7a00, play = 0x00c840;
+                            selected = 0xff7a00, play = 0x00c840,
+                            armed = 0xc02020;
+    const auto solo_mode = state_.interaction.effective_modifiers.contains(
+        "edit.solo");
+    const auto arm_mode = state_.interaction.effective_modifiers.contains(
+        "edit.arm");
+    const auto mute_mode = state_.interaction.effective_modifiers.contains(
+        "edit.mute");
     for (std::size_t i = 0; i < 16; ++i) {
         auto color = off;
-        if (snapshot.pad_mode == PadMode::step && track != snapshot.tracks.end()) {
+        if ((solo_mode || arm_mode || mute_mode) && i < snapshot.tracks.size()) {
+            const auto &target = snapshot.tracks[i];
+            if (arm_mode) color = target.record_armed ? armed : off;
+            else if (solo_mode) color = target.solo ? play : off;
+            else color = target.muted ? off : active;
+            if (target.id == snapshot.recording_owner_track)
+                color = armed;
+        } else if (snapshot.pad_mode == PadMode::step &&
+                   track != snapshot.tracks.end()) {
             const auto tick = static_cast<MusicalTick>(snapshot.step_page * 16 + i) *
                               snapshot.step_ticks;
             if (std::any_of(track->events.begin(), track->events.end(),

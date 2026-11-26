@@ -591,6 +591,50 @@ void Mixer::update_meter(AtomicMeter &meter, float left, float right) noexcept {
     if (l >= 1 || r >= 1)
         meter.clip.store(true, std::memory_order_relaxed);
 }
+bool Mixer::track_effectively_audible(TrackId track) const noexcept {
+    const auto end = active_.tracks.begin() + active_.track_count;
+    const auto found = std::find_if(active_.tracks.begin(), end,
+                                    [track](const auto &item) {
+                                        return item.track == track;
+                                    });
+    // A timeline may run before a matching mixer channel publication (headless
+    // and parser-level clients rely on this). Absence is not an implicit mute.
+    if (found == end)
+        return true;
+    if (found->mute)
+        return false;
+    const auto any_solo = std::any_of(active_.tracks.begin(), end,
+                                      [](const auto &item) {
+                                          return item.solo;
+                                      });
+    if (any_solo && !found->solo)
+        return false;
+    const auto group_end = active_.groups.begin() + active_.group_count;
+    const auto any_group_solo = std::any_of(
+        active_.groups.begin(), group_end,
+        [](const auto &item) { return item.solo; });
+    if (!any_group_solo)
+        return true;
+    auto group = found->destination_group;
+    for (std::size_t depth = 0; group && depth < active_.group_count; ++depth) {
+        const auto owner = std::find_if(active_.groups.begin(), group_end,
+                                        [group](const auto &item) {
+                                            return item.id == group;
+                                        });
+        if (owner == group_end)
+            return false;
+        if (owner->solo)
+            return true;
+        group = owner->destination_group;
+    }
+    return false;
+}
+
+void Mixer::reset_effect_state() noexcept {
+    effect_rack_->reset_state();
+    external_delay_cursor_.fill(0);
+    external_delay_valid_.fill(0);
+}
 void Mixer::process(std::span<float> master_left, std::span<float> master_right,
                     std::span<float> physical, std::uint8_t channels) noexcept {
     const auto frames =

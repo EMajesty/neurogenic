@@ -164,6 +164,15 @@ struct NativeEffectRack::Runtime {
             for (std::size_t i = 0; i < descriptors.size(); ++i)
                 parameter[i] = descriptors[i].default_value;
         }
+        void clear_state() noexcept {
+            filter_l = filter_r = 0;
+            filter_band_l = filter_band_r = 0;
+            cursor = 0;
+            if (++generation == 0) {
+                std::fill(delay_generation.begin(), delay_generation.end(), 0);
+                generation = 1;
+            }
+        }
     };
     std::uint32_t rate{};
     std::array<std::unique_ptr<Slot>, maximum_effect_instances> slots{};
@@ -179,6 +188,10 @@ struct NativeEffectRack::Runtime {
 NativeEffectRack::NativeEffectRack(std::uint32_t rate)
     : runtime_(new Runtime(rate)) {}
 NativeEffectRack::~NativeEffectRack() { delete runtime_; }
+void NativeEffectRack::reset_state() noexcept {
+    for (std::size_t i = 0; i < configuration_.instance_count; ++i)
+        runtime_->slots[i]->clear_state();
+}
 void NativeEffectRack::activate(
     const EffectRackConfiguration &configuration) noexcept {
     configuration_ = configuration;

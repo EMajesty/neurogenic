@@ -15,6 +15,9 @@ The mixer supports bounded native track, group, aux and master effect chains. Se
 
 See [metronome/count-in behavior](docs/METRONOME_AND_COUNT_IN.md) and the
 [shared functional visual language](docs/VISUAL_LANGUAGE.md).
+Track isolation, recording ownership and emergency silence are documented in
+[Track solo and arm](docs/TRACK_SOLO_AND_ARM.md) and
+[Unified panic](docs/PANIC.md).
 
 ## Build your own instrument
 

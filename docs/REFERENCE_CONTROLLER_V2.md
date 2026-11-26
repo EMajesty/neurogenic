@@ -98,7 +98,23 @@ buttons, 16 pads and nine non-push rotary encoders:
 - ten transport/performance buttons at lower right, in two columns of five;
 - sixteen performance/step pads below the display, in two rows of eight.
 
-No encoder-push interaction is required. There is no physical alphanumeric
+No encoder-push interaction is required. The normative 67-control inventory
+has no encoder-push inputs. The current hardware direction may nevertheless
+wire eight optional contextual push switches for future use; they remain
+unassigned by default. A separately implemented, capability-negotiated
+protocol extension must add stable P1-push through P8-push identities and
+encoder-RGB feedback destinations without repurposing existing IDs.
+
+The eight P encoders are currently considering the Bourns PEL12T-40xxx family:
+detentless rotation, RGB illuminated shaft, integrated push, and separate LED
+channels. A multichannel PWM driver such as TLC5947 is under consideration for
+24 RGB channels, while other controls retain addressable LEDs. Exact part,
+polarity, shaft dimensions, current resistor, driver compatibility, and
+thermal behavior are not validated. The host rendering policy remains
+independent of illumination technology. See
+[VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md).
+
+There is no physical alphanumeric
 keyboard; text entry uses the shared on-screen keyboard. Exact dimensions,
 components, electrical design and owner-supplied CAD/vector geometry are
 outside this specification.

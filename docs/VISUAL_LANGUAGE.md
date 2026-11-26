@@ -73,3 +73,34 @@ Semantic color, RGB instruction, brightness, animation, firmware electrical
 limits and physical LED placement remain separate. One logical control may
 drive several addressable LEDs. Diffusion, current limits and readability need
 physical validation; no LED count or board limit is assumed here.
+
+## Illuminated contextual encoders
+
+For an assigned contextual encoder, hue communicates functional identity and
+brightness communicates normalized parameter magnitude. Operational feedback
+may temporarily override either dimension; the screen remains the detailed
+numerical authority. Minimum-valued assignments retain a visible minimum
+brightness, while unassigned or unavailable encoders may be dark.
+
+- Unipolar values map minimum to maximum brightness.
+- Bipolar values are dim at neutral and brighter toward either extreme;
+  direction remains explicit on screen.
+- Logarithmic values follow normalized perceptual position.
+- Boolean values are dim off and bright on.
+- Enumerations use constant brightness unless meaningful ordering is declared.
+
+Future resolved values may represent a base parameter, captured held-step
+lock, secondary Performance assignment, mixed multi-selection, pickup state,
+optional effective automation, or optional modulation visualization.
+Continuous modulation visualization is not mandatory and live feedback rates
+remain bounded. Minimum brightness, gamma, transitions, global illumination,
+and firmware electrical limits are separate policies pending physical tests.
+
+## Typography direction
+
+Walkway is a candidate typeface being evaluated by the project owner. It is
+not bundled and no build depends on a local font directory. The direction is a
+neutral dark foundation, functional accents, legible labels at 1920x1200 and
+1024x600, and optionally a separate numeric or monospaced face. Redistribution
+and licensing require verification before appliance inclusion. Typography and
+artwork remain provisional.

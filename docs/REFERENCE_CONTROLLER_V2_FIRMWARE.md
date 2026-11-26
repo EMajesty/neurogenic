@@ -83,7 +83,13 @@ and negative counter-clockwise when viewed from the panel. Zero is ignored.
 Firmware may aggregate detents while preserving signed direction and clamping to
 the `i16` range. Quadrature decoding belongs to firmware; acceleration, fine
 adjustment and musical scaling belong to the host and must not be applied twice.
-V2 has no encoder-push identities.
+Protocol 1.3 and the normative 67-control fingerprint have no encoder-push
+identities or dedicated encoder-RGB destinations. Hardware may wire eight
+optional P-encoder switches and separate RGB channels, but firmware must not
+report them under existing IDs. A future capability-negotiated inventory
+extension will define eight stable push identities, encoder RGB feedback,
+legacy behavior, and a new tested fingerprint. Protocol 1.3 firmware remains
+compatible by omitting those capabilities.
 
 Input frame sequences are monotonically increasing modulo `2^32`. Duplicate or
 old-generation input is rejected. A gap cancels host gesture ownership and

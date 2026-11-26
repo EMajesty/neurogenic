@@ -1,5 +1,11 @@
 # Implementation status
 
+Task 098B adds transient additive per-track solo, stable per-track recording
+arm over the existing single track-channel capture authority, and unified
+internal/MIDI panic with next-callback acknowledgement. Reference SOLO/ARM pad
+chords, SHIFT clear operations, SHIFT+STOP, Slint track state, and illuminated
+encoder design amendments are included. Physical validation remains NOT RUN.
+
 Task 098A adds the transport metronome, scheduled recording count-in, bounded
 tap-tempo estimator, V2 CLICK/TAP bindings, Slint state projection, and the
 functional visual-language specification. Dedicated cue routing, live-loop

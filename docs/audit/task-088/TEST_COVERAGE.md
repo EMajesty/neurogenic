@@ -1,5 +1,11 @@
 # Test and validation audit
 
+`neurogenic_solo_arm_panic_tests` covers transient additive solo state,
+effective audibility, captured recording owner, arm cancellation, internal
+synth cleanup, MIDI safety messages, coalesced repeated panic, and callback
+acknowledgement. `neurogenic_reference_controller_tests` covers SOLO/ARM pad
+chords, SHIFT clearing and SHIFT+STOP production dispatch.
+
 `neurogenic_metronome_tests` adds deterministic PCM, rational boundary,
 recording isolation, count-in cancellation and monotonic tap coverage.
 

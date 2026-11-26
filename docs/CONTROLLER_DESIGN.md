@@ -222,3 +222,9 @@ active MIDI adapter is replaced. Replacement cancels ownership, advances the
 session revision, rejects input queued for the removed adapter and refreshes
 feedback. Editing a definition shared by two endpoints does not implicitly
 replace either session; activation is explicit and independent.
+
+Contextual encoder illumination follows functional hue and normalized-value
+brightness from [VISUAL_LANGUAGE.md](VISUAL_LANGUAGE.md). Detentless RGB-shaft
+encoders and a TLC5947-class PWM driver are candidates, not protocol
+assumptions. Optional push switches are unassigned and absent from the current
+67-control inventory.

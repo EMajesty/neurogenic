@@ -124,3 +124,7 @@ history entry so it can itself be undone. Saving does not silently replace the
 checkpoint, project replacement invalidates it, and failed restoration keeps
 both checkpoint and active state. Implementation and V2 gestures remain Task
 096-or-later work.
+
+Track solo, recording arm, and panic are transient performance/safety
+operations and do not enter musical Undo/Redo. Actual recorded content remains
+an ordinary authoritative musical edit under the existing recording workflow.

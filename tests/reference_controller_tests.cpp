@@ -286,6 +286,50 @@ int main() try {
                  ->muted,
             "second MUTE chord did not restore the authoritative track state");
 
+    send(input("edit.solo", true, sequence++, current_generation));
+    send(input("pad.2", true, sequence++, current_generation));
+    dispatch();
+    send(input("pad.2", false, sequence++, current_generation));
+    send(input("edit.solo", false, sequence++, current_generation));
+    require(std::find_if(application.snapshot_shared()->tracks.begin(),
+                         application.snapshot_shared()->tracks.end(),
+                         [](const auto &track) { return track.id == 42; })->solo,
+            "SOLO + pad did not toggle the stable track");
+    send(input("edit.shift", true, sequence++, current_generation));
+    send(input("edit.solo", true, sequence++, current_generation));
+    dispatch();
+    send(input("edit.solo", false, sequence++, current_generation));
+    send(input("edit.shift", false, sequence++, current_generation));
+    require(std::none_of(application.snapshot_shared()->tracks.begin(),
+                         application.snapshot_shared()->tracks.end(),
+                         [](const auto &track) { return track.solo; }),
+            "SHIFT + SOLO did not clear solo state");
+
+    send(input("edit.solo", true, sequence++, current_generation));
+    send(input("edit.solo", false, sequence++, current_generation));
+    require(session.state().interaction.latched_modifiers.contains("edit.solo"),
+            "SOLO tap did not enter latched interaction mode");
+    send(input("pad.1", true, sequence++, current_generation));
+    send(input("pad.1", false, sequence++, current_generation));
+    dispatch();
+    require(application.snapshot_shared()->tracks.front().solo,
+            "tapped SOLO mode did not own the following pad");
+    send(input("edit.solo", true, sequence++, current_generation));
+    send(input("edit.solo", false, sequence++, current_generation));
+    require(application.execute({"track.solo-clear.v1", {}}).accepted,
+            "solo cleanup failed");
+
+    send(input("edit.arm", true, sequence++, current_generation));
+    send(input("pad.2", true, sequence++, current_generation));
+    dispatch();
+    send(input("pad.2", false, sequence++, current_generation));
+    send(input("edit.arm", false, sequence++, current_generation));
+    require(std::find_if(application.snapshot_shared()->tracks.begin(),
+                         application.snapshot_shared()->tracks.end(),
+                         [](const auto &track) { return track.id == 42; })
+                ->record_armed,
+            "ARM + pad did not arm the stable track");
+
     send(input("transport.fill", true, sequence++, current_generation));
     dispatch();
     require(application.snapshot_shared()->fill_active,
@@ -608,6 +652,19 @@ int main() try {
             "cancelled Sound release was not rejected as stale");
     require(application.dispatch_pending().empty(),
             "stale Sound release dispatched after ownership cancellation");
+
+    const auto panic_ack = engine.panic_acknowledgements();
+    engine.trigger_synth(64, 1.0F, true);
+    engine.process(released_left, released_right);
+    send(input("edit.shift", true, sequence++, current_generation));
+    send(input("transport.stop", true, sequence++, current_generation));
+    dispatch();
+    send(input("transport.stop", false, sequence++, current_generation));
+    send(input("edit.shift", false, sequence++, current_generation));
+    engine.process(released_left, released_right);
+    require(engine.panic_acknowledgements() == panic_ack + 1 &&
+                engine.synth_state().active_voices == 0,
+            "SHIFT + STOP did not invoke unified internal/MIDI panic");
 
     send(input("edit.track", true, sequence++, current_generation));
     session.reconnect();

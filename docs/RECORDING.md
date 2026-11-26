@@ -139,3 +139,9 @@ export the audio-active sample, and request confirmed clear. The engine/service
 remain the only recording-state authorities. Loop publication completion is
 matched by sample revision, not merely by observing any loaded sample in the
 destination slot.
+
+Per-track arm captures exactly one stable track as the existing
+`track_channel` source. Selection cannot redirect it; clearing arm during an
+armed/count-in wait cancels the request, while active capture retains content
+through ordinary stop/finalization. See
+[TRACK_SOLO_AND_ARM.md](TRACK_SOLO_AND_ARM.md).

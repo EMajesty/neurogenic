@@ -48,6 +48,7 @@ struct GestureControlPolicy {
     // (for example sequencer pads which may become held-step editors).  Their
     // ordinary policy remains immediate everywhere else.
     std::vector<std::string> deferred_tap_contexts;
+    bool latch_on_tap{};
 };
 
 struct GestureChord {

@@ -203,6 +203,11 @@ if(NEUROGENIC_BUILD_TESTS)
   add_executable(neurogenic_metronome_tests tests/metronome_tests.cpp)
   target_link_libraries(neurogenic_metronome_tests PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_metronome_tests COMMAND neurogenic_metronome_tests)
+  add_executable(neurogenic_solo_arm_panic_tests
+                 tests/solo_arm_panic_tests.cpp)
+  target_link_libraries(neurogenic_solo_arm_panic_tests PRIVATE neurogenic_engine)
+  add_test(NAME neurogenic_solo_arm_panic_tests
+           COMMAND neurogenic_solo_arm_panic_tests)
   add_executable(neurogenic_gui_smoke tests/gui_smoke.cpp)
   target_link_libraries(neurogenic_gui_smoke PRIVATE neurogenic_engine neurogenic_gui)
   add_test(NAME neurogenic_gui_smoke COMMAND neurogenic_gui_smoke)

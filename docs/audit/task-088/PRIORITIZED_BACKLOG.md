@@ -1,5 +1,9 @@
 # Task 088 prioritized backlog
 
+Task 098B implements additive track solo, single-owner track-channel record
+arm, and unified panic. Remaining musical capability priority moves to bounded
+note/triplet repeat, quantized repeated-event recording, and live erase.
+
 Task 098A closes base metronome, recording count-in and tap tempo. Dedicated
 cue routing, live-loop count-in, preference persistence and external-clock
 hardware validation remain. Task 098B covers solo/arm and unified panic.

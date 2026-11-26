@@ -71,6 +71,7 @@ class NativeEffectRack {
     NativeEffectRack(const NativeEffectRack &) = delete;
     NativeEffectRack &operator=(const NativeEffectRack &) = delete;
     void activate(const EffectRackConfiguration &) noexcept;
+    void reset_state() noexcept;
     [[nodiscard]] bool set_parameter(EffectInstanceId, std::uint32_t,
                                      float) noexcept;
     void process(const EffectChainConfiguration &, std::span<float>,

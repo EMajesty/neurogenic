@@ -125,7 +125,10 @@ std::uint64_t slint_context_pad_fingerprint(const ApplicationState &state,
         add(slot.id); add(static_cast<std::uint64_t>(slot.logical_position + 1));
     }
     for (const auto &pattern : state.patterns) { add(pattern.id); add(pattern.length); }
-    for (const auto &track : state.tracks) { add(track.id); add(track.muted); }
+    for (const auto &track : state.tracks) {
+        add(track.id); add(track.muted); add(track.solo); add(track.record_armed);
+        add(track.effectively_audible);
+    }
     for (const auto &slot : state.sample_slots) {
         add(slot.id.value); add(slot.has_sample);
     }
@@ -1194,7 +1197,8 @@ bool SlintFrontendAdapter::refresh() {
     for (const auto &candidate : snapshot.tracks)
         next.sequencer.tracks.push_back({candidate.id, candidate.name,
             candidate.instrument_id, candidate.id == snapshot.selected_track,
-            candidate.muted});
+            candidate.muted, candidate.solo, candidate.record_armed,
+            candidate.effectively_audible});
     const auto step_count = track == snapshot.tracks.end() || snapshot.step_ticks <= 0
         ? std::uint64_t{}
         : static_cast<std::uint64_t>((track->pattern_length + snapshot.step_ticks - 1) /
@@ -3561,6 +3565,16 @@ bool SlintFrontendAdapter::manage_track(std::string operation) {
         return execute({"track.duplicate.v1", {}, {}, 0});
     if (operation == "mute")
         return execute({"track.mute-toggle.v1", {}, {}, 0});
+    if (operation == "solo")
+        return execute({"track.solo-toggle.v1", {}, {}, 0});
+    if (operation == "clear-solo")
+        return execute({"track.solo-clear.v1", {}, {}, 0});
+    if (operation == "arm")
+        return execute({"track.record-arm-toggle.v1", {}, {}, 0});
+    if (operation == "clear-arm")
+        return execute({"track.record-arm-clear.v1", {}, {}, 0});
+    if (operation == "panic")
+        return execute({"transport.panic.v1", {}, {}, 0});
     const auto snapshot = application_.snapshot();
     const auto selected = std::find_if(snapshot.tracks.begin(), snapshot.tracks.end(),
         [&](const auto &candidate) { return candidate.id == snapshot.selected_track; });
@@ -4210,9 +4224,13 @@ bool SlintFrontendAdapter::adjust_mixer(std::string operation, double steps) {
 bool SlintFrontendAdapter::toggle_mixer(std::string operation) {
     if (state_.mixer.selected_channel >= state_.mixer.channels.size()) return false;
     const auto &channel = state_.mixer.channels[state_.mixer.selected_channel];
-    if (channel.type == "Track")
-        return invoke_action(operation == "mute" ? "mixer.mute-toggle.v1"
-                                                  : "mixer.solo-toggle.v1");
+    if (channel.type == "Track") {
+        if (operation == "solo")
+            return execute({"track.solo-toggle.v1",
+                            {{"track_id", static_cast<std::int64_t>(channel.id)}},
+                            {}, 0});
+        return invoke_action("mixer.mute-toggle.v1");
+    }
     if (channel.type == "Group")
         return execute({operation == "mute" ? "mixer.group-mute-toggle.v1"
                                              : "mixer.group-solo-toggle.v1",

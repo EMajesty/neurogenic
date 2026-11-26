@@ -258,6 +258,10 @@ class AudioEngine {
     void restart() noexcept;
     [[nodiscard]] bool seek_frame(std::uint64_t frame) noexcept;
     void midi_panic() noexcept;
+    void panic() noexcept;
+    [[nodiscard]] std::uint64_t panic_acknowledgements() const noexcept {
+        return panic_acknowledgements_.load(std::memory_order_acquire);
+    }
     [[nodiscard]] bool set_fill(bool active) noexcept;
     [[nodiscard]] bool
     publish_metronome(const MetronomeConfiguration &configuration) noexcept;
@@ -660,6 +664,8 @@ class AudioEngine {
         reclaimed_timeline_plans_{}, published_frame_{}, next_order_{},
         stolen_voices_{}, missing_slot_triggers_{}, dropped_sample_updates_{},
         reclaimed_sample_versions_{};
+    std::atomic<bool> panic_requested_{};
+    std::atomic<std::uint64_t> panic_acknowledgements_{};
     std::atomic<std::uint64_t> last_timeline_activation_frame_{},
         last_timeline_lateness_frames_{}, song_end_count_{};
     std::atomic<std::uint64_t> timeline_activation_count_{};

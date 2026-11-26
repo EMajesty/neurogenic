@@ -135,7 +135,7 @@ struct SlintArrangementItem {
 struct SlintTrackItem {
     std::uint64_t id{};
     std::string name, instrument;
-    bool selected{}, muted{};
+    bool selected{}, muted{}, solo{}, record_armed{}, effectively_audible{};
 };
 
 struct SlintSequencerPageState {

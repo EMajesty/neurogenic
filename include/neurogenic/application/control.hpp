@@ -19,6 +19,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -113,6 +114,7 @@ struct TrackSummary {
     std::string instrument_id{sample_instrument_id};
     std::vector<MusicalEvent> events;
     InstrumentInstanceId instrument_instance_id{default_synth_instance_id};
+    bool solo{}, record_armed{}, effectively_audible{true};
 };
 struct SelectedEventState {
     TrackId track_id{};
@@ -318,6 +320,7 @@ struct ApplicationState {
     std::vector<std::filesystem::path> missing_assets;
     PresetApplicationState preset_application;
     RecordingStatus recording;
+    TrackId recording_owner_track{};
     std::vector<LiveLoopSessionStatus> live_loops;
     MixerState mixer;
     std::size_t selected_mixer_channel{};
@@ -499,6 +502,8 @@ class ApplicationService {
     TapTempoEstimator tap_tempo_;
     std::uint64_t tap_tempo_observations_{};
     mutable MixerConfiguration mixer_configuration_;
+    mutable std::set<TrackId> solo_tracks_, armed_tracks_;
+    mutable std::optional<TrackId> recording_owner_track_;
     mutable ModulationConfiguration modulation_configuration_;
     MidiOutputScheduler midi_output_;
     MidiRouter midi_router_;
