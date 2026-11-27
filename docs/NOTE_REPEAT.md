@@ -1,5 +1,11 @@
 # Musical note repeat
 
+Repeat occurrences can now be recorded through the authoritative live-event
+capture path. Straight and triplet occurrences become ordinary editable events
+with the existing 50% gate; capture occurs once at scheduler dispatch, avoiding
+duplicate initial-pad and repeat recording. See
+[Live event recording](LIVE_EVENT_RECORDING.md).
+
 Task 098C adds a bounded live note-repeat authority to `AudioEngine`. It shares
 the transport frame, project tempo and 960-PPQN integer musical grid used by
 prepared timeline playback; it is not a timer, second sequencer, or persistent

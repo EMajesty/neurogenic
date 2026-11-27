@@ -9,6 +9,7 @@ namespace neurogenic {
 
 enum class RecordingWorkflowMode : std::uint8_t {
     audio,
+    musical_events,
     resample,
     live_loop,
     arrangement,

@@ -344,7 +344,30 @@ bool ControllerSession::dispatch_legacy(const ControllerInput &input,
         return true;
     }
     const auto snapshot = application_->snapshot();
+    if (mapping->semantic == "recording-mode-toggle")
+        return submit({"event-recording.mode-set.v1",
+                       {{"mode", snapshot.event_recording.mode == "musical-events"
+                                      ? std::string("audio")
+                                      : std::string("musical-events")}},
+                       state_.session_id, input.sequence}, error);
     if (mapping->semantic == "recording-toggle") {
+        if (snapshot.event_recording.mode == "musical-events") {
+            if (snapshot.event_recording.active)
+                return submit({"event-recording.stop.v1", {}, state_.session_id,
+                               input.sequence}, error);
+            if (snapshot.event_recording.phase == EventRecordingPhase::armed)
+                return submit({"event-recording.start.v1", {}, state_.session_id,
+                               input.sequence}, error);
+            if (!submit({"event-recording.arm.v1",
+                         {{"pattern_id", static_cast<std::int64_t>(
+                                             snapshot.selected_pattern)},
+                          {"track_id", static_cast<std::int64_t>(
+                                           snapshot.selected_track)}},
+                         state_.session_id, input.sequence}, error))
+                return false;
+            return submit({"event-recording.start.v1", {}, state_.session_id,
+                           input.sequence}, error);
+        }
         if (snapshot.recording.state == RecordingState::recording)
             return submit({"recording.stop.v1", {}, state_.session_id,
                            input.sequence}, error);

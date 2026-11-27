@@ -1,5 +1,10 @@
 # Input gesture ownership
 
+REC MODE selects the shared musical-events mode and REC arms/starts/stops its
+captured destination through `ControllerSession`. Only musical actions accepted
+after modifier/modal resolution reach the audio capture boundary; consumed pad
+gestures cannot be recorded accidentally.
+
 COPY is a deferred-tap modifier. Tap copies the current compatible selection,
 COPY+pad captures that stable sequencer step without dispatching its ordinary
 action, and SHIFT+COPY merge-pastes at the selected stable destination. Chord

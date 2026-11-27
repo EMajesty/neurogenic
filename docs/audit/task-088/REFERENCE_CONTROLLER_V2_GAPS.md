@@ -12,7 +12,7 @@ unchanged. Physical validation remains NOT RUN.
 
 Task 098A binds CLICK, SHIFT+CLICK, TAP and TAP+DATA to shared authoritative
 capabilities. Physical button/RGB/audio validation is NOT RUN. Task 098C adds
-bounded note/triplet repeat and live erase; persistent repeated-event recording
+bounded note/triplet repeat, persistent repeat-event recording, and live erase
 remains open with the missing event-recording authority.
 
 Task 097D closes the highest-risk software acceptance gaps: scheduled and

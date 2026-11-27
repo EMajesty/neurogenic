@@ -1,5 +1,10 @@
 # Application history and content transactions
 
+A completed non-empty musical event-recording session produces one timeline
+history entry. Copying, arming, empty takes, cancellation, and failed/overflowed
+captures produce no musical history operation. Clipboard contents remain
+independent of recording Undo/Redo.
+
 Clipboard capture and clear are non-musical transient operations and create no
 history. A successful paste or independent-pattern paste is one unified musical
 history entry; rejected candidates create none. Undo/Redo changes project

@@ -158,6 +158,27 @@ struct MusicalClipboardState {
     bool populated{}, destination_compatible{}, paste_available{};
     std::string source_context, validation_error;
 };
+enum class EventRecordingPhase : std::uint8_t {
+    idle,
+    armed,
+    waiting,
+    count_in,
+    recording,
+    finalizing,
+    completed,
+    cancelled,
+    failed
+};
+struct EventRecordingState {
+    EventRecordingPhase phase{EventRecordingPhase::idle};
+    PatternId pattern{};
+    TrackId track{};
+    std::uint64_t session{};
+    std::size_t pending_events{};
+    std::uint64_t overflow_count{};
+    bool available{}, active{};
+    std::string mode{"audio"}, error;
+};
 struct SliceState {
     SliceId id{};
     std::string name;
@@ -297,6 +318,7 @@ struct ApplicationState {
     std::vector<StepParameterLockState> selected_step_locks;
     std::vector<StepSelectionState> selected_steps;
     MusicalClipboardState clipboard;
+    EventRecordingState event_recording;
     bool edit_group_active{}, can_undo{}, can_redo{};
     bool history_pending{};
     std::string undo_label, redo_label;
@@ -496,6 +518,8 @@ class ApplicationService {
                                  std::string &);
     void push_history(ApplicationHistoryEntry) const;
     void clear_history();
+    void drain_live_event_capture_locked();
+    bool finalize_live_event_recording_locked(std::string &error);
     static constexpr std::size_t application_history_capacity = 32;
     bool publish_modulation_with_macros(const ModulationConfiguration &,
                                         std::string &);
@@ -583,6 +607,34 @@ class ApplicationService {
         std::vector<MusicalClipboardTrackPayload> tracks;
     };
     std::optional<MusicalClipboardPayload> musical_clipboard_;
+    struct PendingRecordedNote {
+        LiveEventOrigin origin{LiveEventOrigin::synth_note};
+        MusicalTick tick{};
+        std::uint32_t midi_port{};
+        InstrumentInstanceId instrument{};
+        std::uint8_t midi_channel{}, pitch{};
+        float velocity{};
+    };
+    struct LiveEventRecordingSession {
+        static constexpr std::size_t maximum_events = 2048;
+        static constexpr std::size_t maximum_pending_notes = 128;
+        std::uint64_t generation{};
+        PatternId pattern{};
+        TrackId track{};
+        std::string instrument_id;
+        InstrumentInstanceId instrument_instance{};
+        std::uint32_t midi_port{};
+        std::uint8_t midi_channel{};
+        MusicalTick length{}, start_tick{};
+        EventRecordingPhase phase{EventRecordingPhase::armed};
+        std::vector<MusicalEvent> events;
+        std::vector<PendingRecordedNote> pending;
+        std::uint64_t initial_drops{};
+        std::string error;
+    };
+    std::optional<LiveEventRecordingSession> live_event_recording_;
+    std::uint64_t next_live_event_recording_generation_{1};
+    std::string recording_mode_{"audio"};
     mutable std::optional<PendingPresetApplication> pending_preset_;
     mutable std::optional<PendingHistoryRestore> pending_history_restore_;
     mutable std::optional<PendingProjectRecovery> pending_project_recovery_;

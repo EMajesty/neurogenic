@@ -1,5 +1,9 @@
 # Designing a frontend for NEUROGENIC
 
+Frontends consume `ApplicationState::event_recording` for mode, lifecycle,
+captured stable destination, pending count, overflow, and diagnostics. They may
+request actions but must not timestamp, buffer, or publish musical events.
+
 The provisional functional palette and redundant state cues are specified in
 [`VISUAL_LANGUAGE.md`](VISUAL_LANGUAGE.md); Task 098A does not broadly recolor
 the frontend.

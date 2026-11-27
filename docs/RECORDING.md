@@ -1,5 +1,11 @@
 # Audio recording and internal resampling
 
+Musical sequencer-event recording is an explicit mode, separate from audio and
+live-loop capture. It captures one stable pattern/track destination before
+count-in or waiting and records accepted sample, synth, MIDI note, and repeat
+events. Exact lifecycle, bounds, overdub policy, and limitations are documented
+in [Live event recording](LIVE_EVENT_RECORDING.md).
+
 Task 098D does not add live sequencer-event recording. The authoritative
 recording coordinator currently owns audio/sample/loop workflows but has no
 bounded note-event capture window. Task 098E must add explicit event-recording

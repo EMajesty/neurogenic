@@ -333,6 +333,13 @@ int main() {
                     adapter.state().shell.clipboard_summary.find("events") !=
                         std::string::npos,
                 "clipboard state reaches the production Slint publication model");
+        require(application.execute({"event-recording.mode-set.v1",
+                    {{"mode", std::string("musical-events")}}}).accepted &&
+                    adapter.refresh() &&
+                    adapter.state().shell.event_recording_mode ==
+                        "musical-events" &&
+                    adapter.state().shell.event_recording_status == "Idle",
+                "event recording state reaches the production Slint model");
         const auto page_two_pitch = application.snapshot().selected_event->pitch;
         const auto page_two_timing =
             application.snapshot().selected_event->timing_offset;

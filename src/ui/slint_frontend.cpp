@@ -147,6 +147,11 @@ void publish(const SlintUiState &state,
         window->set_clipboard_populated(state.shell.clipboard_populated);
         window->set_clipboard_compatible(state.shell.clipboard_compatible);
         window->set_clipboard_summary(text(state.shell.clipboard_summary));
+        window->set_event_recording_active(state.shell.event_recording_active);
+        window->set_event_recording_mode(text(state.shell.event_recording_mode));
+        window->set_event_recording_status(text(state.shell.event_recording_status));
+        window->set_event_recording_pending(
+            static_cast<int>(state.shell.event_recording_pending));
         window->set_history_pending(state.shell.history_pending);
         window->set_can_undo(state.shell.can_undo);
         window->set_can_redo(state.shell.can_redo);
@@ -235,6 +240,11 @@ void publish(const SlintUiState &state,
     window->set_clipboard_populated(state.shell.clipboard_populated);
     window->set_clipboard_compatible(state.shell.clipboard_compatible);
     window->set_clipboard_summary(text(state.shell.clipboard_summary));
+    window->set_event_recording_active(state.shell.event_recording_active);
+    window->set_event_recording_mode(text(state.shell.event_recording_mode));
+    window->set_event_recording_status(text(state.shell.event_recording_status));
+    window->set_event_recording_pending(
+        static_cast<int>(state.shell.event_recording_pending));
     window->set_project_name(text(state.shell.project_name));
     window->set_project_dirty(state.shell.project_dirty);
     window->set_history_pending(state.shell.history_pending);

@@ -1,5 +1,9 @@
 # Slint UI foundation
 
+The production shell publishes musical recording mode, phase, active state, and
+pending event count alongside existing transport/count-in state. These values
+come from `ApplicationState`; Slint owns no recording lifecycle or event buffer.
+
 The shell publishes whether the musical clipboard is populated, its source
 context/event count and compatibility with the current destination. These values
 come from `ApplicationState`; Slint does not implement copy/paste or retain a

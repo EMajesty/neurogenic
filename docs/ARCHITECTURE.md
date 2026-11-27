@@ -1,5 +1,11 @@
 # Architecture
 
+Live musical recording uses the existing audio dispatch point as a timestamped
+producer and `ApplicationService`/`TimelineService` as the sole mutation and
+history authority. The callback writes only to a bounded SPSC queue; the
+application thread validates and publishes one immutable timeline transaction.
+See [Live event recording](LIVE_EVENT_RECORDING.md).
+
 The typed musical clipboard is transient application-layer state. It owns
 bounded `MusicalEvent` values and stable source metadata, never mutable timeline
 or prepared-engine pointers. Paste becomes one validated `TimelineTransaction`

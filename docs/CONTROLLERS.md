@@ -1,5 +1,9 @@
 # Application control and controller API
 
+Musical event recording is exposed through stable `event-recording.*` actions.
+REC MODE and REC in the reference profile use those same actions; alternative
+controllers and clients do not need a controller-specific capture authority.
+
 Musical clipboard mappings invoke shared semantic actions. Controller profiles
 do not own clipboard payloads or copy/paste rules. Reference COPY chords capture
 stable logical targets and alternative controllers may call the same bounded

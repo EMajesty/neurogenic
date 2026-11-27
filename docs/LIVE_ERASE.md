@@ -1,5 +1,10 @@
 # Transport-aware live erase
 
+Live erase and a pending live-event recording transaction are not currently
+combined. The UI and clients should treat simultaneous operation as unavailable
+so a final recording transaction cannot resurrect erased events. Task 098F owns
+the unified contextual policy.
+
 Task 098C extends ERASE without changing stopped step erase. After an explicit
 PLAY/RESTART, during running Sequencer playback ERASE + pad captures a stable reusable-pattern, track,
 pitch, owner and connection generation. The application follows the

@@ -220,6 +220,12 @@ if(NEUROGENIC_BUILD_TESTS)
                         PRIVATE neurogenic_engine)
   add_test(NAME neurogenic_musical_clipboard_tests
            COMMAND neurogenic_musical_clipboard_tests)
+  add_executable(neurogenic_live_event_recording_tests
+                 tests/live_event_recording_tests.cpp)
+  target_link_libraries(neurogenic_live_event_recording_tests
+                        PRIVATE neurogenic_engine)
+  add_test(NAME neurogenic_live_event_recording_tests
+           COMMAND neurogenic_live_event_recording_tests)
   add_executable(neurogenic_gui_smoke tests/gui_smoke.cpp)
   target_link_libraries(neurogenic_gui_smoke PRIVATE neurogenic_engine neurogenic_gui)
   add_test(NAME neurogenic_gui_smoke COMMAND neurogenic_gui_smoke)

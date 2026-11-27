@@ -44,6 +44,10 @@ export component PerformanceWindow inherits Window {
     in property <bool> clipboard-populated: false;
     in property <bool> clipboard-compatible: false;
     in property <string> clipboard-summary: "Empty";
+    in property <bool> event-recording-active: false;
+    in property <string> event-recording-mode: "audio";
+    in property <string> event-recording-status: "Idle";
+    in property <int> event-recording-pending: 0;
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
@@ -319,6 +323,11 @@ export component PerformanceWindow inherits Window {
                     + (root.clipboard-populated
                         ? "  ·  Clipboard " + root.clipboard-summary
                             + (root.clipboard-compatible ? "" : " (incompatible)")
+                        : "")
+                    + (root.event-recording-mode == "musical-events"
+                        ? "  ·  Events " + root.event-recording-status
+                            + (root.event-recording-pending > 0
+                                ? " (" + root.event-recording-pending + ")" : "")
                         : "");
                 color: root.interaction-modal-active ? Theme.warning : Theme.muted;
                 vertical-alignment: center; overflow: elide;

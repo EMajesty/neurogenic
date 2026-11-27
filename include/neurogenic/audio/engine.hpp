@@ -62,6 +62,24 @@ struct NoteRepeatState {
     std::uint16_t owner_mask{};
     std::uint64_t trigger_count{}, cancellation_count{}, dropped_commands{};
 };
+enum class LiveEventOrigin : std::uint8_t {
+    sample_pad,
+    synth_note,
+    midi_input,
+    repeat_sample,
+    repeat_synth,
+    repeat_midi
+};
+struct LiveEventCapture {
+    std::uint64_t session{};
+    LiveEventOrigin origin{LiveEventOrigin::sample_pad};
+    MusicalTick tick{}, duration{};
+    std::uint32_t midi_port{};
+    InstrumentInstanceId instrument{default_synth_instance_id};
+    std::uint8_t midi_channel{}, pitch{60};
+    float velocity{1.0F};
+    bool note_on{true};
+};
 enum class SamplePlaybackMode : std::uint8_t { one_shot, gate, toggle };
 enum class RegionFadeCurve : std::uint8_t { linear, equal_power };
 struct SampleRegionPlayback {
@@ -215,6 +233,15 @@ class AudioEngine {
     set_note_repeat_division(NoteRepeatDivision division) noexcept;
     void cancel_note_repeats() noexcept;
     [[nodiscard]] NoteRepeatState note_repeat_state() const noexcept;
+    void begin_live_event_capture(std::uint64_t session,
+                                  MusicalTick start_tick) noexcept;
+    void end_live_event_capture() noexcept;
+    [[nodiscard]] bool pop_live_event_capture(LiveEventCapture &event) noexcept {
+        return live_event_captures_->pop(event);
+    }
+    [[nodiscard]] std::uint64_t dropped_live_event_captures() const noexcept {
+        return dropped_live_event_captures_.load(std::memory_order_acquire);
+    }
     [[nodiscard]] bool set_synth_parameter(
         SynthParameter, float,
         InstrumentInstanceId instance = default_synth_instance_id) noexcept;
@@ -685,6 +712,11 @@ class AudioEngine {
     std::atomic<std::uint16_t> published_note_repeat_owner_mask_{};
     std::atomic<std::uint64_t> note_repeat_triggers_{},
         note_repeat_cancellations_{}, dropped_note_repeat_commands_{};
+    std::unique_ptr<SpscQueue<LiveEventCapture, 2049>> live_event_captures_;
+    std::atomic<std::uint64_t> live_event_capture_session_{};
+    std::atomic<MusicalTick> live_event_capture_start_tick_{};
+    std::atomic<bool> live_event_capture_active_{};
+    std::atomic<std::uint64_t> dropped_live_event_captures_{};
     SpscQueue<DspCommand, 129> dsp_commands_;
     MacroMorphProcessor macro_morphs_;
     std::array<std::atomic<std::uint64_t>, MacroMorphProcessor::capacity>

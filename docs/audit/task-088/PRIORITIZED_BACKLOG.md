@@ -1,15 +1,18 @@
 # Task 088 prioritized backlog
 
-- **098E mandatory:** authoritative live sample-trigger, synth-note and external
-  MIDI sequencer-event recording, including repeat capture and overdub.
+- **098E completed in software:** authoritative live sample-trigger, synth-note,
+  filtered MIDI-note, and repeat event capture now commits through the ordinary
+  timeline/history path. Physical validation remains NOT RUN.
+- **098F next:** complete contextual LOOP/RANGE, REC/OVERDUB, source and stable
+  destination authoring, replacement policy, and next-pass loop monitoring.
 - 098F: contextual loop, recording and overdub controls.
 - 098G: quantization and swing.
 - 099: temporary performance checkpoints.
 - 100: consolidated implementation audit.
 
 Task 098C implements bounded straight/triplet live repeat and matching-note
-transport-aware live erase. Quantized persistent repeat recording remains open
-because no live sequencer-event recording authority exists. Next capability is
+transport-aware live erase. Persistent repeat recording is now supported by
+the Task 098E live sequencer-event authority. Next capability is
 the typed musical clipboard (Task 098D).
 
 Task 098B implements additive track solo, single-owner track-channel record

@@ -1,5 +1,11 @@
 # Reference Controller V2 interaction design
 
+Task 098E binds REC MODE to audio/musical-event mode selection and routes REC
+through the shared recording authority. In musical-event mode REC captures the
+selected stable pattern and track, starts (including configured count-in), and
+stops/finalizes. REPEAT occurrences are recordable; full contextual LOOP/RANGE
+and REC/OVERDUB expansion remains Task 098F.
+
 Task 098D completes COPY for supported sequencer content: tap copies selection,
 COPY+pad copies an explicit step, and SHIFT+COPY performs safe merge paste.
 Clipboard population and incompatibility are authoritative application feedback;

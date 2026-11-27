@@ -48,6 +48,8 @@ AudioEngine::AudioEngine(std::uint32_t rate, std::size_t voice_capacity,
                          std::size_t event_staging_capacity,
                          std::size_t sample_version_capacity)
     : rate_(rate), scheduler_(rate, 120.0), timeline_scheduler_(rate),
+      live_event_captures_(
+          std::make_unique<SpscQueue<LiveEventCapture, 2049>>()),
       sample_updates_(sample_version_capacity + 1),
       preset_activation_slots_(
           std::make_unique<PreparedPresetActivation[]>(
@@ -552,6 +554,15 @@ NoteRepeatState AudioEngine::note_repeat_state() const noexcept {
             note_repeat_triggers_.load(std::memory_order_acquire),
             note_repeat_cancellations_.load(std::memory_order_acquire),
             dropped_note_repeat_commands_.load(std::memory_order_acquire)};
+}
+void AudioEngine::begin_live_event_capture(std::uint64_t session,
+                                           MusicalTick start_tick) noexcept {
+    live_event_capture_start_tick_.store(start_tick, std::memory_order_relaxed);
+    live_event_capture_session_.store(session, std::memory_order_relaxed);
+    live_event_capture_active_.store(session != 0, std::memory_order_release);
+}
+void AudioEngine::end_live_event_capture() noexcept {
+    live_event_capture_active_.store(false, std::memory_order_release);
 }
 bool AudioEngine::set_synth_parameter(SynthParameter parameter, float value,
                                       InstrumentInstanceId instance) noexcept {
@@ -1467,6 +1478,33 @@ void AudioEngine::process(std::span<float> left,
                                     : std::chrono::steady_clock::time_point{};
     processing_started_.store(true, std::memory_order_release);
     const auto frames = std::min(left.size(), right.size());
+    const auto capture_live = [&](LiveEventOrigin origin, MusicalTick tick,
+                                  std::uint8_t pitch, float velocity,
+                                  bool note_on, MusicalTick duration = 0,
+                                  InstrumentInstanceId instrument =
+                                      default_synth_instance_id,
+                                  std::uint32_t midi_port = 0,
+                                  std::uint8_t midi_channel = 0) noexcept {
+        if (!live_event_capture_active_.load(std::memory_order_acquire) ||
+            tick < live_event_capture_start_tick_.load(
+                       std::memory_order_relaxed))
+            return;
+        LiveEventCapture event;
+        event.session = live_event_capture_session_.load(
+            std::memory_order_relaxed);
+        event.origin = origin;
+        event.tick = tick;
+        event.duration = duration;
+        event.instrument = instrument;
+        event.midi_port = midi_port;
+        event.midi_channel = midi_channel;
+        event.pitch = pitch;
+        event.velocity = velocity;
+        event.note_on = note_on;
+        if (!live_event_captures_->push(event))
+            dropped_live_event_captures_.fetch_add(1,
+                                                   std::memory_order_relaxed);
+    };
     MetronomeCommand metronome_command;
     while (metronome_commands_.pop(metronome_command)) {
         if (metronome_command.type == MetronomeCommand::Type::configure) {
@@ -1596,6 +1634,11 @@ void AudioEngine::process(std::span<float> left,
     }
     SynthTrigger synth_trigger;
     while (synth_triggers_.pop(synth_trigger)) {
+        capture_live(LiveEventOrigin::synth_note,
+                     repeat_tick_at_frame(transport_frame_, rate_,
+                                          active_timeline_tempo_us_),
+                     synth_trigger.note, synth_trigger.velocity,
+                     synth_trigger.note_on, 0, synth_trigger.instance);
         if (synth_trigger.note_on)
             synths_[synth_trigger.instance - 1]->set_modulation_frame(
                 callback_frame);
@@ -1636,6 +1679,19 @@ void AudioEngine::process(std::span<float> left,
     }
     MidiPacket midi_input;
     while (midi_inputs_.pop(midi_input)) {
+        if (midi_input.size >= 3) {
+            const auto status = midi_input.bytes[0] & 0xF0;
+            if (status == 0x90 || status == 0x80) {
+                const auto note_on = status == 0x90 && midi_input.bytes[2] != 0;
+                capture_live(LiveEventOrigin::midi_input,
+                    repeat_tick_at_frame(transport_frame_, rate_,
+                                         active_timeline_tempo_us_),
+                    midi_input.bytes[1],
+                    static_cast<float>(midi_input.bytes[2]) / 127.0F,
+                    note_on, 0, default_synth_instance_id, midi_input.port,
+                    static_cast<std::uint8_t>(midi_input.bytes[0] & 0x0F));
+            }
+        }
         midi_clock_follower_.receive(midi_input);
         if (auto *output = midi_output_.load(std::memory_order_acquire))
             (void)midi_router_.route(midi_input, *output);
@@ -2137,6 +2193,16 @@ void AudioEngine::process(std::span<float> left,
                 (void)midi->enqueue(packet);
             }
             const auto division = repeat_ticks(repeat.target.division);
+            capture_live(
+                repeat.target.kind == NoteRepeatTargetKind::sample
+                    ? LiveEventOrigin::repeat_sample
+                : repeat.target.kind == NoteRepeatTargetKind::synth
+                    ? LiveEventOrigin::repeat_synth
+                    : LiveEventOrigin::repeat_midi,
+                static_cast<MusicalTick>(repeat.next_tick),
+                repeat.target.note, repeat.target.velocity, true,
+                division / 2, repeat.target.instrument,
+                repeat.target.midi_port, repeat.target.midi_channel);
             repeat.gate_off_tick = repeat.next_tick +
                                    static_cast<std::uint64_t>(division / 2);
             repeat.next_tick += static_cast<std::uint64_t>(division);
@@ -2167,6 +2233,13 @@ void AudioEngine::process(std::span<float> left,
                 start_voice(event.note, event.velocity, 0, 0, 0, false, &target,
                             true);
             } else {
+                if (event.pad_event)
+                    capture_live(
+                        LiveEventOrigin::sample_pad,
+                        repeat_tick_at_frame(transport_frame_ + frame, rate_,
+                                             active_timeline_tempo_us_),
+                        event.note, event.velocity, event.note_on,
+                        ticks_per_quarter / 4);
                 const auto *target = &note_slices_[event.note];
                 if (event.pad_event && !event.note_on)
                     release_note(event.note);

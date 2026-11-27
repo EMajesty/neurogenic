@@ -30,6 +30,20 @@ std::string_view slint_trigger_condition_name(TriggerCondition condition) {
         "Previous fired", "Previous not fired", "Fill", "Not fill"};
     return names[static_cast<std::size_t>(condition)];
 }
+const char *event_recording_phase_name(EventRecordingPhase phase) noexcept {
+    switch (phase) {
+    case EventRecordingPhase::idle: return "Idle";
+    case EventRecordingPhase::armed: return "Armed";
+    case EventRecordingPhase::waiting: return "Waiting";
+    case EventRecordingPhase::count_in: return "Count-in";
+    case EventRecordingPhase::recording: return "Recording events";
+    case EventRecordingPhase::finalizing: return "Finalizing";
+    case EventRecordingPhase::completed: return "Completed";
+    case EventRecordingPhase::cancelled: return "Cancelled";
+    case EventRecordingPhase::failed: return "Failed";
+    }
+    return "Unknown";
+}
 
 std::uint64_t slint_structural_fingerprint(const ApplicationState &state) {
     std::uint64_t value{0xcbf29ce484222325ULL};
@@ -570,6 +584,12 @@ bool SlintFrontendAdapter::refresh() {
             ? snapshot.clipboard.source_context + " · " +
                   std::to_string(snapshot.clipboard.event_count) + " events"
             : "Empty";
+        state_.shell.event_recording_active = snapshot.event_recording.active;
+        state_.shell.event_recording_mode = snapshot.event_recording.mode;
+        state_.shell.event_recording_status =
+            event_recording_phase_name(snapshot.event_recording.phase);
+        state_.shell.event_recording_pending =
+            snapshot.event_recording.pending_events;
         state_.shell.history_pending = snapshot.history_pending;
         state_.shell.can_undo = snapshot.can_undo;
         state_.shell.can_redo = snapshot.can_redo;
@@ -804,6 +824,12 @@ bool SlintFrontendAdapter::refresh() {
         ? snapshot.clipboard.source_context + " · " +
               std::to_string(snapshot.clipboard.event_count) + " events"
         : "Empty";
+    next.shell.event_recording_active = snapshot.event_recording.active;
+    next.shell.event_recording_mode = snapshot.event_recording.mode;
+    next.shell.event_recording_status =
+        event_recording_phase_name(snapshot.event_recording.phase);
+    next.shell.event_recording_pending =
+        snapshot.event_recording.pending_events;
     next.shell.transport =
         slint_recording_label(snapshot.recording.state, snapshot.playing);
     const auto recording = recording_workflow_.snapshot();

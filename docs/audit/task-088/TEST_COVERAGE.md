@@ -1,5 +1,11 @@
 # Test and validation audit
 
+Task 098E adds `neurogenic_live_event_recording_tests`, covering production
+sample, polyphonic synth, external MIDI, repeat capture, stable destinations,
+unrelated-pattern preservation, controller REC/REC MODE, history, clipboard,
+persistence, and fresh-engine PCM playback. Physical controller and MIDI
+hardware remain NOT RUN.
+
 Task 098D adds `neurogenic_musical_clipboard_tests`: full event-property and
 lock preservation, sparse/later-page placement, fresh IDs, strict compatibility,
 atomic merge/replacement, source deletion, repeated paste, unified history,

@@ -12,6 +12,7 @@ bool audio_mode(RecordingWorkflowMode mode) noexcept {
 const char *recording_workflow_mode_name(RecordingWorkflowMode value) noexcept {
     switch (value) {
     case RecordingWorkflowMode::audio: return "External audio";
+    case RecordingWorkflowMode::musical_events: return "Musical events";
     case RecordingWorkflowMode::resample: return "Internal resampling";
     case RecordingWorkflowMode::live_loop: return "Live loop";
     case RecordingWorkflowMode::arrangement: return "Arrangement capture";
@@ -123,6 +124,16 @@ bool RecordingWorkflowCoordinator::arm(std::string &error) {
             return false;
         return submit("recording.arm.v1", {}, error);
     }
+    if (configuration_.mode == RecordingWorkflowMode::musical_events) {
+        if (!submit("event-recording.mode-set.v1",
+                    {{"mode", std::string("musical-events")}}, error))
+            return false;
+        return submit("event-recording.arm.v1",
+                      {{"pattern_id", static_cast<std::int64_t>(
+                                          application_.snapshot().selected_pattern)},
+                       {"track_id", static_cast<std::int64_t>(
+                                        configuration_.destination_track)}}, error);
+    }
     if (configuration_.mode == RecordingWorkflowMode::live_loop) {
         const auto before = application_.snapshot().live_loops;
         if (!submit("live-loop.create.v1",
@@ -158,6 +169,8 @@ bool RecordingWorkflowCoordinator::arm(std::string &error) {
 bool RecordingWorkflowCoordinator::start(std::string &error) {
     if (audio_mode(configuration_.mode))
         return submit("recording.start.v1", {}, error);
+    if (configuration_.mode == RecordingWorkflowMode::musical_events)
+        return submit("event-recording.start.v1", {}, error);
     if (configuration_.mode == RecordingWorkflowMode::live_loop)
         return submit("live-loop.start.v1",
                       {{"id", static_cast<std::int64_t>(live_loop_session_)}}, error);
@@ -176,6 +189,8 @@ bool RecordingWorkflowCoordinator::start(std::string &error) {
 bool RecordingWorkflowCoordinator::stop(std::string &error) {
     if (audio_mode(configuration_.mode))
         return submit("recording.stop.v1", {}, error);
+    if (configuration_.mode == RecordingWorkflowMode::musical_events)
+        return submit("event-recording.stop.v1", {}, error);
     if (configuration_.mode == RecordingWorkflowMode::live_loop)
         return submit("live-loop.stop.v1",
                       {{"id", static_cast<std::int64_t>(live_loop_session_)}}, error);
@@ -272,6 +287,8 @@ bool RecordingWorkflowCoordinator::save_live_loop(const std::string &path,
 bool RecordingWorkflowCoordinator::cancel(std::string &error) {
     if (audio_mode(configuration_.mode))
         return submit("recording.cancel.v1", {}, error);
+    if (configuration_.mode == RecordingWorkflowMode::musical_events)
+        return submit("event-recording.cancel.v1", {}, error);
     if (configuration_.mode == RecordingWorkflowMode::live_loop)
         return submit("live-loop.cancel.v1",
                       {{"id", static_cast<std::int64_t>(live_loop_session_)}}, error);
@@ -283,7 +300,8 @@ bool RecordingWorkflowCoordinator::cancel(std::string &error) {
 
 bool RecordingWorkflowCoordinator::commit(std::string &error) {
     if (audio_mode(configuration_.mode) ||
-        configuration_.mode == RecordingWorkflowMode::live_loop) {
+        configuration_.mode == RecordingWorkflowMode::live_loop ||
+        configuration_.mode == RecordingWorkflowMode::musical_events) {
         error.clear();
         return snapshot().phase == RecordingWorkflowPhase::completed;
     }
@@ -326,6 +344,21 @@ RecordingWorkflowSnapshot RecordingWorkflowCoordinator::snapshot() const {
         }
         out.result_audio_active = recording.state == RecordingState::audio_active;
         out.result_pending = recording.state == RecordingState::publication_pending;
+    } else if (configuration_.mode == RecordingWorkflowMode::musical_events) {
+        out.captured_events = state.event_recording.pending_events;
+        out.overflow_count = state.event_recording.overflow_count;
+        out.error = state.event_recording.error;
+        switch (state.event_recording.phase) {
+        case EventRecordingPhase::idle: out.phase = RecordingWorkflowPhase::configuring; break;
+        case EventRecordingPhase::armed: out.phase = RecordingWorkflowPhase::armed; break;
+        case EventRecordingPhase::waiting:
+        case EventRecordingPhase::count_in: out.phase = RecordingWorkflowPhase::waiting; break;
+        case EventRecordingPhase::recording: out.phase = RecordingWorkflowPhase::recording; break;
+        case EventRecordingPhase::finalizing: out.phase = RecordingWorkflowPhase::finalizing; break;
+        case EventRecordingPhase::completed: out.phase = RecordingWorkflowPhase::completed; break;
+        case EventRecordingPhase::cancelled: out.phase = RecordingWorkflowPhase::cancelled; break;
+        case EventRecordingPhase::failed: out.phase = RecordingWorkflowPhase::failed; break;
+        }
     } else if (configuration_.mode == RecordingWorkflowMode::live_loop) {
         const auto found = std::find_if(state.live_loops.begin(), state.live_loops.end(),
             [&](const auto &item) { return item.id == live_loop_session_; });

@@ -2,10 +2,11 @@
 
 | 098D typed clipboard | Application/Timeline transaction + COPY gestures | `neurogenic_musical_clipboard_tests`, Slint adapter/generated suites | Software PASS; physical NOT RUN |
 
-Authoritative live sequencer-event recording remains absent and is mandatory
-098E scope; repeat audio is not treated as persistent event-recording evidence.
+Task 098E supplies authoritative live sequencer-event recording for accepted
+sample, synth, MIDI-note, and repeat events. Contextual loop/replace workflows
+remain 098F scope and physical evidence remains NOT RUN.
 
-| 098C / RC2-001, RC2-003, AUD2-007 | REPEAT+pad/DATA/triplet and running ERASE+pad | fixed AudioEngine repeat slots plus stable live-erase timeline transaction | `neurogenic_note_repeat_live_erase_tests`; reference controller regressions | production scheduler/MIDI/PCM/history | PASS software for live generation and erase; recorded-repeat event insertion OPEN; physical NOT RUN |
+| 098C/098E / RC2-001, RC2-003, AUD2-007 | REPEAT+pad/DATA/triplet, persistent repeated events, and running ERASE+pad | fixed AudioEngine repeat slots, bounded live-event capture, stable live-erase transaction | `neurogenic_note_repeat_live_erase_tests`; `neurogenic_live_event_recording_tests` | production scheduler/MIDI/PCM/timeline/history | PASS software including recorded repeat insertion; simultaneous erase/recording and physical validation remain open |
 
 | 098B / RC2-001, RC2-003, AUD2-007 | SOLO/ARM stable pad modes and SHIFT+STOP unified panic | transient ApplicationService track state, prepared mixer/engine audibility, atomic panic acknowledgement | `neurogenic_solo_arm_panic_tests`, `neurogenic_reference_controller_tests`, generated Slint fixture | production PCM + semantic + generated callback | PASS in software; physical controls/LEDs NOT RUN |
 

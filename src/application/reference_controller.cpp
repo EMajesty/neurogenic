@@ -175,6 +175,8 @@ ControllerProfile reference_controller_v2_profile() {
     result.bindings.push_back(feedback_action_binding(
         "transport.tap", "transport.tap-tempo.v1"));
     result.bindings.push_back(binding("transport.record", "recording-toggle"));
+    result.bindings.push_back(action_binding(
+        "transport.record-mode", "event-recording.mode-toggle.v1"));
     for (int i = 1; i <= 16; ++i)
         result.bindings.push_back(
             binding("pad." + std::to_string(i), "performance-pad", i - 1));

@@ -1,5 +1,12 @@
 # Implementation status
 
+Task 098E adds authoritative live sequencer-event recording. Accepted sample,
+synth, external MIDI note, and note-repeat events are timestamped by the audio
+transport, transferred through a bounded real-time-safe queue, and committed as
+ordinary pattern events with unified history and project persistence. See
+[Live event recording](LIVE_EVENT_RECORDING.md). Full contextual LOOP/RANGE and
+REC/OVERDUB authoring remains Task 098F.
+
 Task 098D adds the application-owned typed musical clipboard: bounded selected
 step, pattern-track and complete reusable-pattern capture; relative transactional
 merge/confirmed replacement paste; fresh event identities; unified Undo/Redo;

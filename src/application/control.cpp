@@ -11,6 +11,7 @@
 #include <set>
 #include <stdexcept>
 #include <thread>
+#include <tuple>
 
 namespace neurogenic {
 namespace {
@@ -972,6 +973,21 @@ ActionRegistry::ActionRegistry() {
     add(action("recording.start.v1", "Start recording", "Recording"));
     add(action("recording.stop.v1", "Stop recording", "Recording"));
     add(action("recording.cancel.v1", "Cancel recording", "Recording"));
+    add(action("event-recording.mode-set.v1", "Select musical event recording mode",
+               "Recording", {{"mode", ValueType::text}}));
+    add(action("event-recording.mode-toggle.v1", "Toggle musical event recording mode",
+               "Recording"));
+    add(action("event-recording.arm.v1", "Arm musical event recording",
+               "Recording", {{"pattern_id", ValueType::integer},
+                              {"track_id", ValueType::integer}}));
+    add(action("event-recording.start.v1", "Start musical event recording",
+               "Recording", {{"start_tick", ValueType::integer, false}}));
+    add(action("event-recording.poll.v1", "Poll musical event recording",
+               "Recording"));
+    add(action("event-recording.stop.v1", "Stop musical event recording",
+               "Recording"));
+    add(action("event-recording.cancel.v1", "Cancel musical event recording",
+               "Recording"));
     add(action(
         "recording.save.v1", "Save recording", "Recording",
         {{"path", ValueType::text}, {"format", ValueType::text, false}}));
@@ -1886,6 +1902,174 @@ void ApplicationService::clear_history() {
     pending_history_restore_.reset();
 }
 
+void ApplicationService::drain_live_event_capture_locked() {
+    LiveEventCapture captured;
+    while (engine_.pop_live_event_capture(captured)) {
+        if (!live_event_recording_ ||
+            captured.session != live_event_recording_->generation ||
+            (live_event_recording_->phase != EventRecordingPhase::recording &&
+             live_event_recording_->phase != EventRecordingPhase::waiting &&
+             live_event_recording_->phase != EventRecordingPhase::count_in))
+            continue;
+        auto &session = *live_event_recording_;
+        session.phase = EventRecordingPhase::recording;
+        const auto sample = captured.origin == LiveEventOrigin::sample_pad ||
+                            captured.origin == LiveEventOrigin::repeat_sample;
+        const auto synth = captured.origin == LiveEventOrigin::synth_note ||
+                           captured.origin == LiveEventOrigin::repeat_synth;
+        const auto midi = captured.origin == LiveEventOrigin::midi_input ||
+                          captured.origin == LiveEventOrigin::repeat_midi;
+        if ((session.instrument_id == sample_instrument_id && !sample) ||
+            (session.instrument_id == subtractive_instrument_id && !synth) ||
+            (session.instrument_id == external_midi_instrument_id && !midi))
+            continue;
+        if (synth && captured.instrument != session.instrument_instance)
+            continue;
+        if (midi && (captured.midi_port != session.midi_port ||
+                     captured.midi_channel != session.midi_channel))
+            continue;
+        if (captured.tick < session.start_tick || session.length <= 0)
+            continue;
+        const auto relative = (captured.tick - session.start_tick) % session.length;
+        const auto append = [&](MusicalTick tick, MusicalTick duration,
+                                std::uint8_t pitch, float velocity) {
+            if (session.events.size() >=
+                LiveEventRecordingSession::maximum_events) {
+                session.phase = EventRecordingPhase::failed;
+                session.error = "musical event capture capacity exceeded";
+                engine_.end_live_event_capture();
+                return;
+            }
+            MusicalEvent event;
+            event.tick = tick;
+            event.type = MusicalEventType::note;
+            event.pitch = pitch;
+            event.velocity = std::clamp(velocity, 0.0F, 1.0F);
+            event.duration = std::max<MusicalTick>(1, duration);
+            session.events.push_back(std::move(event));
+        };
+        if (sample || captured.duration > 0) {
+            if (captured.note_on)
+                append(relative,
+                       captured.duration > 0 ? captured.duration
+                                             : ticks_per_quarter / 4,
+                       captured.pitch, captured.velocity);
+            continue;
+        }
+        if (captured.note_on) {
+            if (session.pending.size() >=
+                LiveEventRecordingSession::maximum_pending_notes) {
+                session.phase = EventRecordingPhase::failed;
+                session.error = "pending recorded-note capacity exceeded";
+                engine_.end_live_event_capture();
+                continue;
+            }
+            session.pending.push_back({captured.origin, captured.tick,
+                captured.midi_port, captured.instrument,
+                captured.midi_channel, captured.pitch, captured.velocity});
+            continue;
+        }
+        const auto pending = std::find_if(session.pending.begin(),
+            session.pending.end(), [&](const auto &note) {
+                return note.origin == captured.origin &&
+                       note.pitch == captured.pitch &&
+                       note.instrument == captured.instrument &&
+                       note.midi_port == captured.midi_port &&
+                       note.midi_channel == captured.midi_channel;
+            });
+        if (pending == session.pending.end()) continue;
+        auto duration = captured.tick - pending->tick;
+        if (duration <= 0) duration += session.length;
+        append((pending->tick - session.start_tick) % session.length,
+               duration, pending->pitch, pending->velocity);
+        session.pending.erase(pending);
+    }
+    if (live_event_recording_ &&
+        engine_.dropped_live_event_captures() !=
+            live_event_recording_->initial_drops &&
+        live_event_recording_->phase == EventRecordingPhase::recording) {
+        live_event_recording_->phase = EventRecordingPhase::failed;
+        live_event_recording_->error = "real-time musical capture queue overflow";
+        engine_.end_live_event_capture();
+    }
+}
+
+bool ApplicationService::finalize_live_event_recording_locked(
+    std::string &error) {
+    drain_live_event_capture_locked();
+    if (!live_event_recording_) {
+        error = "no musical event recording is active";
+        return false;
+    }
+    auto &session = *live_event_recording_;
+    engine_.end_live_event_capture();
+    if (session.phase == EventRecordingPhase::failed) {
+        error = session.error;
+        return false;
+    }
+    session.phase = EventRecordingPhase::finalizing;
+    const auto stop_tick = std::max(state_.transport_tick, session.start_tick + 1);
+    for (const auto &pending : session.pending) {
+        if (session.events.size() >= LiveEventRecordingSession::maximum_events) {
+            session.phase = EventRecordingPhase::failed;
+            session.error = error = "musical event capture capacity exceeded";
+            return false;
+        }
+        MusicalEvent event;
+        event.tick = (pending.tick - session.start_tick) % session.length;
+        event.type = MusicalEventType::note;
+        event.pitch = pending.pitch;
+        event.velocity = pending.velocity;
+        event.duration = std::clamp<MusicalTick>(stop_tick - pending.tick, 1,
+                                                 session.length);
+        session.events.push_back(std::move(event));
+    }
+    session.pending.clear();
+    if (session.events.empty()) {
+        session.phase = EventRecordingPhase::completed;
+        return true;
+    }
+    auto transaction = timeline_.edit();
+    auto *track = transaction.find_track(session.track);
+    auto *pattern = transaction.find_edit_pattern(session.pattern, session.track);
+    if (!track || !pattern || track->instrument_id != session.instrument_id ||
+        track->instrument_instance_id != session.instrument_instance) {
+        session.phase = EventRecordingPhase::failed;
+        session.error = error = "captured musical recording destination is stale";
+        return false;
+    }
+    EventId next = transaction.next_event_id();
+    for (auto event : session.events) {
+        if (event.tick < 0 || event.tick >= pattern->length || event.duration <= 0) {
+            session.phase = EventRecordingPhase::failed;
+            session.error = error = "captured musical event is out of bounds";
+            return false;
+        }
+        const auto duplicate = std::any_of(pattern->events.begin(),
+            pattern->events.end(), [&](const auto &existing) {
+                return existing.type == MusicalEventType::note &&
+                       existing.tick == event.tick &&
+                       existing.pitch == event.pitch;
+            });
+        if (duplicate) continue;
+        event.id = next++;
+        pattern->events.push_back(std::move(event));
+    }
+    std::sort(pattern->events.begin(), pattern->events.end(),
+              [](const auto &a, const auto &b) {
+                  return std::tie(a.tick, a.id) < std::tie(b.tick, b.id);
+              });
+    if (!timeline_.commit(std::move(transaction),
+                          TimelineCommitPolicy::next_audio_callback, error)) {
+        session.phase = EventRecordingPhase::failed;
+        session.error = error;
+        return false;
+    }
+    session.phase = EventRecordingPhase::completed;
+    changed_locked();
+    return true;
+}
+
 CommandResult ApplicationService::execute_with_history(
     const ApplicationCommand &command, std::uint64_t sequence) {
     // Observe callback acknowledgements before deciding whether a new
@@ -1910,6 +2094,7 @@ CommandResult ApplicationService::execute_with_history(
          command.action_id.rfind("track.record-arm", 0) != 0) ||
         command.action_id.rfind("pattern.", 0) == 0 ||
         command.action_id.rfind("clipboard.paste", 0) == 0 ||
+        command.action_id == "event-recording.stop.v1" ||
         command.action_id.rfind("arrangement.", 0) == 0 ||
         command.action_id.rfind("timeline.", 0) == 0 ||
         command.action_id == "sequencer.live-erase-end.v1" ||
@@ -2672,6 +2857,133 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 (command.action_id == "live-loop.clear.v1" ||
                  command.action_id == "live-loop.save.v1"))
                 state_.project_dirty = true;
+            changed_locked();
+        }
+    } else if (command.action_id.rfind("event-recording.", 0) == 0) {
+        drain_live_event_capture_locked();
+        if (command.action_id == "event-recording.mode-set.v1" ||
+            command.action_id == "event-recording.mode-toggle.v1") {
+            const auto mode = command.action_id == "event-recording.mode-toggle.v1"
+                ? (recording_mode_ == "musical-events" ? std::string("audio")
+                                                       : std::string("musical-events"))
+                : *argument<std::string>(command, "mode");
+            if (mode != "audio" && mode != "musical-events")
+                error = "recording mode must be audio or musical-events";
+            else if (live_event_recording_ &&
+                     live_event_recording_->phase == EventRecordingPhase::recording)
+                error = "recording mode is captured by the active session";
+            else {
+                recording_mode_ = mode;
+                changed_locked();
+            }
+        } else if (command.action_id == "event-recording.arm.v1") {
+            if (recording_mode_ != "musical-events")
+                error = "select musical-events recording mode first";
+            else if (recording_.state() == RecordingState::recording)
+                error = "audio capture is already active";
+            else {
+                const auto pattern_id = static_cast<PatternId>(
+                    *argument<std::int64_t>(command, "pattern_id"));
+                const auto track_id = static_cast<TrackId>(
+                    *argument<std::int64_t>(command, "track_id"));
+                const auto snapshot = timeline_.snapshot();
+                const auto track = std::find_if(snapshot.timeline.tracks.begin(),
+                    snapshot.timeline.tracks.end(),
+                    [=](const auto &value) { return value.id == track_id; });
+                const auto *pattern = edit_pattern(snapshot.timeline, pattern_id,
+                                                   track_id);
+                if (track == snapshot.timeline.tracks.end() || !pattern)
+                    error = "musical event recording destination is unavailable";
+                else if (track->instrument_id != sample_instrument_id &&
+                         track->instrument_id != subtractive_instrument_id &&
+                         track->instrument_id != external_midi_instrument_id)
+                    error = "track does not support musical event recording";
+                else if (pattern->length <= 0)
+                    error = "recording destination has no musical extent";
+                else {
+                    engine_.end_live_event_capture();
+                    LiveEventRecordingSession session;
+                    session.generation = next_live_event_recording_generation_++;
+                    session.pattern = pattern_id;
+                    session.track = track_id;
+                    session.instrument_id = track->instrument_id;
+                    session.instrument_instance = track->instrument_instance_id;
+                    session.midi_port = track->midi_output_port;
+                    session.midi_channel = track->midi_channel;
+                    session.length = pattern->length;
+                    session.phase = EventRecordingPhase::armed;
+                    session.initial_drops = engine_.dropped_live_event_captures();
+                    live_event_recording_ = std::move(session);
+                    changed_locked();
+                }
+            }
+        } else if (command.action_id == "event-recording.start.v1") {
+            if (!live_event_recording_ ||
+                live_event_recording_->phase != EventRecordingPhase::armed)
+                error = "arm a stable musical event destination first";
+            else if (!engine_.playing())
+                error = "musical event recording requires running transport";
+            else {
+                auto &session = *live_event_recording_;
+                const auto requested = argument<std::int64_t>(command,
+                                                               "start_tick");
+                session.start_tick = requested
+                    ? static_cast<MusicalTick>(*requested)
+                    : state_.transport_tick;
+                if (session.start_tick < state_.transport_tick)
+                    error = "recording start boundary is already in the past";
+                else {
+                    const auto denominator = static_cast<__uint128_t>(
+                        engine_.sample_rate()) *
+                        timeline_.snapshot().timeline.transport
+                            .microseconds_per_quarter;
+                    const auto frames_for_ticks = [&](MusicalTick ticks) {
+                        return static_cast<std::uint64_t>((
+                            static_cast<__uint128_t>(
+                                std::max<MusicalTick>(0, ticks)) * denominator) /
+                            (static_cast<__uint128_t>(1'000'000U) *
+                             ticks_per_quarter));
+                    };
+                    if (!requested && count_in_bars_ > 0) {
+                        const auto beat = ticks_per_quarter * 4 /
+                            std::max<std::uint16_t>(
+                                1, state_.time_signature_denominator);
+                        session.start_tick = state_.transport_tick + beat *
+                            state_.time_signature_numerator * count_in_bars_;
+                        const auto start_frame =
+                            engine_.callback_frame_position();
+                        (void)engine_.begin_count_in(
+                            start_frame,
+                            start_frame + frames_for_ticks(
+                                session.start_tick - state_.transport_tick));
+                        session.phase = EventRecordingPhase::count_in;
+                    } else {
+                        session.phase =
+                            session.start_tick > state_.transport_tick
+                                ? EventRecordingPhase::waiting
+                                : EventRecordingPhase::recording;
+                    }
+                    session.events.clear();
+                    session.pending.clear();
+                    session.initial_drops =
+                        engine_.dropped_live_event_captures();
+                    engine_.begin_live_event_capture(session.generation,
+                                                     session.start_tick);
+                    changed_locked();
+                }
+            }
+        } else if (command.action_id == "event-recording.poll.v1") {
+            changed_locked();
+        } else if (command.action_id == "event-recording.stop.v1") {
+            if (!finalize_live_event_recording_locked(error)) {
+            }
+        } else if (command.action_id == "event-recording.cancel.v1") {
+            engine_.end_live_event_capture();
+            if (live_event_recording_) {
+                live_event_recording_->events.clear();
+                live_event_recording_->pending.clear();
+                live_event_recording_->phase = EventRecordingPhase::cancelled;
+            }
             changed_locked();
         }
     } else if (command.action_id.rfind("recording.", 0) == 0) {
@@ -4759,6 +5071,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 live_erase_.reset();
                 musical_clipboard_.reset();
                 state_.clipboard = {};
+                engine_.end_live_event_capture();
+                live_event_recording_.reset();
+                recording_mode_ = "audio";
                 transport_started_explicitly_ = false;
             }
             if (command.action_id == "project.rename.v1") {
@@ -5611,6 +5926,9 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         transport_started_explicitly_ = true;
         changed = true;
     } else if (command.action_id == "transport.stop.v1") {
+        if (live_event_recording_ &&
+            live_event_recording_->phase == EventRecordingPhase::recording)
+            (void)finalize_live_event_recording_locked(error);
         if (arrangement_recording_.status().phase ==
             ArrangementRecordPhase::recording)
             arrangement_recording_.stop(state_.transport_tick, error);
@@ -5621,6 +5939,13 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
             recording_.cancel();
         changed = true;
     } else if (command.action_id == "transport.panic.v1") {
+        engine_.end_live_event_capture();
+        if (live_event_recording_ &&
+            live_event_recording_->phase == EventRecordingPhase::recording) {
+            live_event_recording_->events.clear();
+            live_event_recording_->pending.clear();
+            live_event_recording_->phase = EventRecordingPhase::cancelled;
+        }
         if (arrangement_recording_.status().phase ==
             ArrangementRecordPhase::recording)
             arrangement_recording_.stop(state_.transport_tick, error);
@@ -11640,6 +11965,23 @@ void ApplicationService::synchronize_locked() const {
         if (!state_.clipboard.destination_compatible)
             state_.clipboard.validation_error =
                 "clipboard is incompatible with the selected destination";
+    }
+    state_.event_recording = {};
+    state_.event_recording.mode = recording_mode_;
+    state_.event_recording.available = true;
+    if (live_event_recording_) {
+        const auto &recording = *live_event_recording_;
+        state_.event_recording.phase = recording.phase;
+        state_.event_recording.pattern = recording.pattern;
+        state_.event_recording.track = recording.track;
+        state_.event_recording.session = recording.generation;
+        state_.event_recording.pending_events =
+            recording.events.size() + recording.pending.size();
+        state_.event_recording.overflow_count =
+            engine_.dropped_live_event_captures() - recording.initial_drops;
+        state_.event_recording.active =
+            recording.phase == EventRecordingPhase::recording;
+        state_.event_recording.error = recording.error;
     }
     state_.sample_slots = std::move(slots);
     state_.parameters = std::move(parameters);
