@@ -14,6 +14,8 @@ struct V2WireControl {
     V2WireControlType type{V2WireControlType::button};
 };
 [[nodiscard]] const std::vector<V2WireControl> &reference_v2_wire_controls();
+[[nodiscard]] const std::vector<V2WireControl> &
+reference_v2_optional_push_controls();
 [[nodiscard]] const V2WireControl *reference_v2_wire_control(std::uint16_t);
 [[nodiscard]] std::optional<std::uint16_t>
 reference_v2_wire_id(std::string_view);

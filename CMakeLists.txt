@@ -334,6 +334,16 @@ if(NEUROGENIC_BUILD_TESTS)
   set_tests_properties(neurogenic_controller_v2_protocol_tests PROPERTIES
     PASS_REGULAR_EXPRESSION "neurogenic.controller-v2-protocol-tests.v1 passed"
     TIMEOUT 20)
+  add_executable(neurogenic_controller_v2_protocol_14_tests
+    tests/controller_v2_protocol_14_tests.cpp)
+  target_link_libraries(neurogenic_controller_v2_protocol_14_tests PRIVATE
+    neurogenic_engine)
+  add_test(NAME neurogenic_controller_v2_protocol_14_tests
+    COMMAND neurogenic_controller_v2_protocol_14_tests)
+  set_tests_properties(neurogenic_controller_v2_protocol_14_tests PROPERTIES
+    PASS_REGULAR_EXPRESSION
+      "neurogenic.controller-v2-protocol-1.4-tests.v1 passed"
+    TIMEOUT 20)
   add_executable(neurogenic_interaction_navigation_tests
     tests/interaction_navigation_tests.cpp)
   target_link_libraries(neurogenic_interaction_navigation_tests PRIVATE

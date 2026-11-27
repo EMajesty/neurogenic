@@ -3,15 +3,29 @@
 
 /* Dependency-free Reference Controller V2 wire constants for host and firmware.
  * IDs describe logical controls only; board scanning and LED topology are firmware
- * concerns. Protocol 1.3 preserves the protocol-1.x frame envelope. */
+ * concerns. Protocol 1.4 is a negotiated extension; protocol 1.3 remains the
+ * mandatory fallback and retains its exact inventory and frame bytes. */
 #include <stdint.h>
 
 #define NG_CONTROLLER_PROTOCOL_MAJOR 1u
-#define NG_CONTROLLER_V2_PROTOCOL_MINOR 3u
+#define NG_CONTROLLER_V2_BASELINE_MINOR 3u
+#define NG_CONTROLLER_V2_PROTOCOL_MINOR 4u
 #define NG_CONTROLLER_V2_DEVICE_ID "neurogenic.reference-controller-v2"
 #define NG_CONTROLLER_V2_CONTROL_COUNT 67u
 #define NG_CONTROLLER_V2_BUTTON_COUNT 58u
 #define NG_CONTROLLER_V2_INVENTORY_FINGERPRINT UINT32_C(0x3256434e)
+#define NG_CONTROLLER_V2_CAP_CONTEXT_ENCODER_PUSH (UINT32_C(1) << 11)
+#define NG_CONTROLLER_V2_CAP_CONTEXT_ENCODER_RGB (UINT32_C(1) << 12)
+#define NG_CONTROLLER_V2_OPTIONAL_PUSH_COUNT 8u
+#define NG_CONTROLLER_V2_OPTIONAL_RGB_COUNT 8u
+#define NG_CONTROLLER_V2_OPTIONAL_INVENTORY_RECORD_SIZE 8u
+#define NG_CONTROLLER_V2_PUSH_INVENTORY_NAMESPACE 1u
+#define NG_CONTROLLER_V2_RGB_INVENTORY_NAMESPACE 2u
+#define NG_CONTROLLER_V2_PUSH_INVENTORY_FINGERPRINT UINT32_C(0x1936cd35)
+#define NG_CONTROLLER_V2_RGB_INVENTORY_FINGERPRINT UINT32_C(0x6b7c76c7)
+#define NG_CONTROLLER_V2_BASELINE_INPUT_STATE_SIZE 13u
+#define NG_CONTROLLER_V2_PUSH_INPUT_STATE_SIZE 14u
+#define NG_CONTROLLER_V2_ASSIGNED_MINIMUM_BRIGHTNESS 31u
 
 enum ng_controller_v2_wire_id {
     NG_V2_PAD_1 = 0x0100, NG_V2_PAD_16 = 0x010f,
@@ -31,7 +45,13 @@ enum ng_controller_v2_wire_id {
     NG_V2_TRANSPORT_QUANT = 0x0152, NG_V2_TRANSPORT_RECORD_MODE = 0x0153,
     NG_V2_TRANSPORT_FILL = 0x0154, NG_V2_TRANSPORT_REPEAT = 0x0155,
     NG_V2_TRANSPORT_LOOP = 0x0156, NG_V2_TRANSPORT_RECORD = 0x0157,
-    NG_V2_TRANSPORT_STOP = 0x0158, NG_V2_TRANSPORT_PLAY = 0x0159
+    NG_V2_TRANSPORT_STOP = 0x0158, NG_V2_TRANSPORT_PLAY = 0x0159,
+    NG_V2_PARAMETER_PUSH_1 = 0x0160, NG_V2_PARAMETER_PUSH_8 = 0x0167
+};
+
+enum ng_controller_v2_optional_inventory_namespace {
+    NG_V2_OPTIONAL_INVENTORY_PUSH = NG_CONTROLLER_V2_PUSH_INVENTORY_NAMESPACE,
+    NG_V2_OPTIONAL_INVENTORY_RGB = NG_CONTROLLER_V2_RGB_INVENTORY_NAMESPACE
 };
 
 enum ng_controller_led_mode {

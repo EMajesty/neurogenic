@@ -186,3 +186,10 @@ generation. REPEAT+DATA changes division and SHIFT+REPEAT changes family.
 During running Sequencer playback ERASE+pad captures live-erase ownership;
 stopped ERASE+pad retains ordinary step erase. REPEAT+ERASE ambiguity is
 rejected. Modal/context/reconnect cancellation uses the existing arbiter path.
+## Optional encoder-push reconciliation
+
+Negotiated contextual encoder pushes enter the same generation, sequence,
+quarantine and cancellation path as baseline buttons. The extended snapshot
+can quarantine an initially held push but never synthesizes a press. They have
+no gesture policy or semantic action in the default profile; an unassigned
+press/release is observable diagnostics only and cannot mutate musical state.

@@ -42,18 +42,36 @@ const std::vector<V2WireControl> &reference_v2_wire_controls() {
     }();
     return controls;
 }
+const std::vector<V2WireControl> &reference_v2_optional_push_controls() {
+    static const auto controls = [] {
+        std::vector<V2WireControl> result;
+        result.reserve(NG_CONTROLLER_V2_OPTIONAL_PUSH_COUNT);
+        for (std::uint16_t i = 0; i < NG_CONTROLLER_V2_OPTIONAL_PUSH_COUNT; ++i)
+            result.push_back({"parameter." + std::to_string(i + 1) + ".push",
+                              static_cast<std::uint16_t>(
+                                  NG_V2_PARAMETER_PUSH_1 + i),
+                              V2WireControlType::button});
+        return result;
+    }();
+    return controls;
+}
 const V2WireControl *reference_v2_wire_control(std::uint16_t wire_id) {
-    const auto &controls = reference_v2_wire_controls();
-    const auto found = std::find_if(controls.begin(), controls.end(),
-        [=](const auto &value) { return value.wire_id == wire_id; });
-    return found == controls.end() ? nullptr : &*found;
+    for (const auto *controls : {&reference_v2_wire_controls(),
+                                 &reference_v2_optional_push_controls()}) {
+        const auto found = std::find_if(controls->begin(), controls->end(),
+            [=](const auto &value) { return value.wire_id == wire_id; });
+        if (found != controls->end()) return &*found;
+    }
+    return nullptr;
 }
 std::optional<std::uint16_t> reference_v2_wire_id(std::string_view id) {
-    const auto &controls = reference_v2_wire_controls();
-    const auto found = std::find_if(controls.begin(), controls.end(),
-        [&](const auto &value) { return value.id == id; });
-    if (found == controls.end()) return {};
-    return found->wire_id;
+    for (const auto *controls : {&reference_v2_wire_controls(),
+                                 &reference_v2_optional_push_controls()}) {
+        const auto found = std::find_if(controls->begin(), controls->end(),
+            [&](const auto &value) { return value.id == id; });
+        if (found != controls->end()) return found->wire_id;
+    }
+    return {};
 }
 bool validate_reference_v2_wire_manifest(std::string &error) {
     const auto &controls = reference_v2_wire_controls();
@@ -67,6 +85,12 @@ bool validate_reference_v2_wire_manifest(std::string &error) {
         if (control.id.empty() || !ids.insert(control.id).second ||
             !wire_ids.insert(control.wire_id).second) {
             error = "V2 wire manifest contains an empty or duplicate identity";
+            return false;
+    }
+    for (const auto &control : reference_v2_optional_push_controls())
+        if (control.id.empty() || !ids.insert(control.id).second ||
+            !wire_ids.insert(control.wire_id).second) {
+            error = "V2 optional wire manifest contains an empty or duplicate identity";
             return false;
         }
     error.clear();

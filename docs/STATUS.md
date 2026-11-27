@@ -1059,3 +1059,12 @@ Setup presentation. Setup and Performance typed-argument forms are descriptor
 driven rather than limited to four fields. RC2-006/AUD2-006 are substantially
 implemented in software; dedicated USB runtime switching, conservative layered
 source conflicts and physical validation remain explicit limitations.
+
+## HW-006B negotiated controller protocol 1.4 (2026-11-27)
+
+The host mutually negotiates minor 1.4 while preserving exact 1.3 frames.
+Independent optional P1-P8 push and encoder-RGB capabilities require canonical
+inventories before use. Pushes are inert by default; extended snapshots retain
+no-synthetic-press reconciliation. Descriptor-driven encoder illumination
+reuses bounded LED_RENDER publication. Normative fixtures and the HW-006C
+contract are published; firmware and physical USB/RGB evidence remain NOT RUN.

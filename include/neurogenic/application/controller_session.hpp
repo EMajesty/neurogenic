@@ -11,8 +11,8 @@ namespace neurogenic {
 struct ContextControl {
     std::uint16_t control_id{};
     std::string label, value, unit, parameter_id, action_id;
-    double minimum{}, maximum{};
-    bool active{}, bipolar{}, pickup{};
+    double minimum{}, maximum{}, normalized{};
+    bool active{}, bipolar{}, pickup{}, boolean{}, enumerated{};
     std::int8_t pickup_direction{};
     std::uint64_t feedback_revision{};
     std::map<std::string, ApplicationValue> arguments;

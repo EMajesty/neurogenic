@@ -12,7 +12,8 @@
 
 namespace neurogenic {
 inline constexpr std::uint8_t controller_protocol_major = 1;
-inline constexpr std::uint8_t controller_protocol_minor = 3;
+inline constexpr std::uint8_t controller_protocol_minor =
+    NG_CONTROLLER_V2_PROTOCOL_MINOR;
 inline constexpr std::size_t controller_maximum_payload = 256;
 inline constexpr std::size_t controller_maximum_frame = 268;
 
@@ -127,7 +128,9 @@ enum ControllerCapability : std::uint32_t {
     controller_inventory_v2 = 1u << 7,
     controller_input_state = 1u << 8,
     controller_led_render = 1u << 9,
-    controller_diagnostics = 1u << 10
+    controller_diagnostics = 1u << 10,
+    controller_context_encoder_push = NG_CONTROLLER_V2_CAP_CONTEXT_ENCODER_PUSH,
+    controller_context_encoder_rgb = NG_CONTROLLER_V2_CAP_CONTEXT_ENCODER_RGB
 };
 enum class ControllerLedMode : std::uint8_t {
     off = NG_LED_OFF, steady = NG_LED_STEADY, dim = NG_LED_DIM,
@@ -146,6 +149,7 @@ struct ControllerProtocolState {
         duplicate_input{}, stale_input{}, state_synchronizations{}, heartbeats{};
     std::uint32_t input_generation{}, last_input_sequence{};
     bool inventory_valid{}, input_state_valid{};
+    bool optional_push_inventory_valid{}, optional_rgb_inventory_valid{};
     std::array<std::uint16_t, 5> analog{};
     std::array<AnalogCalibration, 5> calibration{};
     std::array<bool, 5> pickup_acquired{};
@@ -159,7 +163,8 @@ class ControllerHost {
   public:
     explicit ControllerHost(ApplicationService &,
                             std::size_t queue_capacity = 128,
-                            std::string expected_device_id = {});
+                            std::string expected_device_id = {},
+                            std::uint8_t maximum_minor = controller_protocol_minor);
     bool receive(const ControllerPacket &, std::string &error) noexcept;
     void publish(const ApplicationState &);
     void connected();
@@ -184,6 +189,7 @@ class ControllerHost {
     std::size_t capacity_{};
     std::uint32_t sequence_{1};
     std::string expected_device_id_;
+    std::uint8_t maximum_minor_{};
     ControllerProtocolState state_;
     std::optional<ControllerSession> session_;
     std::uint8_t brightness_limit_{224};
@@ -191,6 +197,8 @@ class ControllerHost {
     std::uint64_t last_receive_ms_{}, last_heartbeat_ms_{};
     std::uint32_t next_input_generation_{1};
     std::vector<bool> quarantined_buttons_;
+    std::array<bool, NG_CONTROLLER_V2_OPTIONAL_PUSH_COUNT>
+        quarantined_parameter_pushes_{};
 };
 
 class ControllerSerialTransport {
@@ -231,11 +239,25 @@ class SimulatedController {
     std::uint32_t sequence_{1};
 };
 
-// Byte-stream fixture implementing the firmware side of protocol 1.3. It uses
-// production framing/decoding and never calls ControllerSession directly.
+// Byte-stream fixture implementing the firmware side of negotiated protocol
+// 1.3/1.4. It uses production framing/decoding and never calls
+// ControllerSession directly.
+enum class ReferenceV2Personality : std::uint8_t {
+    baseline_1_3,
+    push_only,
+    rgb_only,
+    push_and_rgb,
+    unknown_capability,
+    incorrect_optional_fingerprint,
+    missing_optional_inventory,
+    malformed_optional_inventory
+};
 class ReferenceV2FirmwareSimulator {
   public:
-    explicit ReferenceV2FirmwareSimulator(ControllerHost &host);
+    explicit ReferenceV2FirmwareSimulator(
+        ControllerHost &host,
+        ReferenceV2Personality personality =
+            ReferenceV2Personality::baseline_1_3);
     bool negotiate();
     bool button(std::string_view logical_id, bool pressed,
                 bool transmit = true);
@@ -255,7 +277,12 @@ class ReferenceV2FirmwareSimulator {
     ControllerHost *host_{};
     ControllerFrameDecoder host_decoder_, firmware_decoder_;
     std::uint32_t sequence_{1}, generation_{};
+    std::uint8_t host_maximum_minor_{NG_CONTROLLER_V2_BASELINE_MINOR};
     std::vector<bool> buttons_;
+    std::array<bool, NG_CONTROLLER_V2_OPTIONAL_PUSH_COUNT> pushes_{};
+    ReferenceV2Personality personality_{};
+    std::uint32_t capabilities_{};
+    std::uint8_t negotiated_minor_{};
     std::vector<ControllerPacket> feedback_;
 };
 [[nodiscard]] std::string

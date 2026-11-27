@@ -560,3 +560,11 @@ The shipped V2 definition is a recoverable read-only library entry. It can be
 duplicated and edited before the PCB is connected because descriptor
 availability is independent of endpoint availability. This software support is
 not evidence of physical USB, firmware or PCB validation.
+## Protocol 1.4 optional encoder facilities
+
+HW-006B makes the eight contextual encoder pushes and encoder RGB destinations
+independently negotiable. Pushes are unassigned by default and never imply
+reset, page, fine mode or musical triggering. RGB uses the existing parameter
+destination IDs and descriptor-driven host rendering. Baseline 1.3 remains the
+exact 67-control contract. See `CONTROLLER_PROTOCOL_1_4.md`; firmware and
+physical behavior remain NOT RUN.

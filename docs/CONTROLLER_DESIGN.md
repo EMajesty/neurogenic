@@ -234,3 +234,10 @@ Controllers capture gesture ownership and submit semantic begin/end commands;
 they never generate musical repeat clocks. Feedback is copied from authoritative
 repeat division/active state and live-erase ownership through the existing
 bounded publication path.
+## Negotiated encoder controls
+
+Protocol 1.4 preserves hardware-independent logical identities: optional shaft
+pushes are independent button inputs, while illumination destinations reuse the
+rotary identities in the feedback namespace. Musical meaning remains profile
+state and literal color remains rendering policy. No board scan position, TLC
+channel or LED electrical policy enters the application descriptor.

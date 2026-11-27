@@ -96,6 +96,14 @@ Continuous modulation visualization is not mandatory and live feedback rates
 remain bounded. Minimum brightness, gamma, transitions, global illumination,
 and firmware electrical limits are separate policies pending physical tests.
 
+Protocol 1.4 implements the host side for negotiated contextual encoder RGB.
+The host applies descriptor normalization, functional/operational color and the
+31/255 assigned minimum exactly once, then sends final perceptual values via
+LED_RENDER. Firmware owns calibration, gamma, global brightness, electrical
+limiting and physical mapping; it must not apply another semantic minimum or
+recolor. Baseline sessions receive no encoder destinations. Physical appearance
+and electrical behavior remain NOT RUN.
+
 ## Typography direction
 
 Walkway is a candidate typeface being evaluated by the project owner. It is

@@ -25,7 +25,8 @@ std::string context_key(const ContextControl &value) {
            << '\x1f' << value.parameter_id << '\x1f' << value.action_id
            << '\x1f' << value.bank_id << '\x1f' << value.role
            << '\x1f' << value.minimum << '\x1f' << value.maximum << '\x1f'
-           << value.active << value.bipolar << value.pickup << value.locked << ':'
+           << value.normalized << '\x1f' << value.active << value.bipolar
+           << value.boolean << value.enumerated << value.pickup << value.locked << ':'
            << static_cast<int>(value.pickup_direction) << ':'
            << value.assignment_id;
     for (const auto &[name, argument] : value.arguments)

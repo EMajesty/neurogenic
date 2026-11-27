@@ -282,6 +282,12 @@ musical expansion.
 All controller ergonomics, electrical behavior, RGB appearance, rollover,
 debounce, touchscreen reach and physical performance timing remain **NOT RUN**.
 
+HW-006B adds normative host protocol 1.4 negotiation for optional contextual
+encoder pushes and RGB destinations, exact 1.3 fallback, conditional inventory
+validation, push-state reconciliation, inert default pushes and descriptor-led
+LED_RENDER projection. RC2-007 therefore has software conformance evidence but
+remains physically open pending HW-006C, real USB and illuminated hardware.
+
 Task 097A partially resolves RC2-001/003/007 presentation ownership: shared
 modal generations, safe focus, ENTER/BACK, shifted navigation, Save, Browser
 DATA and protocol recovery have production evidence. RC2-001/003 remain partial

@@ -21,7 +21,7 @@ int main() try {
             "V2 manifest control count");
     const auto descriptor = reference_controller_v2_descriptor();
     require(descriptor.transport == ControllerTransport::usb_cdc &&
-                descriptor.protocol_major == 1 && descriptor.protocol_minor == 3,
+                descriptor.protocol_major == 1 && descriptor.protocol_minor == 4,
             "V2 physical descriptor protocol");
     for (const auto &control : descriptor.controls)
         require(reference_v2_wire_id(control.id).has_value(),

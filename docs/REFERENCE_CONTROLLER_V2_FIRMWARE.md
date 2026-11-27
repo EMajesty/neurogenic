@@ -235,3 +235,12 @@ REPEAT and ERASE remain ordinary protocol-1.3 button transitions. Firmware must
 not schedule repeats, infer triplets, follow the playhead, or erase events.
 Those semantics and release recovery remain host-owned. No wire ID, inventory
 fingerprint, or capability negotiation changes are introduced.
+## HW-006B protocol 1.4 handoff
+
+The normative host extension is now frozen in `controller_v2_wire.h`,
+`CONTROLLER_PROTOCOL_1_4.md`, `HW_006C_FIRMWARE_CONTRACT.md` and the two JSON
+fixture files under `protocol/fixtures`. Firmware must mutually select minor
+1.3/1.4, validate optional records before use, suppress extensions in 1.3 and
+retain baseline bytes exactly. Host rendering is perceptual; firmware owns
+calibration, gamma and electrical/physical output policy. HW-006C and physical
+USB/RGB validation remain pending.

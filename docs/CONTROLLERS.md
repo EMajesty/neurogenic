@@ -541,3 +541,10 @@ Generic clients may invoke the registered repeat/live-erase semantic actions.
 Reference REPEAT and ERASE remain existing logical controls; no protocol wire
 IDs were added. Musical timing is host-owned and controller firmware must emit
 only ordinary press/release transitions.
+## Reference V2 protocol 1.4
+
+Reference V2 sessions may negotiate optional P1-P8 push inputs and encoder RGB
+destinations through protocol 1.4. Descriptor controls appear only after their
+inventory validates. Pushes are explicit unassigned profile entries by default;
+baseline profiles and devices remain compatible. Encoder feedback is host
+descriptor projection over existing LED_RENDER, not a new controller runtime.

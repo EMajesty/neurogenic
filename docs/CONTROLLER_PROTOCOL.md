@@ -8,7 +8,8 @@ unconstrained authoritative projection. The same comparison is repeated after
 disconnect and renegotiation. This is byte-stream simulator evidence; physical
 USB, MCU queues and LEDs remain **NOT RUN**.
 
-Physical Reference Controller V2 uses protocol **1.3**. V2 is a panel revision,
+Physical Reference Controller V2 baseline uses protocol **1.3**; negotiated
+optional encoder facilities use **1.4**. V2 is a panel revision,
 not a protocol-major number: 1.3 preserves the 1.x frame and legacy behavior
 while adding explicit inventory, a host-issued input generation, full input
 state recovery and bounded LED rendering. The normative firmware contract and
@@ -64,7 +65,8 @@ All integers are little-endian. Messages are bounded to 256 payload bytes and
 
 The decoder resynchronizes after malformed bytes, rejects oversized and
 CRC-invalid frames, and retains incomplete frames. A major-version mismatch is
-fatal for that connection. Protocol 1.3 is current. A 1.0 device remains valid
+fatal for that connection. Protocol 1.4 is the host maximum and 1.3 remains the
+exact mandatory fallback. A 1.0 device remains valid
 and receives the original label-only `CONTEXT` payload; 1.1 retains its extended
 context and historical inventory. Version 1.2 changes no framing or message
 encoding. Protocol 1.3 adds V2 inventory/state/render messages and does not
@@ -207,7 +209,7 @@ validation. Task 097F's live profile activation operation applies to MIDI
 endpoints; dedicated USB runtime switching remains an explicit follow-up and
 must preserve connection epochs and full-state synchronization.
 
-Task 098B does not change protocol 1.3 or its 67-control fingerprint. Eight
-optional contextual encoder pushes and encoder-RGB destinations require a
-future capability-negotiated inventory/fingerprint extension; legacy firmware
-must continue to omit them and existing wire IDs must never be repurposed.
+Task 098B did not change protocol 1.3 or its 67-control fingerprint. HW-006B
+now supplies the independently negotiated protocol-1.4 encoder push and RGB
+extension in [CONTROLLER_PROTOCOL_1_4.md](CONTROLLER_PROTOCOL_1_4.md). Legacy
+firmware omits it and no existing wire ID is repurposed.
