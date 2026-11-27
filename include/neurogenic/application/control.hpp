@@ -142,6 +142,22 @@ struct StepSelectionState {
     friend bool operator==(const StepSelectionState &,
                            const StepSelectionState &) = default;
 };
+enum class MusicalClipboardPayloadType : std::uint8_t {
+    empty,
+    event_selection,
+    pattern_track,
+    reusable_pattern
+};
+enum class MusicalClipboardPastePolicy : std::uint8_t { merge, replace };
+struct MusicalClipboardState {
+    MusicalClipboardPayloadType type{MusicalClipboardPayloadType::empty};
+    PatternId source_pattern{};
+    TrackId source_track{};
+    MusicalTick extent{};
+    std::size_t event_count{}, track_count{};
+    bool populated{}, destination_compatible{}, paste_available{};
+    std::string source_context, validation_error;
+};
 struct SliceState {
     SliceId id{};
     std::string name;
@@ -280,6 +296,7 @@ struct ApplicationState {
     std::string selected_lock_parameter{"synth.cutoff"};
     std::vector<StepParameterLockState> selected_step_locks;
     std::vector<StepSelectionState> selected_steps;
+    MusicalClipboardState clipboard;
     bool edit_group_active{}, can_undo{}, can_redo{};
     bool history_pending{};
     std::string undo_label, redo_label;
@@ -549,6 +566,23 @@ class ApplicationService {
     };
     mutable std::optional<LiveEraseGesture> live_erase_;
     bool transport_started_explicitly_{};
+    struct MusicalClipboardTrackPayload {
+        TrackId source_track{};
+        std::string instrument_id;
+        InstrumentInstanceId instrument_instance_id{};
+        std::vector<MusicalEvent> events;
+    };
+    struct MusicalClipboardPayload {
+        static constexpr std::size_t maximum_events = 1024;
+        static constexpr std::size_t maximum_tracks = 64;
+        MusicalClipboardPayloadType type{MusicalClipboardPayloadType::empty};
+        PatternId source_pattern{};
+        TrackId source_track{};
+        MusicalTick source_anchor{}, extent{};
+        std::string source_context;
+        std::vector<MusicalClipboardTrackPayload> tracks;
+    };
+    std::optional<MusicalClipboardPayload> musical_clipboard_;
     mutable std::optional<PendingPresetApplication> pending_preset_;
     mutable std::optional<PendingHistoryRestore> pending_history_restore_;
     mutable std::optional<PendingProjectRecovery> pending_project_recovery_;

@@ -1,5 +1,11 @@
 # Architecture
 
+The typed musical clipboard is transient application-layer state. It owns
+bounded `MusicalEvent` values and stable source metadata, never mutable timeline
+or prepared-engine pointers. Paste becomes one validated `TimelineTransaction`
+and prepared publication, so the clipboard introduces neither a timeline editor
+nor a history authority. See [MUSICAL_CLIPBOARD.md](MUSICAL_CLIPBOARD.md).
+
 The metronome consumes the existing timeline transport frame and renders a
 bounded click after recorder taps. Count-in prepares `RecordingService`'s
 existing start frame. No second clock, scheduler or recorder is introduced.

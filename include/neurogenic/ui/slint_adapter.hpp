@@ -50,7 +50,8 @@ struct SlintShellState {
     std::uint64_t revision{};
     bool playing{}, record_armed{}, recording{}, project_dirty{};
     bool metronome_enabled{}, count_in_active{}, tap_tempo_available{true};
-    bool note_repeat_active{}, note_repeat_triplet{}, live_erase_active{};
+    bool note_repeat_active{}, note_repeat_triplet{}, live_erase_active{},
+        clipboard_populated{}, clipboard_compatible{};
     bool history_pending{}, can_undo{}, can_redo{};
     double tempo_bpm{120.0}, metronome_level{0.35};
     std::uint8_t count_in_bars{};
@@ -61,7 +62,7 @@ struct SlintShellState {
         page_id{"performance"}, destination_id{"performance"},
         page_title{"Performance"}, notification,
         undo_label, redo_label, focus_identity{"transport"},
-        note_repeat_division{"1/16"},
+        note_repeat_division{"1/16"}, clipboard_summary{"Empty"},
         navigation_scope{"application"}, data_role{"Tempo"}, modal_identity;
     bool effective_shift{};
     bool modal_active{}, modal_confirm_focused{};

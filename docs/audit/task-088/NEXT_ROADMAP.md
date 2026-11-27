@@ -1,5 +1,11 @@
 # Next development roadmap
 
+The musical capability sequence is now 098D typed clipboard, 098E authoritative
+live event recording, 098F contextual loop/recording/overdub, 098G quantization
+and swing, 099 temporary performance checkpoints, 100 consolidated audit, and
+101+ creative DSP/granular expansion. Controller PCB firmware remains a separate
+hardware workstream.
+
 Task 098C completes bounded live straight/triplet ownership and transactional
 live erase. Persistent repeat-event recording remains blocked by the absent
 live event-recording authority. Task 098D should implement the typed musical

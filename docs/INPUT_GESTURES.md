@@ -1,5 +1,11 @@
 # Input gesture ownership
 
+COPY is a deferred-tap modifier. Tap copies the current compatible selection,
+COPY+pad captures that stable sequencer step without dispatching its ordinary
+action, and SHIFT+COPY merge-pastes at the selected stable destination. Chord
+consumption covers either release order; context/modal/disconnect cancellation
+cannot synthesize copy or paste.
+
 TAP is a deferred owner. A plain tap invokes tap tempo; TAP+DATA captures direct
 tempo adjustment and consumes the pending tap. CLICK is immediate and
 SHIFT+CLICK resolves only the shared count-in configuration cycle.

@@ -1,5 +1,11 @@
 # Test and validation audit
 
+Task 098D adds `neurogenic_musical_clipboard_tests`: full event-property and
+lock preservation, sparse/later-page placement, fresh IDs, strict compatibility,
+atomic merge/replacement, source deletion, repeated paste, unified history,
+independent pattern copy, controller chords and engine activation. Slint adapter
+coverage asserts authoritative clipboard presentation.
+
 `neurogenic_note_repeat_live_erase_tests` covers exact straight/triplet MIDI
 frames across non-divisor callback blocks, gate note-offs, sample PCM, synth
 voice activation, stable release/PANIC cancellation, matching event encounter,

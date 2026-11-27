@@ -1,5 +1,10 @@
 # Application history and content transactions
 
+Clipboard capture and clear are non-musical transient operations and create no
+history. A successful paste or independent-pattern paste is one unified musical
+history entry; rejected candidates create none. Undo/Redo changes project
+content but deliberately leaves the clipboard payload unchanged.
+
 ## Task 097D cancellation evidence
 
 Held-step updates remain private to the existing `TimelineTransaction` edit

@@ -610,6 +610,28 @@ ActionRegistry::ActionRegistry() {
                 {"track_id", ValueType::integer},
                 {"step", ValueType::integer}}));
     add(action("step.selection-clear.v1", "Clear step selection", "Sequencer"));
+    add(action("clipboard.copy-selection.v1", "Copy selected musical content",
+               "Editing",
+               {{"pattern_id", ValueType::integer, false},
+                {"track_id", ValueType::integer, false},
+                {"step", ValueType::integer, false}}));
+    add(action("clipboard.copy-pattern-track.v1", "Copy pattern-track content",
+               "Editing",
+               {{"pattern_id", ValueType::integer, false},
+                {"track_id", ValueType::integer, false}}));
+    add(action("clipboard.copy-pattern.v1", "Copy reusable pattern", "Editing",
+               {{"pattern_id", ValueType::integer, false}}));
+    add(action("clipboard.paste.v1", "Paste musical content", "Editing",
+               {{"pattern_id", ValueType::integer},
+                {"track_id", ValueType::integer},
+                {"anchor_tick", ValueType::integer},
+                {"policy", ValueType::text, false},
+                {"confirmed", ValueType::boolean, false}}));
+    add(action("clipboard.paste-pattern-new.v1", "Paste independent pattern",
+               "Editing",
+               {{"pattern_id", ValueType::integer, false},
+                {"name", ValueType::text, false}}));
+    add(action("clipboard.clear.v1", "Clear musical clipboard", "Editing"));
     add(action("step.adjust-stable.v1", "Adjust stable step event", "Sequencer",
                {{"pattern_id", ValueType::integer},
                 {"track_id", ValueType::integer},
@@ -1887,6 +1909,7 @@ CommandResult ApplicationService::execute_with_history(
          command.action_id.rfind("track.solo", 0) != 0 &&
          command.action_id.rfind("track.record-arm", 0) != 0) ||
         command.action_id.rfind("pattern.", 0) == 0 ||
+        command.action_id.rfind("clipboard.paste", 0) == 0 ||
         command.action_id.rfind("arrangement.", 0) == 0 ||
         command.action_id.rfind("timeline.", 0) == 0 ||
         command.action_id == "sequencer.live-erase-end.v1" ||
@@ -4734,6 +4757,8 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
                 command.action_id == "project.close.v1") {
                 engine_.cancel_note_repeats();
                 live_erase_.reset();
+                musical_clipboard_.reset();
+                state_.clipboard = {};
                 transport_started_explicitly_ = false;
             }
             if (command.action_id == "project.rename.v1") {
@@ -8032,6 +8057,299 @@ ApplicationService::execute_locked(const ApplicationCommand &command,
         } else if (command.action_id == "step.selection-clear.v1") {
             state_.selected_steps.clear();
             changed_locked();
+        } else if (command.action_id == "clipboard.clear.v1") {
+            musical_clipboard_.reset();
+            state_.clipboard = {};
+            changed_locked();
+        } else if (command.action_id == "clipboard.copy-selection.v1" ||
+                   command.action_id == "clipboard.copy-pattern-track.v1" ||
+                   command.action_id == "clipboard.copy-pattern.v1") {
+            const auto snapshot = timeline_.snapshot();
+            const auto requested_pattern = argument<std::int64_t>(
+                command, "pattern_id");
+            const auto requested_track = argument<std::int64_t>(
+                command, "track_id");
+            const auto pattern_id = requested_pattern
+                ? static_cast<PatternId>(*requested_pattern)
+                : state_.selected_pattern;
+            const auto track_id = requested_track
+                ? static_cast<TrackId>(*requested_track)
+                : state_.selected_track;
+            MusicalClipboardPayload payload;
+            payload.source_pattern = pattern_id;
+            payload.source_track = track_id;
+            const auto append_track = [&](TrackId source_track,
+                                          MusicalTick anchor,
+                                          std::span<const MusicalEvent> events,
+                                          std::string &append_error) {
+                const auto track = std::find_if(
+                    snapshot.timeline.tracks.begin(), snapshot.timeline.tracks.end(),
+                    [=](const auto &value) { return value.id == source_track; });
+                if (track == snapshot.timeline.tracks.end()) {
+                    append_error = "clipboard source track is unavailable";
+                    return false;
+                }
+                if (payload.tracks.size() >=
+                    MusicalClipboardPayload::maximum_tracks ||
+                    events.size() > MusicalClipboardPayload::maximum_events) {
+                    append_error = "musical clipboard capacity exceeded";
+                    return false;
+                }
+                std::size_t total = events.size();
+                for (const auto &item : payload.tracks)
+                    total += item.events.size();
+                if (total > MusicalClipboardPayload::maximum_events) {
+                    append_error = "musical clipboard event capacity exceeded";
+                    return false;
+                }
+                MusicalClipboardTrackPayload captured;
+                captured.source_track = source_track;
+                captured.instrument_id = track->instrument_id;
+                captured.instrument_instance_id = track->instrument_instance_id;
+                captured.events.assign(events.begin(), events.end());
+                std::set<EventId> ids;
+                for (auto &event : captured.events) {
+                    ids.insert(event.id);
+                    event.tick -= anchor;
+                }
+                for (const auto &event : captured.events)
+                    if (event.target_event_id != 0 &&
+                        !ids.contains(event.target_event_id)) {
+                        append_error =
+                            "clipboard selection excludes a referenced event";
+                        return false;
+                    }
+                payload.tracks.push_back(std::move(captured));
+                return true;
+            };
+            if (command.action_id == "clipboard.copy-pattern.v1") {
+                if (pattern_id == 0) {
+                    error = "complete clipboard patterns require a reusable pattern";
+                } else {
+                    const auto definition = std::find_if(
+                        snapshot.timeline.arrangement.patterns.begin(),
+                        snapshot.timeline.arrangement.patterns.end(),
+                        [=](const auto &value) { return value.id == pattern_id; });
+                    if (definition == snapshot.timeline.arrangement.patterns.end())
+                        error = "clipboard source pattern is unavailable";
+                    else {
+                        payload.type = MusicalClipboardPayloadType::reusable_pattern;
+                        payload.source_anchor = 0;
+                        payload.extent = definition->length;
+                        payload.source_context = definition->name;
+                        for (const auto &item : definition->tracks)
+                            if (!append_track(item.track, 0,
+                                              item.pattern.events, error))
+                                break;
+                    }
+                }
+            } else {
+                const auto *pattern = edit_pattern(snapshot.timeline, pattern_id,
+                                                   track_id);
+                if (!pattern)
+                    error = "clipboard source pattern-track is unavailable";
+                else if (command.action_id ==
+                         "clipboard.copy-pattern-track.v1") {
+                    payload.type = MusicalClipboardPayloadType::pattern_track;
+                    payload.source_anchor = 0;
+                    payload.extent = pattern->length;
+                    payload.source_context = "pattern-track";
+                    (void)append_track(track_id, 0, pattern->events,
+                                       error);
+                } else {
+                    std::vector<std::int64_t> steps;
+                    if (const auto requested_step =
+                            argument<std::int64_t>(command, "step"))
+                        steps.push_back(*requested_step);
+                    else
+                        for (const auto &selected : state_.selected_steps)
+                            if (selected.pattern_id == pattern_id &&
+                                selected.track_id == track_id)
+                                steps.push_back(selected.step);
+                    if (steps.empty()) steps.push_back(state_.selected_step);
+                    std::sort(steps.begin(), steps.end());
+                    steps.erase(std::unique(steps.begin(), steps.end()), steps.end());
+                    if (steps.size() > 64 || steps.front() < 0)
+                        error = "clipboard step selection is invalid or too large";
+                    else {
+                        const auto first = steps.front() * state_.step_ticks;
+                        const auto last_end =
+                            (steps.back() + 1) * state_.step_ticks;
+                        if (last_end > pattern->length)
+                            error = "clipboard step selection exceeds the pattern";
+                        std::vector<MusicalEvent> events;
+                        for (const auto &event : pattern->events)
+                            if (std::any_of(steps.begin(), steps.end(),
+                                    [&](auto step) {
+                                        const auto begin = step * state_.step_ticks;
+                                        return event.tick >= begin &&
+                                               event.tick < begin + state_.step_ticks;
+                                    }))
+                                events.push_back(event);
+                        if (error.empty() && events.empty())
+                            error = "selected clipboard steps contain no events";
+                        if (error.empty()) {
+                            payload.type =
+                                MusicalClipboardPayloadType::event_selection;
+                            payload.source_anchor = first;
+                            payload.extent = last_end - first;
+                            payload.source_context = steps.size() == 1
+                                ? "single-step" : "multi-step";
+                            (void)append_track(track_id, first, events,
+                                               error);
+                        }
+                    }
+                }
+            }
+            if (error.empty()) {
+                musical_clipboard_ = std::move(payload);
+                changed_locked();
+            }
+        } else if (command.action_id == "clipboard.paste.v1" ||
+                   command.action_id == "clipboard.paste-pattern-new.v1") {
+            if (!musical_clipboard_)
+                error = "musical clipboard is empty";
+            else if (command.action_id == "clipboard.paste-pattern-new.v1") {
+                const auto &payload = *musical_clipboard_;
+                if (payload.type != MusicalClipboardPayloadType::reusable_pattern)
+                    error = "clipboard does not contain a reusable pattern";
+                else {
+                    auto transaction = timeline_.edit();
+                    const auto requested = argument<std::int64_t>(command,
+                                                                  "pattern_id");
+                    const auto destination = requested
+                        ? static_cast<PatternId>(*requested)
+                        : transaction.next_pattern_id();
+                    const auto name_arg = argument<std::string>(command, "name");
+                    const auto name = name_arg
+                        ? *name_arg : payload.source_context + " Copy";
+                    if (!transaction.create_pattern(destination, name,
+                                                    payload.extent, error)) {
+                    } else {
+                        EventId next = transaction.next_event_id();
+                        for (const auto &source : payload.tracks) {
+                            const auto destination_track = transaction.find_track(
+                                source.source_track);
+                            if (!destination_track ||
+                                destination_track->instrument_id !=
+                                    source.instrument_id) {
+                                error = "clipboard pattern track is incompatible";
+                                break;
+                            }
+                            MusicalPattern pattern;
+                            pattern.length = payload.extent;
+                            std::map<EventId, EventId> ids;
+                            for (const auto &event : source.events)
+                                ids[event.id] = next++;
+                            for (auto event : source.events) {
+                                event.id = ids.at(event.id);
+                                if (event.target_event_id)
+                                    event.target_event_id =
+                                        ids.at(event.target_event_id);
+                                pattern.events.push_back(std::move(event));
+                            }
+                            if (!transaction.set_pattern_track(
+                                    destination, source.source_track,
+                                    std::move(pattern), error))
+                                break;
+                        }
+                        if (error.empty() && timeline_.commit(
+                                std::move(transaction),
+                                TimelineCommitPolicy::next_audio_callback,
+                                error)) {
+                            state_.selected_pattern = destination;
+                            changed_locked();
+                        }
+                    }
+                }
+            } else {
+                const auto &payload = *musical_clipboard_;
+                if (payload.type == MusicalClipboardPayloadType::reusable_pattern)
+                    error = "use independent-pattern paste for a pattern payload";
+                else {
+                    const auto pattern_id = static_cast<PatternId>(
+                        *argument<std::int64_t>(command, "pattern_id"));
+                    const auto track_id = static_cast<TrackId>(
+                        *argument<std::int64_t>(command, "track_id"));
+                    const auto anchor = static_cast<MusicalTick>(
+                        *argument<std::int64_t>(command, "anchor_tick"));
+                    const auto policy_arg = argument<std::string>(command,
+                                                                 "policy");
+                    const auto policy_name = policy_arg ? *policy_arg : "merge";
+                    const auto replace = policy_name == "replace";
+                    if (policy_name != "merge" && !replace)
+                        error = "clipboard paste policy must be merge or replace";
+                    else if (replace &&
+                             !(argument<bool>(command, "confirmed") &&
+                               *argument<bool>(command, "confirmed")))
+                        error = "replacement paste requires explicit confirmation";
+                    auto transaction = timeline_.edit();
+                    auto *destination_track = transaction.find_track(track_id);
+                    auto *pattern = transaction.find_edit_pattern(pattern_id,
+                                                                  track_id);
+                    if (error.empty() && (!destination_track || !pattern))
+                        error = "stable clipboard destination is unavailable";
+                    const auto &source = payload.tracks.front();
+                    if (error.empty() && destination_track->instrument_id !=
+                                             source.instrument_id)
+                        error = "clipboard instrument is incompatible with destination";
+                    if (error.empty() &&
+                        (anchor < 0 || payload.extent <= 0 ||
+                         anchor > pattern->length - payload.extent))
+                        error = "clipboard paste exceeds the destination pattern";
+                    if (error.empty() && replace)
+                        std::erase_if(pattern->events, [&](const auto &event) {
+                            return event.tick >= anchor &&
+                                   event.tick < anchor + payload.extent;
+                        });
+                    const auto conflicts = [&](const MusicalEvent &candidate) {
+                        return std::any_of(pattern->events.begin(),
+                            pattern->events.end(), [&](const auto &existing) {
+                                if (existing.tick != candidate.tick ||
+                                    existing.type != candidate.type)
+                                    return false;
+                                if (candidate.type == MusicalEventType::note ||
+                                    candidate.type == MusicalEventType::note_on ||
+                                    candidate.type == MusicalEventType::note_off)
+                                    return existing.pitch == candidate.pitch;
+                                if (candidate.type == MusicalEventType::parameter)
+                                    return existing.parameter_id ==
+                                               candidate.parameter_id &&
+                                           existing.parameter_destination ==
+                                               candidate.parameter_destination;
+                                return true;
+                            });
+                    };
+                    std::map<EventId, EventId> ids;
+                    EventId next = transaction.next_event_id();
+                    if (error.empty())
+                        for (const auto &event : source.events)
+                            ids[event.id] = next++;
+                    if (error.empty())
+                        for (auto event : source.events) {
+                            event.tick += anchor;
+                            event.id = ids.at(event.id);
+                            if (event.target_event_id)
+                                event.target_event_id =
+                                    ids.at(event.target_event_id);
+                            if (!replace && conflicts(event)) {
+                                error = "clipboard merge conflicts with existing content";
+                                break;
+                            }
+                            pattern->events.push_back(std::move(event));
+                        }
+                    if (error.empty() && timeline_.commit(
+                            std::move(transaction),
+                            TimelineCommitPolicy::next_audio_callback, error)) {
+                        state_.selected_pattern = pattern_id;
+                        state_.selected_track = track_id;
+                        state_.selected_step = anchor / state_.step_ticks;
+                        state_.step_page =
+                            static_cast<std::uint64_t>(state_.selected_step) / 16;
+                        changed_locked();
+                    }
+                }
+            }
         } else if (command.action_id == "step.selection-toggle.v1") {
             const StepSelectionState target{
                 static_cast<PatternId>(*argument<std::int64_t>(command,
@@ -11280,6 +11598,48 @@ void ApplicationService::synchronize_locked() const {
             } else
                 selected_event_id_.reset();
         }
+    }
+    state_.clipboard = {};
+    if (musical_clipboard_) {
+        const auto &clipboard = *musical_clipboard_;
+        state_.clipboard.type = clipboard.type;
+        state_.clipboard.source_pattern = clipboard.source_pattern;
+        state_.clipboard.source_track = clipboard.source_track;
+        state_.clipboard.extent = clipboard.extent;
+        state_.clipboard.track_count = clipboard.tracks.size();
+        state_.clipboard.source_context = clipboard.source_context;
+        for (const auto &track : clipboard.tracks)
+            state_.clipboard.event_count += track.events.size();
+        state_.clipboard.populated = true;
+        if (clipboard.type == MusicalClipboardPayloadType::reusable_pattern) {
+            state_.clipboard.destination_compatible =
+                !clipboard.tracks.empty() &&
+                std::all_of(clipboard.tracks.begin(), clipboard.tracks.end(),
+                    [&](const auto &source) {
+                        const auto target = std::find_if(
+                            timeline.timeline.tracks.begin(),
+                            timeline.timeline.tracks.end(),
+                            [&](const auto &candidate) {
+                                return candidate.id == source.source_track;
+                            });
+                        return target != timeline.timeline.tracks.end() &&
+                               target->instrument_id == source.instrument_id;
+                    });
+        } else if (!clipboard.tracks.empty() &&
+                   selected_track != timeline.timeline.tracks.end()) {
+            state_.clipboard.destination_compatible =
+                selected_track->instrument_id ==
+                clipboard.tracks.front().instrument_id &&
+                selected_pattern && clipboard.extent > 0 &&
+                state_.selected_step >= 0 &&
+                state_.selected_step * state_.step_ticks <=
+                    selected_pattern->length - clipboard.extent;
+        }
+        state_.clipboard.paste_available =
+            state_.clipboard.destination_compatible;
+        if (!state_.clipboard.destination_compatible)
+            state_.clipboard.validation_error =
+                "clipboard is incompatible with the selected destination";
     }
     state_.sample_slots = std::move(slots);
     state_.parameters = std::move(parameters);

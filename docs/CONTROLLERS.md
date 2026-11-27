@@ -1,5 +1,10 @@
 # Application control and controller API
 
+Musical clipboard mappings invoke shared semantic actions. Controller profiles
+do not own clipboard payloads or copy/paste rules. Reference COPY chords capture
+stable logical targets and alternative controllers may call the same bounded
+application actions.
+
 Reference V2 CLICK and TAP bind the same metronome/count-in/tap-tempo semantic
 surface available to generic MIDI and independent clients.
 

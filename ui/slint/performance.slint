@@ -41,6 +41,9 @@ export component PerformanceWindow inherits Window {
     in property <bool> note-repeat-triplet: false;
     in property <string> note-repeat-division: "1/16";
     in property <bool> live-erase-active: false;
+    in property <bool> clipboard-populated: false;
+    in property <bool> clipboard-compatible: false;
+    in property <string> clipboard-summary: "Empty";
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
@@ -312,7 +315,11 @@ export component PerformanceWindow inherits Window {
                     + (root.tap-tempo-available ? "" : "  ·  External clock")
                     + "  ·  Repeat " + root.note-repeat-division
                     + (root.note-repeat-active ? " (active)" : "")
-                    + (root.live-erase-active ? "  ·  LIVE ERASE" : "");
+                    + (root.live-erase-active ? "  ·  LIVE ERASE" : "")
+                    + (root.clipboard-populated
+                        ? "  ·  Clipboard " + root.clipboard-summary
+                            + (root.clipboard-compatible ? "" : " (incompatible)")
+                        : "");
                 color: root.interaction-modal-active ? Theme.warning : Theme.muted;
                 vertical-alignment: center; overflow: elide;
             }

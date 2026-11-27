@@ -158,6 +158,8 @@ ControllerProfile reference_controller_v2_profile() {
     result.bindings.push_back(action_binding("edit.undo", "edit.undo.v1"));
     result.bindings.push_back(
         action_binding("edit.undo", "edit.redo.v1", true));
+    result.bindings.push_back(feedback_action_binding(
+        "edit.copy", "clipboard.copy-selection.v1"));
     result.bindings.push_back(
         action_binding("transport.play", "transport.play.v1"));
     result.bindings.push_back(
@@ -224,6 +226,9 @@ GestureConfiguration reference_controller_v2_gestures() {
         } else if (control.id == "transport.repeat") {
             policy.modifier = control.id;
             policy.policy = GestureDispatchPolicy::modifier_only;
+        } else if (control.id == "edit.copy") {
+            policy.modifier = control.id;
+            policy.policy = GestureDispatchPolicy::deferred_tap;
         } else if (control.id == "transport.fill") {
             policy.policy = GestureDispatchPolicy::momentary;
             policy.press_target.action_id = "performance.fill-set.v1";
@@ -261,6 +266,9 @@ GestureConfiguration reference_controller_v2_gestures() {
         result.chords.push_back(
             chord("transport.repeat", pad, "reference.repeat-pad.v1"));
         result.chords.push_back(
+            chord("edit.copy", pad, "reference.copy-pad.v1",
+                  {"sequencer"}));
+        result.chords.push_back(
             chord("edit.shift", pad, "reference.select-step.v1",
                   {"sequencer"}));
         result.chords.push_back(
@@ -289,6 +297,12 @@ GestureConfiguration reference_controller_v2_gestures() {
     result.chords.push_back(chord(
         "transport.repeat", "edit.shift",
         "performance.note-repeat-triplet-toggle.v1"));
+    result.chords.push_back(chord(
+        "edit.shift", "edit.copy", "reference.clipboard-paste.v1",
+        {"sequencer"}));
+    result.chords.push_back(chord(
+        "edit.copy", "edit.shift", "reference.clipboard-paste.v1",
+        {"sequencer"}));
     result.chords.push_back(
         chord("edit.shift", "transport.fill", "performance.fill-latch.v1"));
     result.chords.push_back(

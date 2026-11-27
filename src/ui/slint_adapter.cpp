@@ -563,6 +563,13 @@ bool SlintFrontendAdapter::refresh() {
         state_.shell.note_repeat_triplet = snapshot.note_repeat_triplet;
         state_.shell.note_repeat_division = snapshot.note_repeat_division;
         state_.shell.live_erase_active = snapshot.live_erase_active;
+        state_.shell.clipboard_populated = snapshot.clipboard.populated;
+        state_.shell.clipboard_compatible =
+            snapshot.clipboard.destination_compatible;
+        state_.shell.clipboard_summary = snapshot.clipboard.populated
+            ? snapshot.clipboard.source_context + " · " +
+                  std::to_string(snapshot.clipboard.event_count) + " events"
+            : "Empty";
         state_.shell.history_pending = snapshot.history_pending;
         state_.shell.can_undo = snapshot.can_undo;
         state_.shell.can_redo = snapshot.can_redo;
@@ -790,6 +797,13 @@ bool SlintFrontendAdapter::refresh() {
     next.shell.note_repeat_triplet = snapshot.note_repeat_triplet;
     next.shell.note_repeat_division = snapshot.note_repeat_division;
     next.shell.live_erase_active = snapshot.live_erase_active;
+    next.shell.clipboard_populated = snapshot.clipboard.populated;
+    next.shell.clipboard_compatible =
+        snapshot.clipboard.destination_compatible;
+    next.shell.clipboard_summary = snapshot.clipboard.populated
+        ? snapshot.clipboard.source_context + " · " +
+              std::to_string(snapshot.clipboard.event_count) + " events"
+        : "Empty";
     next.shell.transport =
         slint_recording_label(snapshot.recording.state, snapshot.playing);
     const auto recording = recording_workflow_.snapshot();

@@ -1,5 +1,10 @@
 # Reference Controller V2 interaction design
 
+Task 098D completes COPY for supported sequencer content: tap copies selection,
+COPY+pad copies an explicit step, and SHIFT+COPY performs safe merge paste.
+Clipboard population and incompatibility are authoritative application feedback;
+replacement paste remains an explicit confirmed workflow.
+
 Task 098C completes REPEAT as a held modifier: pad chords generate bounded
 transport-grid repeats, DATA selects division, and SHIFT selects triplets.
 Running Sequencer ERASE+pad removes matching encountered events; stopped erase

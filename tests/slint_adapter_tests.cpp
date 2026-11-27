@@ -321,6 +321,18 @@ int main() {
         require(application.snapshot().selected_event &&
                     application.snapshot().selected_event->step == 16,
                 "page-two absolute event selection");
+        require(application.execute({"clipboard.copy-selection.v1",
+                    {{"pattern_id", static_cast<std::int64_t>(
+                                         application.snapshot().selected_pattern)},
+                     {"track_id", static_cast<std::int64_t>(
+                                       application.snapshot().selected_track)},
+                     {"step", std::int64_t{16}}}}).accepted &&
+                    adapter.refresh() &&
+                    adapter.state().shell.clipboard_populated &&
+                    adapter.state().shell.clipboard_compatible &&
+                    adapter.state().shell.clipboard_summary.find("events") !=
+                        std::string::npos,
+                "clipboard state reaches the production Slint publication model");
         const auto page_two_pitch = application.snapshot().selected_event->pitch;
         const auto page_two_timing =
             application.snapshot().selected_event->timing_offset;

@@ -1,5 +1,9 @@
 # Reference Controller V2 implementation gaps
 
+Task 098D closes the supported COPY interaction for sequencer events,
+pattern-track content and independent reusable-pattern duplication. Independent
+automation clipboard payloads and physical control validation remain open.
+
 Task 098B closes the supported SOLO/ARM pad-mode semantics and replaces the
 external-only SHIFT+STOP mapping with acknowledged unified internal/MIDI
 panic. Optional encoder pushes and encoder-RGB destinations are explicitly a

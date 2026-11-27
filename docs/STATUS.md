@@ -1,5 +1,11 @@
 # Implementation status
 
+Task 098D adds the application-owned typed musical clipboard: bounded selected
+step, pattern-track and complete reusable-pattern capture; relative transactional
+merge/confirmed replacement paste; fresh event identities; unified Undo/Redo;
+COPY controller gestures; and Slint compatibility presentation. Independent
+automation and live sequencer-event recording remain explicit follow-up work.
+
 Task 098C adds bounded transport-synchronized sample/synth/MIDI note repeat,
 exact straight/triplet PPQN divisions, stable release/PANIC ownership, and
 transactional matching-note live erase. REPEAT/ERASE controller chords and

@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+The shell publishes whether the musical clipboard is populated, its source
+context/event count and compatibility with the current destination. These values
+come from `ApplicationState`; Slint does not implement copy/paste or retain a
+second payload.
+
 The shell exposes click enablement/level, count-in configuration/activity and
 external tempo authority without changing reference shell geometry.
 

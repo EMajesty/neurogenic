@@ -1,5 +1,12 @@
 # Audio recording and internal resampling
 
+Task 098D does not add live sequencer-event recording. The authoritative
+recording coordinator currently owns audio/sample/loop workflows but has no
+bounded note-event capture window. Task 098E must add explicit event-recording
+mode, stable armed pattern-track capture, count-in/quantized timing, note-on/off
+correlation, repeat capture, overdub, loop wrapping, prepared publication and
+unified history without conflating it with audio capture.
+
 Recording count-in schedules the existing recorder start boundary rather than
 acting as a display countdown. See
 [`METRONOME_AND_COUNT_IN.md`](METRONOME_AND_COUNT_IN.md).

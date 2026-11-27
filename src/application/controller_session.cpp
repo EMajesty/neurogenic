@@ -732,6 +732,32 @@ bool ControllerSession::dispatch_reference_gesture(
         }
         return true;
     }
+    if (event.target.action_id == "reference.copy-pad.v1") {
+        if (!pad_index) {
+            error = "COPY gesture has an invalid pad identity";
+            return false;
+        }
+        return submit({"clipboard.copy-selection.v1",
+                       {{"pattern_id", static_cast<std::int64_t>(
+                                           snapshot.selected_pattern)},
+                        {"track_id", static_cast<std::int64_t>(
+                                         snapshot.selected_track)},
+                        {"step", static_cast<std::int64_t>(
+                                     snapshot.step_page * 16 + *pad_index)}},
+                       state_.session_id, original.sequence}, error);
+    }
+    if (event.target.action_id == "reference.clipboard-paste.v1") {
+        const auto anchor = static_cast<MusicalTick>(snapshot.selected_step) *
+                            snapshot.step_ticks;
+        return submit({"clipboard.paste.v1",
+                       {{"pattern_id", static_cast<std::int64_t>(
+                                           snapshot.selected_pattern)},
+                        {"track_id", static_cast<std::int64_t>(
+                                         snapshot.selected_track)},
+                        {"anchor_tick", static_cast<std::int64_t>(anchor)},
+                        {"policy", std::string("merge")}},
+                       state_.session_id, original.sequence}, error);
+    }
     if (event.target.action_id == "track.solo-clear.v1" ||
         event.target.action_id == "track.record-arm-clear.v1" ||
         event.target.action_id == "transport.panic.v1")
@@ -1068,6 +1094,8 @@ void ControllerSession::observe(const ApplicationState &snapshot,
             enabled = snapshot.note_repeat_active || snapshot.note_repeat_triplet;
         else if (mapping.control_id == "edit.erase")
             enabled = snapshot.live_erase_active;
+        else if (mapping.control_id == "edit.copy")
+            enabled = snapshot.clipboard.populated;
         else if (mapping.semantic == "recording-toggle")
             enabled = snapshot.recording.state == RecordingState::recording;
         else if (mapping.semantic == "modifier-shift")
