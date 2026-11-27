@@ -1,5 +1,10 @@
 # Reference Controller V2 implementation gaps
 
+Task 098F closes the software LOOP/RANGE, REC/OVERDUB and REC MODE/SOURCE
+bindings and proves actual ControllerSession routing for LOOP/RANGE. Continuous
+event overdub is audible through ordinary next-pass scheduler PCM. Simultaneous
+live erase/record and physical controller evidence remain open.
+
 Task 098D closes the supported COPY interaction for sequencer events,
 pattern-track content and independent reusable-pattern duplication. Independent
 automation clipboard payloads and physical control validation remain open.

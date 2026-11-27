@@ -338,8 +338,21 @@ int main() {
                     adapter.refresh() &&
                     adapter.state().shell.event_recording_mode ==
                         "musical-events" &&
-                    adapter.state().shell.event_recording_status == "Idle",
+                    adapter.state().shell.event_recording_status == "Idle" &&
+                    adapter.state().shell.event_recording_source == "live-input" &&
+                    adapter.state().shell.event_recording_policy == "overdub" &&
+                    adapter.state().shell.event_recording_published == 0 &&
+                    adapter.state().shell.event_recording_pass == 0,
                 "event recording state reaches the production Slint model");
+        require(application.execute({"event-recording.source-set.v1",
+                    {{"source", std::string("external-midi")}}}).accepted &&
+                    application.execute({"event-recording.range-set.v1",
+                    {{"start", std::int64_t{0}},
+                     {"end", std::int64_t{ticks_per_quarter}}}}).accepted &&
+                    adapter.refresh() &&
+                    adapter.state().shell.event_recording_source ==
+                        "external-midi",
+                "recording source/range configuration reaches Slint");
         const auto page_two_pitch = application.snapshot().selected_event->pitch;
         const auto page_two_timing =
             application.snapshot().selected_event->timing_offset;

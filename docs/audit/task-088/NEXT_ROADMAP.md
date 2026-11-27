@@ -1,15 +1,20 @@
 # Next development roadmap
 
-The musical capability sequence is now 098D typed clipboard, completed 098E
-authoritative live event recording, 098F contextual loop/recording/overdub, 098G quantization
-and swing, 099 temporary performance checkpoints, 100 consolidated audit, and
+The musical capability sequence is now completed 098D typed clipboard,
+completed 098E authoritative live event recording, completed 098F contextual
+loop/recording/overdub, 098G quantization and swing, 099 temporary performance
+checkpoints, 100 consolidated audit, and
 101+ creative DSP/granular expansion. Controller PCB firmware remains a separate
 hardware workstream.
 
 Task 098C completes bounded live straight/triplet ownership and transactional
 live erase. Persistent repeat-event recording is now implemented through the
-bounded Task 098E authority. Task 098F should complete the contextual recording
-clipboard through existing timeline transactions and unified history.
+bounded Task 098E authority. Task 098F completes contextual recording through
+the same timeline transactions and unified history. Task 098G should add one
+descriptor-driven quantization model: input and post-recording quantization,
+straight/triplet grids, strength, retained original timing, selection/pattern/
+track scopes, swing grid/amount, microtiming interaction, QUANT/SWING controls,
+Undo/Redo, and deterministic scheduler/PCM acceptance.
 A separate controller hardware/protocol task owns optional encoder push inputs
 and encoder illumination negotiation.
 

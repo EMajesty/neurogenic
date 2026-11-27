@@ -2,8 +2,9 @@
 
 Live erase and a pending live-event recording transaction are not currently
 combined. The UI and clients should treat simultaneous operation as unavailable
-so a final recording transaction cannot resurrect erased events. Task 098F owns
-the unified contextual policy.
+so a recording batch cannot resurrect erased events. Task 098F confirms that
+their independent open edit groups cannot yet be combined safely; simultaneous
+operation remains explicitly rejected rather than approximated.
 
 Task 098C extends ERASE without changing stopped step erase. After an explicit
 PLAY/RESTART, during running Sequencer playback ERASE + pad captures a stable reusable-pattern, track,

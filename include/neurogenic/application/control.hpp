@@ -175,9 +175,12 @@ struct EventRecordingState {
     TrackId track{};
     std::uint64_t session{};
     std::size_t pending_events{};
+    std::size_t published_events{};
     std::uint64_t overflow_count{};
-    bool available{}, active{};
-    std::string mode{"audio"}, error;
+    std::uint64_t current_pass{};
+    MusicalTick range_start{}, range_end{};
+    bool available{}, active{}, loop_enabled{};
+    std::string mode{"audio"}, source{"live-input"}, policy{"overdub"}, error;
 };
 struct SliceState {
     SliceId id{};
@@ -519,6 +522,8 @@ class ApplicationService {
     void push_history(ApplicationHistoryEntry) const;
     void clear_history();
     void drain_live_event_capture_locked();
+    bool publish_live_event_batch_locked(std::string &error);
+    bool rollback_live_event_recording_locked(std::string &error);
     bool finalize_live_event_recording_locked(std::string &error);
     static constexpr std::size_t application_history_capacity = 32;
     bool publish_modulation_with_macros(const ModulationConfiguration &,
@@ -625,16 +630,24 @@ class ApplicationService {
         InstrumentInstanceId instrument_instance{};
         std::uint32_t midi_port{};
         std::uint8_t midi_channel{};
-        MusicalTick length{}, start_tick{};
+        std::string source{"live-input"};
+        MusicalTick length{}, range_start{}, range_end{}, start_tick{};
         EventRecordingPhase phase{EventRecordingPhase::armed};
         std::vector<MusicalEvent> events;
         std::vector<PendingRecordedNote> pending;
+        std::unique_ptr<Timeline> timeline_before;
+        std::size_t published_events{};
+        std::uint64_t current_pass{};
         std::uint64_t initial_drops{};
+        bool replacement{}, replacement_applied{}, history_committed{};
         std::string error;
     };
     std::optional<LiveEventRecordingSession> live_event_recording_;
     std::uint64_t next_live_event_recording_generation_{1};
     std::string recording_mode_{"audio"};
+    std::string event_recording_source_{"live-input"};
+    std::string event_recording_policy_{"overdub"};
+    MusicalTick event_recording_range_start_{}, event_recording_range_end_{};
     mutable std::optional<PendingPresetApplication> pending_preset_;
     mutable std::optional<PendingHistoryRestore> pending_history_restore_;
     mutable std::optional<PendingProjectRecovery> pending_project_recovery_;

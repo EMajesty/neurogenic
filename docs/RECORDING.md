@@ -6,12 +6,12 @@ count-in or waiting and records accepted sample, synth, MIDI note, and repeat
 events. Exact lifecycle, bounds, overdub policy, and limitations are documented
 in [Live event recording](LIVE_EVENT_RECORDING.md).
 
-Task 098D does not add live sequencer-event recording. The authoritative
-recording coordinator currently owns audio/sample/loop workflows but has no
-bounded note-event capture window. Task 098E must add explicit event-recording
-mode, stable armed pattern-track capture, count-in/quantized timing, note-on/off
-correlation, repeat capture, overdub, loop wrapping, prepared publication and
-unified history without conflating it with audio capture.
+Task 098F separates event-recording activation from transport playback and adds
+validated source, destination, range, and overdub/replace configuration. REC
+may end while PLAY continues. Completed batches publish through the ordinary
+timeline during a take, so one loop pass is audible on the next pass.
+Replacement is confirmed, pattern-track/range scoped, and deferred until the
+first meaningful batch. See [Loop recording and overdub](LOOP_RECORDING_AND_OVERDUB.md).
 
 Recording count-in schedules the existing recorder start boundary rather than
 acting as a display countdown. See

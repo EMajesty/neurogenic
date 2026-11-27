@@ -174,9 +174,19 @@ ControllerProfile reference_controller_v2_profile() {
         "transport.click", "transport.count-in-configure.v1", true));
     result.bindings.push_back(feedback_action_binding(
         "transport.tap", "transport.tap-tempo.v1"));
-    result.bindings.push_back(binding("transport.record", "recording-toggle"));
+    auto record = binding("transport.record", "recording-toggle");
+    record.feedback_id = record.control_id;
+    result.bindings.push_back(std::move(record));
+    result.bindings.push_back(action_binding(
+        "transport.record", "event-recording.policy-configure.v1", true));
     result.bindings.push_back(action_binding(
         "transport.record-mode", "event-recording.mode-toggle.v1"));
+    result.bindings.push_back(action_binding(
+        "transport.record-mode", "event-recording.source-configure.v1", true));
+    result.bindings.push_back(feedback_action_binding(
+        "transport.loop", "transport.loop-toggle.v1"));
+    result.bindings.push_back(action_binding(
+        "transport.loop", "event-recording.range-configure.v1", true));
     for (int i = 1; i <= 16; ++i)
         result.bindings.push_back(
             binding("pad." + std::to_string(i), "performance-pad", i - 1));

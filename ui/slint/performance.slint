@@ -48,6 +48,11 @@ export component PerformanceWindow inherits Window {
     in property <string> event-recording-mode: "audio";
     in property <string> event-recording-status: "Idle";
     in property <int> event-recording-pending: 0;
+    in property <int> event-recording-published: 0;
+    in property <int> event-recording-pass: 0;
+    in property <bool> event-recording-loop: false;
+    in property <string> event-recording-source: "live-input";
+    in property <string> event-recording-policy: "overdub";
     in property <string> time-signature: "4/4";
     in property <string> position: "1.1.0";
     in property <string> page-id: "performance";
@@ -326,6 +331,10 @@ export component PerformanceWindow inherits Window {
                         : "")
                     + (root.event-recording-mode == "musical-events"
                         ? "  ·  Events " + root.event-recording-status
+                            + "  ·  " + root.event-recording-policy
+                            + (root.event-recording-loop ? " loop" : "")
+                            + "  ·  pass " + (root.event-recording-pass + 1)
+                            + "  ·  published " + root.event-recording-published
                             + (root.event-recording-pending > 0
                                 ? " (" + root.event-recording-pending + ")" : "")
                         : "");

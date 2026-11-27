@@ -35,11 +35,14 @@ struct RecordingWorkflowConfiguration {
     std::uint64_t source_id{};
     SampleSlotId destination{};
     TrackId destination_track{};
+    PatternId destination_pattern{};
     std::uint16_t channels{2};
     std::string quantization{"immediate"};
     std::uint64_t bars{};
     MusicalTick loop_length_ticks{ticks_per_quarter * 4};
+    MusicalTick range_start{}, range_end{};
     std::string capture_mode{"overdub"};
+    std::string monitoring{"auto"};
 };
 
 struct RecordingWorkflowSnapshot {
@@ -47,13 +50,14 @@ struct RecordingWorkflowSnapshot {
     RecordingWorkflowPhase phase{RecordingWorkflowPhase::idle};
     LiveLoopSessionId live_loop_session{};
     std::uint64_t captured_frames{}, capacity_frames{}, overflow_count{};
-    std::size_t captured_events{};
+    std::size_t captured_events{}, published_events{};
+    std::uint64_t loop_iteration{};
     float progress{};
     bool can_configure{true}, can_arm{}, can_start{}, can_stop{}, can_cancel{};
     bool can_overdub{}, can_replace{}, can_clear{}, can_save{};
     bool result_audio_active{}, result_pending{};
     std::string live_loop_mode{"capture"};
-    std::uint64_t loop_iteration{}, requested_start_frame{},
+    std::uint64_t requested_start_frame{},
         requested_stop_frame{};
     std::vector<LiveLoopSessionStatus> live_loop_sessions;
     std::string status{"Idle"}, error;

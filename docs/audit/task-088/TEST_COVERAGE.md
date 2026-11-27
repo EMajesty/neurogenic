@@ -1,5 +1,11 @@
 # Test and validation audit
 
+Task 098F adds `neurogenic_loop_recording_overdub_tests`: actual coordinator,
+application, timeline, engine, prepared-scheduler next-pass PCM, transport-
+continuing REC stop, session Undo/Redo, scoped replace, rollback, profile
+bindings and ControllerSession LOOP/RANGE dispatch. Adapter/generated suites
+cover copied recording state. Physical validation is NOT RUN.
+
 Task 098E adds `neurogenic_live_event_recording_tests`, covering production
 sample, polyphonic synth, external MIDI, repeat capture, stable destinations,
 unrelated-pattern preservation, controller REC/REC MODE, history, clipboard,

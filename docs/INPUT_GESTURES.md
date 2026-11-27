@@ -1,5 +1,11 @@
 # Input gesture ownership
 
+Task 098F binds LOOP, SHIFT+LOOP/RANGE, REC, SHIFT+REC/OVERDUB,
+REC MODE, and SHIFT+REC MODE/SOURCE through the existing shift/chord arbiter.
+Consumed modifier chords do not emit their ordinary action on release. Stable
+recording ownership survives selection changes, and PANIC retains modal safety
+precedence.
+
 REC MODE selects the shared musical-events mode and REC arms/starts/stops its
 captured destination through `ControllerSession`. Only musical actions accepted
 after modifier/modal resolution reach the audio capture boundary; consumed pad

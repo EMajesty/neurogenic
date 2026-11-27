@@ -1,5 +1,10 @@
 # Slint UI foundation
 
+The recording projection includes event source and policy, loop/range, current
+pass, and pending/published counts. During capture the adapter services the
+bounded application-side drain before publishing state; timeline preparation
+never occurs in Slint or the audio callback.
+
 The production shell publishes musical recording mode, phase, active state, and
 pending event count alongside existing transport/count-in state. These values
 come from `ApplicationState`; Slint owns no recording lifecycle or event buffer.

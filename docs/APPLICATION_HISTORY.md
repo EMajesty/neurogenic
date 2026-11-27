@@ -5,6 +5,11 @@ history entry. Copying, arming, empty takes, cancellation, and failed/overflowed
 captures produce no musical history operation. Clipboard contents remain
 independent of recording Undo/Redo.
 
+Continuous multi-pass recording uses the same rule. Intermediate prepared
+publications share a captured baseline; normal completion records one
+baseline-to-final entry, while explicit cancellation republishes the baseline
+without a take entry.
+
 Clipboard capture and clear are non-musical transient operations and create no
 history. A successful paste or independent-pattern paste is one unified musical
 history entry; rejected candidates create none. Undo/Redo changes project

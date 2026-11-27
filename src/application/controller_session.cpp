@@ -1120,7 +1120,12 @@ void ControllerSession::observe(const ApplicationState &snapshot,
         else if (mapping.control_id == "edit.copy")
             enabled = snapshot.clipboard.populated;
         else if (mapping.semantic == "recording-toggle")
-            enabled = snapshot.recording.state == RecordingState::recording;
+            enabled = snapshot.recording.state == RecordingState::recording ||
+                      snapshot.event_recording.active;
+        else if (mapping.action_id == "transport.loop-toggle.v1")
+            enabled = snapshot.event_recording.loop_enabled;
+        else if (mapping.action_id == "event-recording.mode-toggle.v1")
+            enabled = snapshot.event_recording.mode == "musical-events";
         else if (mapping.semantic == "modifier-shift")
             enabled = state_.modifiers.shift || state_.modifiers.shift_latched;
         const auto color = enabled ? active : off;

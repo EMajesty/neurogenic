@@ -3,10 +3,12 @@
 - **098E completed in software:** authoritative live sample-trigger, synth-note,
   filtered MIDI-note, and repeat event capture now commits through the ordinary
   timeline/history path. Physical validation remains NOT RUN.
-- **098F next:** complete contextual LOOP/RANGE, REC/OVERDUB, source and stable
-  destination authoring, replacement policy, and next-pass loop monitoring.
-- 098F: contextual loop, recording and overdub controls.
-- 098G: quantization and swing.
+- **098F completed in software:** contextual LOOP/RANGE, REC/OVERDUB and SOURCE
+  configuration use stable ownership; bounded batches play through the ordinary
+  scheduler on later passes with one-session history. Simultaneous live
+  erase/recording and physical validation remain open.
+- **098G next:** input/post quantization, strength/original timing,
+  straight/triplet grids, swing, scoped editing and QUANT/SWING interaction.
 - 099: temporary performance checkpoints.
 - 100: consolidated implementation audit.
 

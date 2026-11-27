@@ -56,18 +56,20 @@ Repeat occurrences retain the existing 50% division gate.
 Ticks wrap relative to the captured pattern extent. Existing unrelated events,
 conditions, ratchets, automation, and parameter locks are preserved. Exact
 same-tick/same-pitch collisions retain the existing event and omit the duplicate
-overdub event. The initial implementation publishes once at session completion;
-new events therefore become sequencer-audible after stop, not on the next loop
-pass during the active take. Task 098F owns richer loop-pass publication and
-replace/overdub presentation.
+overdub event. Task 098F drains complete events in bounded application-thread
+batches during the session. They become ordinary prepared timeline events and
+are sequencer-audible on subsequent passes without stopping or rewinding the
+transport. See [Loop recording and overdub](LOOP_RECORDING_AND_OVERDUB.md).
 
 ## Publication, history, and persistence
 
 The callback only pushes value-owned capture records into a fixed SPSC queue.
-The application thread drains them, validates the complete candidate, creates
-fresh `EventId` values, and commits one ordinary timeline transaction through
-prepared immutable publication. A successful non-empty take is one unified
-history entry. Empty/cancelled/failed takes create no musical history entry.
+The application thread drains them, validates each complete batch, creates
+fresh `EventId` values, and commits ordinary timeline transactions through
+prepared immutable publication. All batches retain one captured baseline, so a
+successful non-empty take is one unified history entry. Explicit cancellation
+rolls intermediate batches back to that baseline. Empty/cancelled/failed takes
+create no musical history entry.
 
 Recorded events use the ordinary project format and typed clipboard. Active
 sessions, pending notes, queues, and controller ownership are transient.
@@ -88,8 +90,8 @@ work is performed.
 
 External MIDI timing is callback-aligned because the current input adapter does
 not expose a calibrated device-to-audio timestamp conversion. Simultaneous
-recording and live erase is not supported as one transaction and should be
-treated as unavailable. Multi-track capture, per-pass loop publication,
-destructive replace recording, automation/CC recording, and the complete
-REC/OVERDUB and LOOP/RANGE workflow remain Task 098F scope. Quantization and
-swing remain Task 098G scope.
+recording and live erase is not supported as one transaction and is explicitly
+unavailable. Multi-track capture and automation/CC recording remain unsupported.
+Task 098F supplies per-pass publication, confirmed range-scoped replacement and
+the REC/OVERDUB and LOOP/RANGE workflow. Quantization and swing remain Task 098G
+scope.

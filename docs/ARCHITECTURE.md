@@ -6,6 +6,12 @@ history authority. The callback writes only to a bounded SPSC queue; the
 application thread validates and publishes one immutable timeline transaction.
 See [Live event recording](LIVE_EVENT_RECORDING.md).
 
+Task 098F drains complete captured notes in bounded application-thread batches
+during a session. Each batch is validated by `TimelineService` and enters the
+ordinary immutable prepared timeline without rewinding transport. The callback
+never mutates project data or waits for publication. See
+[Loop recording and overdub](LOOP_RECORDING_AND_OVERDUB.md).
+
 The typed musical clipboard is transient application-layer state. It owns
 bounded `MusicalEvent` values and stable source metadata, never mutable timeline
 or prepared-engine pointers. Paste becomes one validated `TimelineTransaction`

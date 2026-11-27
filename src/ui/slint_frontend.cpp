@@ -152,6 +152,15 @@ void publish(const SlintUiState &state,
         window->set_event_recording_status(text(state.shell.event_recording_status));
         window->set_event_recording_pending(
             static_cast<int>(state.shell.event_recording_pending));
+        window->set_event_recording_published(
+            static_cast<int>(state.shell.event_recording_published));
+        window->set_event_recording_pass(
+            static_cast<int>(state.shell.event_recording_pass));
+        window->set_event_recording_loop(state.shell.event_recording_loop);
+        window->set_event_recording_source(
+            text(state.shell.event_recording_source));
+        window->set_event_recording_policy(
+            text(state.shell.event_recording_policy));
         window->set_history_pending(state.shell.history_pending);
         window->set_can_undo(state.shell.can_undo);
         window->set_can_redo(state.shell.can_redo);
@@ -245,6 +254,13 @@ void publish(const SlintUiState &state,
     window->set_event_recording_status(text(state.shell.event_recording_status));
     window->set_event_recording_pending(
         static_cast<int>(state.shell.event_recording_pending));
+    window->set_event_recording_published(
+        static_cast<int>(state.shell.event_recording_published));
+    window->set_event_recording_pass(
+        static_cast<int>(state.shell.event_recording_pass));
+    window->set_event_recording_loop(state.shell.event_recording_loop);
+    window->set_event_recording_source(text(state.shell.event_recording_source));
+    window->set_event_recording_policy(text(state.shell.event_recording_policy));
     window->set_project_name(text(state.shell.project_name));
     window->set_project_dirty(state.shell.project_dirty);
     window->set_history_pending(state.shell.history_pending);

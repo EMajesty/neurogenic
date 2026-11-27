@@ -1,5 +1,10 @@
 # Designing a frontend for NEUROGENIC
 
+Frontends consume one presentation-neutral recording configuration and session
+snapshot. They do not own pass detection, destination resolution, collision
+policy, or history. Source, range, policy, pass, and published/pending counts
+are copied state; touch and physical controls invoke the same semantic actions.
+
 Frontends consume `ApplicationState::event_recording` for mode, lifecycle,
 captured stable destination, pending count, overflow, and diagnostics. They may
 request actions but must not timestamp, buffer, or publish musical events.

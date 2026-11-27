@@ -78,6 +78,16 @@ bool RecordingWorkflowCoordinator::configure(
         error = "live-loop destination track and length are required";
         return false;
     }
+    if (value.mode == RecordingWorkflowMode::musical_events &&
+        (!value.destination_track || !value.destination_pattern ||
+         (value.range_end != 0 && value.range_end <= value.range_start))) {
+        error = "musical event recording requires a stable destination and valid range";
+        return false;
+    }
+    if (value.capture_mode != "overdub" && value.capture_mode != "replace") {
+        error = "recording policy must be overdub or replace";
+        return false;
+    }
     const auto retain_session = live_loop_session_ &&
         configuration_.mode == RecordingWorkflowMode::live_loop &&
         value.mode == RecordingWorkflowMode::live_loop &&
@@ -128,9 +138,22 @@ bool RecordingWorkflowCoordinator::arm(std::string &error) {
         if (!submit("event-recording.mode-set.v1",
                     {{"mode", std::string("musical-events")}}, error))
             return false;
+        if (!submit("event-recording.source-set.v1",
+                    {{"source", configuration_.source}}, error) ||
+            !submit("event-recording.policy-set.v1",
+                    {{"policy", configuration_.capture_mode},
+                     {"confirmed", configuration_.capture_mode == "replace"}},
+                    error))
+            return false;
+        if (configuration_.range_end != 0 &&
+            !submit("event-recording.range-set.v1",
+                    {{"start", static_cast<std::int64_t>(configuration_.range_start)},
+                     {"end", static_cast<std::int64_t>(configuration_.range_end)}},
+                    error))
+            return false;
         return submit("event-recording.arm.v1",
                       {{"pattern_id", static_cast<std::int64_t>(
-                                          application_.snapshot().selected_pattern)},
+                                          configuration_.destination_pattern)},
                        {"track_id", static_cast<std::int64_t>(
                                         configuration_.destination_track)}}, error);
     }
@@ -346,6 +369,8 @@ RecordingWorkflowSnapshot RecordingWorkflowCoordinator::snapshot() const {
         out.result_pending = recording.state == RecordingState::publication_pending;
     } else if (configuration_.mode == RecordingWorkflowMode::musical_events) {
         out.captured_events = state.event_recording.pending_events;
+        out.published_events = state.event_recording.published_events;
+        out.loop_iteration = state.event_recording.current_pass;
         out.overflow_count = state.event_recording.overflow_count;
         out.error = state.event_recording.error;
         switch (state.event_recording.phase) {

@@ -536,6 +536,12 @@ bool SlintFrontendAdapter::refresh() {
         }
     const auto snapshot_started = std::chrono::steady_clock::now();
     auto snapshot_handle = application_.snapshot_shared();
+    if (snapshot_handle->event_recording.phase ==
+        EventRecordingPhase::recording) {
+        (void)application_.execute(
+            {"event-recording.poll.v1", {}, "slint-recording-service", 0});
+        snapshot_handle = application_.snapshot_shared();
+    }
     if (process_interaction_request(*snapshot_handle))
         snapshot_handle = application_.snapshot_shared();
     const auto &snapshot = *snapshot_handle;
@@ -590,6 +596,14 @@ bool SlintFrontendAdapter::refresh() {
             event_recording_phase_name(snapshot.event_recording.phase);
         state_.shell.event_recording_pending =
             snapshot.event_recording.pending_events;
+        state_.shell.event_recording_published =
+            snapshot.event_recording.published_events;
+        state_.shell.event_recording_pass =
+            snapshot.event_recording.current_pass;
+        state_.shell.event_recording_loop =
+            snapshot.event_recording.loop_enabled;
+        state_.shell.event_recording_source = snapshot.event_recording.source;
+        state_.shell.event_recording_policy = snapshot.event_recording.policy;
         state_.shell.history_pending = snapshot.history_pending;
         state_.shell.can_undo = snapshot.can_undo;
         state_.shell.can_redo = snapshot.can_redo;
@@ -830,6 +844,12 @@ bool SlintFrontendAdapter::refresh() {
         event_recording_phase_name(snapshot.event_recording.phase);
     next.shell.event_recording_pending =
         snapshot.event_recording.pending_events;
+    next.shell.event_recording_published =
+        snapshot.event_recording.published_events;
+    next.shell.event_recording_pass = snapshot.event_recording.current_pass;
+    next.shell.event_recording_loop = snapshot.event_recording.loop_enabled;
+    next.shell.event_recording_source = snapshot.event_recording.source;
+    next.shell.event_recording_policy = snapshot.event_recording.policy;
     next.shell.transport =
         slint_recording_label(snapshot.recording.state, snapshot.playing);
     const auto recording = recording_workflow_.snapshot();
