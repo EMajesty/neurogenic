@@ -1,5 +1,9 @@
 # HW-006C firmware contract
 
+Approved implementation revision: `c163f6ea27a3bfbc6a15e19645a20305749f8688`.
+Pin this exact revision for the header and fixtures, rather than a later
+moving `main` or documentation-only commit.
+
 HW-006C must vendor or otherwise consume the exact
 `include/neurogenic/controller_v2_wire.h` from the approved HW-006B upstream
 commit and verify its revision/hash. Do not maintain a divergent handwritten
