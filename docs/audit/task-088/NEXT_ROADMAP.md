@@ -1,25 +1,74 @@
 # Next development roadmap
 
-The musical capability sequence is now completed 098D typed clipboard,
-completed 098E authoritative live event recording, completed 098F contextual
-loop/recording/overdub, 098G quantization and swing, 099 temporary performance
-checkpoints, 100 consolidated audit, and
-101+ creative DSP/granular expansion. Controller PCB firmware remains a separate
-hardware workstream.
+## Current handoff — 2026-11-28
 
-Task 098C completes bounded live straight/triplet ownership and transactional
-live erase. Persistent repeat-event recording is now implemented through the
-bounded Task 098E authority. Task 098F completes contextual recording through
-the same timeline transactions and unified history. Task 098G should add one
-descriptor-driven quantization model: input and post-recording quantization,
-straight/triplet grids, strength, retained original timing, selection/pattern/
-track scopes, swing grid/amount, microtiming interaction, QUANT/SWING controls,
-Undo/Redo, and deterministic scheduler/PCM acceptance.
-A separate controller hardware/protocol task owns optional encoder push inputs
-and encoder illumination negotiation.
+Application implementation baseline: HW-006B `c163f6ea27a3bfbc6a15e19645a20305749f8688`.
+Controller specification baseline: [HW-006A](https://github.com/EMajesty/neurogenic-control/commit/cc0cbc42a7b775a9de6964e2545192876437483b).
 
-Task 098A begins musical capability work. Task 098B should implement per-track
-solo/record arm and unified voice/MIDI panic; OS-002 remains independent.
+| Workstream | Next task | Dependency |
+|---|---|---|
+| Application | 098G — quantization and swing | 098F complete in software |
+| Controller firmware | HW-006C — adopt normative protocol 1.4 | HW-006B complete in software |
+| Controller integration | HW-007 — production USB endpoint | HW-006C |
+| Physical acceptance | HW-008 / OS-002 | Assembled hardware |
+| Instrument integration | HW-009 | Physical acceptance and USB integration |
+
+098G and HW-006C may proceed independently in their respective repositories.
+Do not run competing implementation sessions on the same branch.
+
+### Completed software milestones and evidence
+
+- 098A–098D: metronome/count-in/tap tempo, solo/arm/panic, repeat/live erase,
+  typed musical clipboard.
+- 098E: authoritative live event recording, including repeat capture.
+- 098F: continuous overdub with ordinary next-pass PCM playback, REC stop
+  without stopping transport, range-scoped confirmed replacement, grouped
+  Undo/Redo and cancellation rollback. See [validation](TASK_098F_VALIDATION.md).
+- HW-006B: normative negotiated protocol 1.4 host support with exact 1.3
+  fallback, independently negotiated optional pushes and encoder RGB.
+  See [validation](../../HW_006B_VALIDATION.md) and
+  [firmware contract](../../HW_006C_FIRMWARE_CONTRACT.md).
+
+### Next application task: 098G
+
+Inventory existing integer PPQN grids, microtiming, timeline transforms and
+scheduler swing before implementing one descriptor-driven quantization model.
+Cover input and post-recording quantization, straight/triplet grids, strength,
+retained original timing, selection/pattern/track scope, swing grid/amount,
+QUANT/SWING shared focus, atomic timeline transactions and unified history.
+Require deterministic event-position and scheduler/PCM evidence, Undo/Redo,
+save/reopen and fresh-engine playback. Avoid irreversible default quantization.
+
+Then: 099 temporary performance checkpoints; 100 consolidated acceptance audit;
+101+ creative DSP/granular expansion.
+
+### Next controller task: HW-006C
+
+Pin the exact HW-006B implementation commit above, not this documentation
+revision. Consume its shared wire header and normative baseline/1.4 fixtures.
+Implement portable negotiated session behavior, optional push suppression in
+baseline mode, extended snapshots, generation/reconciliation and encoder RGB
+feedback using the existing calibrated electrical output pipeline. Preserve
+standalone diagnostics. See the firmware contract for exact normative fields.
+HW-007 completes the production binary USB endpoint and integration.
+
+### Open acceptance and limitations
+
+- Simultaneous live erase and event recording remain mutually exclusive.
+- Late control-thread publication can defer recorded material to a later pass.
+- One stable event recording destination per session; no CC/automation capture.
+- External MIDI timestamps remain callback-aligned.
+- Explicit logarithmic/perceptual parameter metadata is absent; encoder
+  feedback currently uses normalized descriptor ranges.
+- Optional push assignment and exhaustive historical binary interoperability
+  require evidence beyond the reported simulator cases.
+- Physical USB, illumination, display/touch, audio/MIDI and latency remain
+  NOT RUN. No physical calibration or hardware acceptance is inferred.
+- HW-006B reports dev/sanitizer 49/49 and Slint/production 52/52; leak detection
+  disabled. These are committed validation results, not an independent rerun.
+
+The following sections retain historical planning context; their prospective
+wording does not supersede the current handoff above.
 
 ## Post-097D bounded workstreams
 
